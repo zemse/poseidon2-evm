@@ -23,7 +23,7 @@ the `Poseidon2` contract needs to be deployed on the network and then you can ma
 ```solidity
 import {IPoseidon2} from "poseidon2/IPoseidon2.sol";
 
-contract Temp {
+contract MyContract {
     function myFunction() external returns (uint256) {
         uint256 result = IPoseidon2(0xContractAddress).hash_2(
             0x1762d324c2db6a912e607fd09664aaa02dfe45b90711c0dae9627d62a4207788,
@@ -41,8 +41,9 @@ if your contract has around 9kb of free space and you hashing multiple times and
 ```solidity
 import {Field, Poseidon2Lib} from "poseidon2/Poseidon2Lib.sol";
 
-contract Temp {
+contract MyContract {
     using Field for *;
+    using Poseidon2Lib for *;
     
     function myFunction() external returns (uint256) {
         Poseidon2Lib.Constants memory poseidon = Poseidon2Lib.load();
