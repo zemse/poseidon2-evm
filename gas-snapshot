@@ -1,43 +1,45 @@
 No files changed, compilation skipped
 
-Ran 25 tests for test/Poseidon2.t.sol:Poseidon2Test
-[32m[PASS][0m test_hash_1_a() (gas: 227823)
-[32m[PASS][0m test_hash_1_b() (gas: 227803)
-[32m[PASS][0m test_hash_1_c() (gas: 227757)
-[32m[PASS][0m test_hash_1_d() (gas: 227735)
-[32m[PASS][0m test_hash_1_e() (gas: 227735)
-[32m[PASS][0m test_hash_2_a() (gas: 228398)
-[32m[PASS][0m test_hash_2_b() (gas: 228377)
-[32m[PASS][0m test_hash_2_c() (gas: 228377)
-[32m[PASS][0m test_hash_2_d() (gas: 228355)
-[32m[PASS][0m test_hash_2_e() (gas: 228376)
-[32m[PASS][0m test_hash_3_a() (gas: 229078)
-[32m[PASS][0m test_hash_3_b() (gas: 229077)
-[32m[PASS][0m test_hash_3_c() (gas: 229122)
-[32m[PASS][0m test_hash_3_d() (gas: 229057)
-[32m[PASS][0m test_hash_3_e() (gas: 229121)
-[32m[PASS][0m test_hash_var_len_1() (gas: 228382)
-[32m[PASS][0m test_hash_var_len_10() (gas: 792604)
-[32m[PASS][0m test_hash_var_len_2() (gas: 229083)
-[32m[PASS][0m test_hash_var_len_3() (gas: 229862)
-[32m[PASS][0m test_hash_var_len_4() (gas: 416486)
-[32m[PASS][0m test_hash_var_len_5() (gas: 417197)
-[32m[PASS][0m test_hash_var_len_6() (gas: 417930)
-[32m[PASS][0m test_hash_var_len_7() (gas: 604599)
-[32m[PASS][0m test_hash_var_len_8() (gas: 605289)
-[32m[PASS][0m test_hash_var_len_9() (gas: 606064)
-Suite result: [32mok[0m. [32m25[0m passed; [31m0[0m failed; [33m0[0m skipped; finished in 4.98ms (35.95ms CPU time)
+Ran 27 tests for test/Poseidon2.t.sol:Poseidon2Test
+[32m[PASS][0m test_hash_1_a() (gas: 227775)
+[32m[PASS][0m test_hash_1_b() (gas: 227688)
+[32m[PASS][0m test_hash_1_c() (gas: 227709)
+[32m[PASS][0m test_hash_1_d() (gas: 227687)
+[32m[PASS][0m test_hash_1_e() (gas: 227687)
+[32m[PASS][0m test_hash_1_through_library() (gas: 222467)
+[32m[PASS][0m test_hash_2_a() (gas: 228351)
+[32m[PASS][0m test_hash_2_b() (gas: 228352)
+[32m[PASS][0m test_hash_2_c() (gas: 228352)
+[32m[PASS][0m test_hash_2_d() (gas: 228330)
+[32m[PASS][0m test_hash_2_e() (gas: 228329)
+[32m[PASS][0m test_hash_3_a() (gas: 229054)
+[32m[PASS][0m test_hash_3_b() (gas: 229031)
+[32m[PASS][0m test_hash_3_c() (gas: 229098)
+[32m[PASS][0m test_hash_3_d() (gas: 229011)
+[32m[PASS][0m test_hash_3_e() (gas: 229075)
+[32m[PASS][0m test_hash_var_len_1() (gas: 228334)
+[32m[PASS][0m test_hash_var_len_10() (gas: 792584)
+[32m[PASS][0m test_hash_var_len_2() (gas: 229036)
+[32m[PASS][0m test_hash_var_len_3() (gas: 229816)
+[32m[PASS][0m test_hash_var_len_4() (gas: 416440)
+[32m[PASS][0m test_hash_var_len_5() (gas: 417174)
+[32m[PASS][0m test_hash_var_len_6() (gas: 417908)
+[32m[PASS][0m test_hash_var_len_7() (gas: 604468)
+[32m[PASS][0m test_hash_var_len_8() (gas: 605268)
+[32m[PASS][0m test_hash_var_len_9() (gas: 606044)
+[32m[PASS][0m test_var_length_hash_through_library() (gas: 222515)
+Suite result: [32mok[0m. [32m27[0m passed; [31m0[0m failed; [33m0[0m skipped; finished in 5.20ms (40.88ms CPU time)
 | src/Poseidon2.sol:Poseidon2 contract |                 |        |        |        |         |
 |--------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                      | Deployment Size |        |        |        |         |
-| 2071824                              | 9385            |        |        |        |         |
+| 2055651                              | 9310            |        |        |        |         |
 | Function Name                        | min             | avg    | median | max    | # calls |
-| hash                                 | 219777          | 445082 | 407916 | 781886 | 10      |
-| hash_1                               | 219544          | 219544 | 219544 | 219544 | 5       |
-| hash_2                               | 220018          | 220018 | 220018 | 220018 | 5       |
-| hash_3                               | 220641          | 220641 | 220641 | 220641 | 5       |
+| hash                                 | 219729          | 445037 | 407871 | 781844 | 10      |
+| hash_1                               | 219496          | 219496 | 219496 | 219496 | 5       |
+| hash_2                               | 219971          | 219971 | 219971 | 219971 | 5       |
+| hash_3                               | 220595          | 220595 | 220595 | 220595 | 5       |
 
 
 
 
-Ran 1 test suite in 7.44ms (4.98ms CPU time): [32m25[0m tests passed, [31m0[0m failed, [33m0[0m skipped (25 total tests)
+Ran 1 test suite in 7.08ms (5.20ms CPU time): [32m27[0m tests passed, [31m0[0m failed, [33m0[0m skipped (27 total tests)

@@ -140,23 +140,6 @@ library Poseidon2Lib {
         return result;
     }
 
-    function new_poseidon2_with_constants(Field.Type iv, Constants memory constants)
-        private
-        pure
-        returns (Poseidon2Lib.Sponge memory)
-    {
-        Poseidon2Lib.Sponge memory result = Poseidon2Lib.Sponge({
-            iv: iv,
-            cache: [Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0)],
-            state: [Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0)],
-            cache_size: 0,
-            squeeze_mode: false,
-            constants: constants
-        });
-        result.state[RATE] = iv;
-        return result;
-    }
-
     function perform_duplex(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type[RATE] memory) {
         // zero-pad the cache
         for (uint256 i; i < RATE; i++) {
@@ -188,22 +171,10 @@ library Poseidon2Lib {
             // If we're absorbing, and the cache is not full, add the input into the cache
             self.cache[self.cache_size] = input;
             self.cache_size += 1;
-        } else if (self.squeeze_mode) {
-            // If we're in squeeze mode, switch to absorb mode and add the input into the cache.
-            // N.B. I don't think this code path can be reached?!
-            self.cache[0] = input;
-            self.cache_size = 1;
-            self.squeeze_mode = false;
         }
     }
 
     function squeeze(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type) {
-        if (self.squeeze_mode && (self.cache_size == 0)) {
-            // If we're in squeze mode and the cache is empty, there is nothing left to squeeze out of the sponge!
-            // Switch to absorb mode.
-            self.squeeze_mode = false;
-            self.cache_size = 0;
-        }
         if (!self.squeeze_mode) {
             // If we're in absorb mode, apply sponge permutation to compress the cache, populate cache with compressed
             // state and switch to squeeze mode. Note: this code block will execute if the previous `if` condition was
