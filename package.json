@@ -1,0 +1,15 @@
+{
+  "name": "@zemse/poseidon2",
+  "version": "1.0.0",
+  "description": "solidity implementation of poseidon2 hash function",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "forge test"
+  },
+  "author": "Soham Zemse",
+  "license": "MIT"
+}

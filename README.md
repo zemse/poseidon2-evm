@@ -1,66 +1,72 @@
-## Foundry
+# poseidon2
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+solidity implementation of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf)
 
-Foundry consists of:
+## installation
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
+```
+forge install zemse/poseidon2
 ```
 
-### Test
+or 
 
-```shell
-$ forge test
+```
+npm install @zemse/poseidon2
 ```
 
-### Format
+## usage
 
-```shell
-$ forge fmt
+### though contract
+
+the `Poseidon2` contract needs to be deployed on the network and then you can make calls to it.
+
+```solidity
+import {IPoseidon2} from "poseidon2/IPoseidon2.sol";
+
+contract Temp {
+    function myFunction() external returns (uint256) {
+        uint256 result = IPoseidon2(0xContractAddress).hash_2(
+            0x1762d324c2db6a912e607fd09664aaa02dfe45b90711c0dae9627d62a4207788,
+            0x1047bd52da536f6bdd26dfe642d25d9092c458e64a78211298648e81414cbf35
+        );
+        return result;
+    }
+}
 ```
 
-### Gas Snapshots
+### through library
 
-```shell
-$ forge snapshot
+if your contract has around 9kb of free space and you hashing multiple times and want to save some gas, you can use internal functions of the library in your contract.
+
+```solidity
+import {Field, Poseidon2Lib} from "poseidon2/Poseidon2Lib.sol";
+
+contract Temp {
+    using Field for *;
+    
+    function myFunction() external returns (uint256) {
+        Poseidon2Lib.Constants memory poseidon = Poseidon2Lib.load();
+        Field.Type result = poseidon.hash_2(
+            uint256(0x1762d324c2db6a912e607fd09664aaa02dfe45b90711c0dae9627d62a4207788).toField(),
+            uint256(0x1047bd52da536f6bdd26dfe642d25d9092c458e64a78211298648e81414cbf35).toField()
+        );
+        result = poseidon.hash_1(result);
+        return result.toUint256();
+    }
+}
 ```
 
-### Anvil
+## benchmarks
 
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+| num elements | est gas   |
+|--------------|-----------|
+| hash_1       | 219544    |
+| hash_2       | 220018    |
+| hash_3       | 220641    |
+| hash 4       | 416486    |
+| hash 5       | 417197    |
+| hash 6       | 417952    |
+| hash 7       | 604599    |
+| hash 8       | 605311    |
+| hash 9       | 606064    |
+| hash 10      | 792604    |

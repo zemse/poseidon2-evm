@@ -2,16 +2,25 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {Field} from "../src/Field.sol";
-import {Poseidon2} from "../src/Poseidon2.sol";
+import {Field, Poseidon2, Poseidon2Lib} from "../src/Poseidon2.sol";
 
 contract Poseidon2Test is Test {
     using Field for *;
+    using Poseidon2Lib for *;
 
     Poseidon2 private poseidon2;
 
     function setUp() public {
         poseidon2 = new Poseidon2();
+    }
+
+    function test_hash_1_through_library() public pure {
+        Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
+        assertEq(
+            _poseidon.hash_1(uint256(0x0000000000000000000000000000000000000000000000000000000000000000).toField())
+                .toUint256(),
+            0x2710144414c3a5f2354f4c08d52ed655b9fe253b4bf12cb9ad3de693d9b1db11
+        );
     }
 
     // Hashing one element
