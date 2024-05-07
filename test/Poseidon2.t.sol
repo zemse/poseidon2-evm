@@ -10,11 +10,37 @@ contract Poseidon2Test is Test {
     using Poseidon2Lib for *;
 
     Poseidon2 private poseidon2;
-    Poseidon2Yul private poseidon2Yul;
+    address private poseidon2Yul;
 
-    function setUp() public {
+    function setUp() public  {
         poseidon2 = new Poseidon2();
-        poseidon2Yul = new Poseidon2Yul();
+        poseidon2Yul = address(new Poseidon2Yul());
+    }
+
+    function poseidon2Yul_1(uint256 a) internal view returns (uint256 decoded) {
+        assembly {
+            mstore(0, a)
+            let res := staticcall(gas(), sload(poseidon2Yul.slot), 0, 0x20, 0, 0x20)
+            decoded := mload(0)
+        }
+        return decoded;
+    }
+
+    function poseidon2Yul_2(uint256 a, uint256 b) internal view returns (uint256 decoded) {
+        assembly {
+            mstore(0, a)
+            mstore(0x20, b)
+            let res := staticcall(gas(), sload(poseidon2Yul.slot), 0, 0x40, 0, 0x20)
+            decoded := mload(0)
+        }
+    }
+
+    function poseidon2Yul_3(uint256 a, uint256 b, uint256 c) internal view returns (uint256 decoded) {
+        bytes memory input = abi.encode(a, b, c);
+        (, bytes memory result) = poseidon2Yul.staticcall(input);
+        assembly {
+            decoded := mload(add(result, 0x20))
+        }
     }
 
     function test_hash_1_through_library() public pure {
@@ -80,34 +106,34 @@ contract Poseidon2Test is Test {
 
     // Hashing one element through Yul
 
-    function test_hash_1_a_yul() public {
-        assertEq(poseidon2Yul.hash_1(0), 0x2710144414c3a5f2354f4c08d52ed655b9fe253b4bf12cb9ad3de693d9b1db11);
+    function test_hash_1_a_yul() public view {
+        assertEq(poseidon2Yul_1(0), 0x2710144414c3a5f2354f4c08d52ed655b9fe253b4bf12cb9ad3de693d9b1db11);
     }
 
-    function test_hash_1_b_yul() public {
+    function test_hash_1_b_yul() public view {
         assertEq(
-            poseidon2Yul.hash_1(0x19f3d19e5dd8b29a42cea4f71ebc6b12a42a5edbafbcb89cf0cddf0995d44e7f),
+            poseidon2Yul_1(0x19f3d19e5dd8b29a42cea4f71ebc6b12a42a5edbafbcb89cf0cddf0995d44e7f),
             0x2e1874598412a3b19f824ff246a1949a38b365bcdd58807eedb9206288820232
         );
     }
 
-    function test_hash_1_c_yul() public {
+    function test_hash_1_c_yul() public view {
         assertEq(
-            poseidon2Yul.hash_1(0x0049c16ff91dacf0cb573751342f7bfa0042819e3f15fce57d61339f6340b0c1),
+            poseidon2Yul_1(0x0049c16ff91dacf0cb573751342f7bfa0042819e3f15fce57d61339f6340b0c1),
             0x011b5e5c76aedd3a361d2c72c711425f5709988da3c226bb8536691d81b190ac
         );
     }
 
-    function test_hash_1_d_yul() public {
+    function test_hash_1_d_yul() public view {
         assertEq(
-            poseidon2Yul.hash_1(0x02713077725e5498d596be781be4c9a7353dbfe70ff10dc17702e66d0b5d388c),
+            poseidon2Yul_1(0x02713077725e5498d596be781be4c9a7353dbfe70ff10dc17702e66d0b5d388c),
             0x2ee1f0fc41b250f0e26dbaa1e9dc0d8e27e9354baf3c11eca131994c119f5651
         );
     }
 
-    function test_hash_1_e_yul() public {
+    function test_hash_1_e_yul() public view {
         assertEq(
-            poseidon2Yul.hash_1(0x2a84a08a631f4c391b02f4519720881a80c25eb6ba3b59b2ca8f3c0e22ebeebc),
+            poseidon2Yul_1(0x2a84a08a631f4c391b02f4519720881a80c25eb6ba3b59b2ca8f3c0e22ebeebc),
             0x0cf97e83eb7aa42f60e85095836d3b0afe3e88cc5046e1bae7318a64a0d32fd5
         );
     }
@@ -166,13 +192,13 @@ contract Poseidon2Test is Test {
 
     // Hashing two elements through Yul
 
-    function test_hash_2_a_yul() public {
-        assertEq(poseidon2Yul.hash_2(0, 0), 0x0b63a53787021a4a962a452c2921b3663aff1ffd8d5510540f8e659e782956f1);
+    function test_hash_2_a_yul() public view {
+        assertEq(poseidon2Yul_2(0, 0), 0x0b63a53787021a4a962a452c2921b3663aff1ffd8d5510540f8e659e782956f1);
     }
 
-    function test_hash_2_b_yul() public {
+    function test_hash_2_b_yul() public view {
         assertEq(
-            poseidon2Yul.hash_2(
+            poseidon2Yul_2(
                 0x1762d324c2db6a912e607fd09664aaa02dfe45b90711c0dae9627d62a4207788,
                 0x1047bd52da536f6bdd26dfe642d25d9092c458e64a78211298648e81414cbf35
             ),
@@ -180,9 +206,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_2_c_yul() public {
+    function test_hash_2_c_yul() public view {
         assertEq(
-            poseidon2Yul.hash_2(
+            poseidon2Yul_2(
                 0x0a529bb6bbbf25ed33a47a4637dc70eb469a29893047482866748ae7f3a5afe1,
                 0x1f5189751e18cf788deb219bdb95461e86ca08a882e4af5f8a6ec478e1ec73b4
             ),
@@ -190,9 +216,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_2_d_yul() public {
+    function test_hash_2_d_yul() public view {
         assertEq(
-            poseidon2Yul.hash_2(
+            poseidon2Yul_2(
                 0x14ba77172ab2278bdf5a087ca0bd400e936bafe6dfc092c4e7a1b0950f1b6dbe,
                 0x195c41f12d4fbac5e194c201536f3094541e73bf27d9f2413f09e731b3838733
             ),
@@ -200,9 +226,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_2_e_yul() public {
+    function test_hash_2_e_yul() public view {
         assertEq(
-            poseidon2Yul.hash_2(
+            poseidon2Yul_2(
                 0x2079041f0d6becd26db3ec659c54f60464243d86c3982978f1217a5f1413ed3a,
                 0x08146641a4e30689442ecd270a7efef725bdb3036bf3d837dff683161a455de1
             ),
@@ -269,13 +295,13 @@ contract Poseidon2Test is Test {
 
     // Hashing three elements through Yul
 
-    function test_hash_3_a_yul() public {
-        assertEq(poseidon2Yul.hash_3(0, 0, 0), 0x2a5de47ed300af27b706aaa14762fc468f5cfc16cd8116eb6b09b0f2643ca2b9);
+    function test_hash_3_a_yul() public view {
+        assertEq(poseidon2Yul_3(0, 0, 0), 0x2a5de47ed300af27b706aaa14762fc468f5cfc16cd8116eb6b09b0f2643ca2b9);
     }
 
-    function test_hash_3_b_yul() public {
+    function test_hash_3_b_yul() public view {
         assertEq(
-            poseidon2Yul.hash_3(
+            poseidon2Yul_3(
                 0x300ced31bf248a1a2d4ea02b5e9f302a9e34df3c2109d5f1046ee9f59de6f6f1,
                 0x2e6eb409ed7f41949cdb1925ac3ec68132b2443d873589a8afde4c027c3c0b68,
                 0x2f08443953fc54fb351e41a46da99bbec1d290dae2907d2baf5174ed28eee9ea
@@ -284,9 +310,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_3_c_yul() public {
+    function test_hash_3_c_yul() public view {
         assertEq(
-            poseidon2Yul.hash_3(
+            poseidon2Yul_3(
                 0x21c6e3a949ec9c622e7e062efab3d6e1d5ee62763f99366627de157e26d179b7,
                 0x1369519755b97bf50d10be283f853c5607ed1308f8235cd34c915783cbf7c70d,
                 0x00c632d6fe8be14eddb11aee10b63e017e7d1f1a275d01e9d215f4135e950e7d
@@ -295,9 +321,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_3_d_yul() public {
+    function test_hash_3_d_yul() public view {
         assertEq(
-            poseidon2Yul.hash_3(
+            poseidon2Yul_3(
                 0x26001a9f75eddc947cfc2e7a5524a7fb32d226404468168d58ff2f918e027015,
                 0x0080918fd6c6f3867a46a0260e2cc2bc6b0b6bcb4528d33ba2bb57555a12929a,
                 0x05217f0ada44bebd06d9fd34358fe7213446bdce940d943916acb59cabdc0001
@@ -306,9 +332,9 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_hash_3_e_yul() public {
+    function test_hash_3_e_yul() public view {
         assertEq(
-            poseidon2Yul.hash_3(
+            poseidon2Yul_3(
                 0x2a7efeb117f6894cfa21375d4496249c43eda35b5d5d267b7154413fdaad44ea,
                 0x0bb48b46f770205618e2350c2f9c294524425763fb7ef6156c33c5bc2b8c1cbf,
                 0x0206c176b0c66212fd12a580a8dd38689ae29dfa15933ba1982f5d30ed0c2ea1

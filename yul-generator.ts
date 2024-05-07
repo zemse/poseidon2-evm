@@ -405,20 +405,13 @@ function generate() {
     pragma solidity >=0.8.8;
     
     contract Poseidon2Yul {
-        ${hash_codegen(1)}
-        ${hash_codegen(2)}
-        ${hash_codegen(3)}
+        ${hash_codegen()}
     }
     `;
 
-  function hash_codegen(num_inputs: number) {
-    if (num_inputs < 1 || num_inputs > 3) {
-      throw new Error("Only 1, 2, 3 num_inputs are supported");
-    }
+  function hash_codegen() {
     return `
-    function hash_${num_inputs}(${new Array(num_inputs)
-      .fill("uint256")
-      .join(", ")}) external payable returns (uint256) {
+    fallback() external {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
@@ -426,24 +419,16 @@ function generate() {
             let state0 := 0
             let state1 := 0
             let state2 := 0
-            let state3 := 0x${(BigInt(num_inputs) << 64n).toString(
-              16
-            )} // initializing iv = shl(64, num_words)
+            let state3 := shl(64, shr(5, calldatasize())) // iv
 
 
             //
             // Absorb
             //
-            ${(() => {
-              let code: string[] = [];
-              for (let i = 0; i < num_inputs; i++) {
-                code.push(`
-        state${i} := addmod(state${i}, calldataload(${4 + i * 32}), PRIME)
-                    `);
-              }
-              return code.join("\n");
-            })()}
-            
+            state0 := addmod(state0, calldataload(0), PRIME)
+            state1 := addmod(state1, calldataload(0x20), PRIME)
+            state2 := addmod(state2, calldataload(0x40), PRIME)
+
             //
             // Squeeze
             //
