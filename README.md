@@ -1,16 +1,12 @@
-# poseidon2
+# poseidon2 for evm
 
-solidity implementation of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf)
+implementations of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf) in solidity, yul and huff.
 
 ## usage
 
-### though contract
-
-the `Poseidon2` contract needs to be deployed on the network and then you can make calls to it.
+the `Poseidon2` contract needs to be deployed on the network and then you can make calls to it. here is an example to hash two field elements:
 
 ```solidity
-import {IPoseidon2} from "poseidon2/IPoseidon2.sol";
-
 contract MyContract {
     function myFunction() external returns (uint256) {
         uint256 result = 0xPoseidon2ContractAddress.call(
@@ -24,15 +20,17 @@ contract MyContract {
 }
 ```
 
-## yul benchmarks
+## benchmarks
 
-| num elements | est gas   |
-|--------------|-----------|
-| hash_1       | 27517    |
-| hash_2       | 27531    |
-| hash_3       | 28127    |
+### huff
 
-## solidity benchmarks
+gas cost for hashing one, two or three elements: 16949 
+
+### yul benchmarks
+
+gas cost for hasing one, two or three elements: 27517
+
+### solidity benchmarks
 
 | num elements | est gas   |
 |--------------|-----------|
