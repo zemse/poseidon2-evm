@@ -11,8 +11,7 @@ function huff_generate() {
   return hash_codegen();
 
   function hash_codegen() {
-    return `
-#include "./Utils.huff"
+    return `#include "./Utils.huff"
 
 // prepared using huff-generator.ts
 #define macro POSEIDON2_PERMUTATION() = {
@@ -25,6 +24,7 @@ function huff_generate() {
     let code: string[] = [];
     let rf_first = rounds_f / 2;
     for (let r = 0; r < rf_first; r++) {
+      let is_last = r === rf_first - 1;
       code.push(`
   ADD_CONSTANTS_DIRTY(
     ${round_constant[r][0]}, 
@@ -33,7 +33,11 @@ function huff_generate() {
     ${round_constant[r][3]}
   )
   FULL_S_BOX_DIRTY()
-  MATRIX_MULTIPLICATION_4X4_DIRTY()
+  ${
+    is_last
+      ? "MATRIX_MULTIPLICATION_4X4_DIRTY_WITH_ADDITIONAL_PRIMES"
+      : "MATRIX_MULTIPLICATION_4X4_DIRTY"
+  }()
       `);
     }
     return code.join("\n");
@@ -47,12 +51,18 @@ function huff_generate() {
     let rf_first = rounds_f / 2;
     let p_end = rf_first + rounds_p;
     for (let r = rf_first; r < p_end; r++) {
+      let is_last = r === p_end - 1;
       code.push(`
-  ${round_constant[r][0]} [PRIME] swap2 addmod
-  
-  [PRIME] swap1 SINGLE_BOX()
 
-  INTERNAL_M_MULTIPLICATION_DIRTY(
+  ${round_constant[r][0]} addmod
+  
+  SINGLE_BOX()
+
+  ${
+    is_last
+      ? "INTERNAL_M_MULTIPLICATION_DIRTY"
+      : "INTERNAL_M_MULTIPLICATION_DIRTY_WITH_ADDITIONAL_PRIMES"
+  }(
     ${internal_matrix_diagonal[0]},
     ${internal_matrix_diagonal[1]},
     ${internal_matrix_diagonal[2]},
@@ -80,12 +90,11 @@ function huff_generate() {
     ${round_constant[r][3]}
   )
   FULL_S_BOX_DIRTY()
-  MATRIX_MULTIPLICATION_4X4_DIRTY()
-      `);
+  MATRIX_MULTIPLICATION_4X4_DIRTY()`);
     }
     return code.join("\n");
   })()}
 }
-    `;
+`;
   }
 }
