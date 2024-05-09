@@ -1,0 +1,40 @@
+// #include "./Utils.huff"
+#include "./Permutation.huff"
+
+
+#define macro MAIN() = {
+    SETUP()
+    ABSORB_CALLDATA() // [state0, state1, state2, state3]
+
+    POSEIDON2_PERMUTATION() // [state0, state1, state2, state3]
+
+    // state0 is the result.
+    RETURN_ONE()
+}
+
+#define test TEST_POSEIDON2_PERMUTATION_0() = {
+    SETUP()
+    ABSORB_1_INPUT(0x0)
+
+    POSEIDON2_PERMUTATION()
+
+    0x2710144414c3a5f2354f4c08d52ed655b9fe253b4bf12cb9ad3de693d9b1db11 CUSTOM_ASSERT_EQ()
+    0x0c2bd6f762a10a3463df7a9d1a0a7bef593cc02fbf29c5b3b621b7ef072a23ac CUSTOM_ASSERT_EQ()
+    0x1485543b5b8dbaa180fc27a9dc5e96cf3f56be7d4d30da6186ae3b19da8dd67d CUSTOM_ASSERT_EQ()
+    0x0c9f6e6acce93dfe41b620e03d3c93f4ceb04f66292e0463d75190f6ea368ca8 CUSTOM_ASSERT_EQ()
+
+    // 0x22 eq ASSERT()
+    // 0x17 eq ASSERT()
+    // 0x32 eq ASSERT()
+    // 0x27 eq ASSERT()
+    // // garbage
+    // 0xB eq ASSERT()
+    // 0xB eq ASSERT()
+    // 0x7 eq ASSERT()
+    // 0x3 eq ASSERT()
+    // 0x1 eq ASSERT()
+    // 0x2 eq ASSERT()
+    // 0x3 eq ASSERT()
+    // 0x4 eq ASSERT()
+}
+

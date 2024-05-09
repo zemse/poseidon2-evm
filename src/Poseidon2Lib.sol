@@ -4,6 +4,8 @@ pragma solidity >=0.8.8;
 
 import {Field} from "./Field.sol";
 
+import {console} from "forge-std/console.sol";
+
 // Poseidon2 hash function
 // credits: https://github.com/noir-lang/noir/blob/d8710c4442be2fcffc348f1f5776bc278d028ad0/acvm-repo/bn254_blackbox_solver/src/poseidon2.rs
 library Poseidon2Lib {
@@ -32,20 +34,20 @@ library Poseidon2Lib {
     /**
      * Public API: best for single time use
      */
-    function hash_1(Field.Type m) internal pure returns (Field.Type) {
+    function hash_1(Field.Type m) internal view returns (Field.Type) {
         Field.Type[] memory inputs = new Field.Type[](1);
         inputs[0] = m;
         return hash_internal(load(), inputs, 1, false);
     }
 
-    function hash_2(Field.Type m1, Field.Type m2) internal pure returns (Field.Type) {
+    function hash_2(Field.Type m1, Field.Type m2) internal view returns (Field.Type) {
         Field.Type[] memory inputs = new Field.Type[](2);
         inputs[0] = m1;
         inputs[1] = m2;
         return hash_internal(load(), inputs, 2, false);
     }
 
-    function hash_3(Field.Type m1, Field.Type m2, Field.Type m3) internal pure returns (Field.Type) {
+    function hash_3(Field.Type m1, Field.Type m2, Field.Type m3) internal view returns (Field.Type) {
         Field.Type[] memory inputs = new Field.Type[](3);
         inputs[0] = m1;
         inputs[1] = m2;
@@ -55,7 +57,7 @@ library Poseidon2Lib {
 
     function hash(Field.Type[] memory inputs, uint256 std_input_length, bool is_variable_length)
         internal
-        pure
+        view
         returns (Field.Type)
     {
         return hash_internal(load(), inputs, std_input_length, is_variable_length);
@@ -64,7 +66,7 @@ library Poseidon2Lib {
     /**
      * Public API: best for multiple use in same call context
      */
-    function hash_1(Poseidon2Lib.Constants memory constants, Field.Type m) internal pure returns (Field.Type) {
+    function hash_1(Poseidon2Lib.Constants memory constants, Field.Type m) internal view returns (Field.Type) {
         Field.Type[] memory inputs = new Field.Type[](1);
         inputs[0] = m;
         return hash_internal(constants, inputs, 1, false);
@@ -72,7 +74,7 @@ library Poseidon2Lib {
 
     function hash_2(Poseidon2Lib.Constants memory constants, Field.Type m1, Field.Type m2)
         internal
-        pure
+        view
         returns (Field.Type)
     {
         Field.Type[] memory inputs = new Field.Type[](2);
@@ -83,7 +85,7 @@ library Poseidon2Lib {
 
     function hash_3(Poseidon2Lib.Constants memory constants, Field.Type m1, Field.Type m2, Field.Type m3)
         internal
-        pure
+        view
         returns (Field.Type)
     {
         Field.Type[] memory inputs = new Field.Type[](3);
@@ -96,7 +98,7 @@ library Poseidon2Lib {
     /**
      * Internal methods for hashing
      */
-    function generate_iv(uint256 input_length) internal pure returns (Field.Type) {
+    function generate_iv(uint256 input_length) internal view returns (Field.Type) {
         return Field.Type.wrap(input_length << 64);
     }
 
@@ -105,7 +107,7 @@ library Poseidon2Lib {
         Field.Type[] memory input,
         uint256 std_input_length,
         bool is_variable_length
-    ) internal pure returns (Field.Type) {
+    ) internal view returns (Field.Type) {
         Poseidon2Lib.Sponge memory sponge = new_poseidon2(generate_iv(input.length), constants);
 
         for (uint256 i; i < input.length; i++) {
@@ -125,7 +127,7 @@ library Poseidon2Lib {
 
     function new_poseidon2(Field.Type iv, Constants memory constants)
         private
-        pure
+        view
         returns (Poseidon2Lib.Sponge memory)
     {
         Poseidon2Lib.Sponge memory result = Poseidon2Lib.Sponge({
@@ -140,7 +142,7 @@ library Poseidon2Lib {
         return result;
     }
 
-    function perform_duplex(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type[RATE] memory) {
+    function perform_duplex(Poseidon2Lib.Sponge memory self) internal view returns (Field.Type[RATE] memory) {
         // zero-pad the cache
         for (uint256 i; i < RATE; i++) {
             if (i >= self.cache_size) {
@@ -161,7 +163,7 @@ library Poseidon2Lib {
         return result;
     }
 
-    function absorb(Poseidon2Lib.Sponge memory self, Field.Type input) internal pure {
+    function absorb(Poseidon2Lib.Sponge memory self, Field.Type input) internal view {
         if ((!self.squeeze_mode) && (self.cache_size == RATE)) {
             // If we're absorbing, and the cache is full, apply the sponge permutation to compress the cache
             self.perform_duplex();
@@ -174,7 +176,7 @@ library Poseidon2Lib {
         }
     }
 
-    function squeeze(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type) {
+    function squeeze(Poseidon2Lib.Sponge memory self) internal view returns (Field.Type) {
         if (!self.squeeze_mode) {
             // If we're in absorb mode, apply sponge permutation to compress the cache, populate cache with compressed
             // state and switch to squeeze mode. Note: this code block will execute if the previous `if` condition was
@@ -199,27 +201,48 @@ library Poseidon2Lib {
         return result;
     }
 
+    function print_state( Field.Type[4] memory inputs, string memory s, uint num) internal view {
+        console.log("State", s, num);
+        for (uint256 i; i < 4; i++) {
+            print_field(inputs[i]);
+        }
+    }
+
+    function print_field(Field.Type inp) internal view {
+        console.logBytes32(bytes32(Field.Type.unwrap(inp)));
+    }
+
     function permutation(
         Field.Type[4] memory inputs,
         Field.Type[4] memory internal_matrix_diagonal,
         Field.Type[4][64] memory round_constant
-    ) private pure returns (Field.Type[4] memory) {
+    ) private view returns (Field.Type[4] memory) {
         // Read witness assignments
         Field.Type[4] memory state = [Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0)];
         for (uint256 i; i < 4; i++) {
             state[i] = inputs[i];
         }
 
+        print_state(state, "Initial state", 0);
+
         // Apply 1st linear layer
         matrix_multiplication_4x4(state);
+
+        print_state(state, "After matrix multiplication", 0);
 
         // First set of external rounds
         uint256 rf_first = rounds_f / 2;
         for (uint256 r; r < rf_first; r++) {
             add_round_constants(state, round_constant, r);
+            // print_state(state, "add round constants", r);
             s_box(state);
+            // print_state(state, "s_box", r);
             matrix_multiplication_4x4(state);
+            // print_state(state, "matrix_multiplication_4x4", r);
+
         }
+
+        print_state(state, "after first", 0);
 
         // Internal rounds
         uint256 p_end = rf_first + rounds_p;
@@ -227,7 +250,10 @@ library Poseidon2Lib {
             state[0] = state[0].add(round_constant[r][0]);
             state[0] = single_box(state[0]);
             internal_m_multiplication(state, internal_matrix_diagonal);
+            print_state(state, "for loop after internm", r);
         }
+
+        print_state(state, "after second", 0);
 
         // Remaining external rounds
         uint256 num_rounds = rounds_f + rounds_p;
@@ -238,30 +264,42 @@ library Poseidon2Lib {
             matrix_multiplication_4x4(state);
         }
 
+         print_state(state, "final third after all rounds", 0);
+
         return state;
     }
 
-    function single_box(Field.Type x) private pure returns (Field.Type) {
+    function single_box(Field.Type x) private view returns (Field.Type) {
+        // console.log("singlebox");
+        // print_field(x);
         Field.Type s = x.mul(x);
+        // print_field(s);
+        // print_field(s.mul(s));
+        // print_field(s.mul(s).mul(x));
+        // console.log("singlebox done");
         return s.mul(s).mul(x);
     }
 
-    function s_box(Field.Type[4] memory input) private pure {
+    function s_box(Field.Type[4] memory input) private view {
         for (uint256 i; i < 4; i++) {
+            // console.log("singlebox");
+            // print_field(input[i]);
             input[i] = single_box(input[i]);
+            // print_field(input[i]);
+
         }
     }
 
     function add_round_constants(Field.Type[4] memory state, Field.Type[4][64] memory round_constant, uint256 round)
         private
-        pure
+        view
     {
         for (uint256 i; i < 4; i++) {
             state[i] = state[i].add(round_constant[round][i]);
         }
     }
 
-    function matrix_multiplication_4x4(Field.Type[4] memory input) private pure {
+    function matrix_multiplication_4x4(Field.Type[4] memory input) private view {
         Field.Type t0 = input[0].add(input[1]); // A + B
         Field.Type t1 = input[2].add(input[3]); // C + D
         Field.Type t2 = input[1].add(input[1]); // 2B
@@ -284,7 +322,7 @@ library Poseidon2Lib {
 
     function internal_m_multiplication(Field.Type[4] memory input, Field.Type[4] memory internal_matrix_diagonal)
         private
-        pure
+        view
     {
         Field.Type sum = Field.Type.wrap(0);
         for (uint256 i; i < 4; i++) {
@@ -296,7 +334,7 @@ library Poseidon2Lib {
         }
     }
 
-    function load() internal pure returns (Constants memory constants) {
+    function load() internal view returns (Constants memory constants) {
         constants = Constants({
             internal_matrix_diagonal: [
                 Field.Type.wrap(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7),

@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {Field, Poseidon2, Poseidon2Lib} from "../src/Poseidon2.sol";
 import {Poseidon2Yul} from "../src/Poseidon2Yul.sol";
+import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
 contract Poseidon2Test is Test {
     using Field for *;
@@ -11,10 +12,12 @@ contract Poseidon2Test is Test {
 
     Poseidon2 private poseidon2;
     address private poseidon2Yul;
+    // address private poseidon2Huff;
 
     function setUp() public  {
         poseidon2 = new Poseidon2();
         poseidon2Yul = address(new Poseidon2Yul());
+        // poseidon2Huff = HuffDeployer.deploy("Poseidon2");
     }
 
     function poseidon2Yul_1(uint256 a) internal view returns (uint256 decoded) {
@@ -43,7 +46,7 @@ contract Poseidon2Test is Test {
         }
     }
 
-    function test_hash_1_through_library() public pure {
+    function test_hash_1_through_library() public view {
         Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
         assertEq(
             _poseidon.hash_1(uint256(0x0000000000000000000000000000000000000000000000000000000000000000).toField())
@@ -52,10 +55,10 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_var_length_hash_through_library() public pure {
+    function test_var_length_hash_through_library() public view {
         Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
 
-        Field.Type[] memory input = new Field.Type[](1);
+        Field.Type[] memory input = new Field.Type[](1); 
         assertEq(
             _poseidon.hash_internal(input, 2, true).toUint256(),
             0x57985cb452f268c650a6600d9410f49ebd2fd9756b8c89f38cf80a72e5a4f1a
