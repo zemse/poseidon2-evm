@@ -14,7 +14,7 @@ contract Poseidon2Test is Test {
     address private poseidon2Yul;
     // address private poseidon2Huff;
 
-    function setUp() public  {
+    function setUp() public {
         poseidon2 = new Poseidon2();
         poseidon2Yul = address(new Poseidon2Yul());
         // poseidon2Huff = HuffDeployer.deploy("Poseidon2");
@@ -58,7 +58,7 @@ contract Poseidon2Test is Test {
     function test_var_length_hash_through_library() public view {
         Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
 
-        Field.Type[] memory input = new Field.Type[](1); 
+        Field.Type[] memory input = new Field.Type[](1);
         assertEq(
             _poseidon.hash_internal(input, 2, true).toUint256(),
             0x57985cb452f268c650a6600d9410f49ebd2fd9756b8c89f38cf80a72e5a4f1a

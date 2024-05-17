@@ -201,16 +201,16 @@ library Poseidon2Lib {
         return result;
     }
 
-    function print_state( Field.Type[4] memory inputs, string memory s, uint num) internal view {
-        console.log("State", s, num);
-        for (uint256 i; i < 4; i++) {
-            print_field(inputs[i]);
-        }
-    }
+    // function print_state(Field.Type[4] memory inputs, string memory s, uint256 num) internal view {
+    //     console.log("State", s, num);
+    //     for (uint256 i; i < 4; i++) {
+    //         print_field(inputs[i]);
+    //     }
+    // }
 
-    function print_field(Field.Type inp) internal view {
-        console.logBytes32(bytes32(Field.Type.unwrap(inp)));
-    }
+    // function print_field(Field.Type inp) internal view {
+    //     console.logBytes32(bytes32(Field.Type.unwrap(inp)));
+    // }
 
     function permutation(
         Field.Type[4] memory inputs,
@@ -223,26 +223,16 @@ library Poseidon2Lib {
             state[i] = inputs[i];
         }
 
-        print_state(state, "Initial state", 0);
-
         // Apply 1st linear layer
         matrix_multiplication_4x4(state);
-
-        print_state(state, "After matrix multiplication", 0);
 
         // First set of external rounds
         uint256 rf_first = rounds_f / 2;
         for (uint256 r; r < rf_first; r++) {
             add_round_constants(state, round_constant, r);
-            // print_state(state, "add round constants", r);
             s_box(state);
-            // print_state(state, "s_box", r);
             matrix_multiplication_4x4(state);
-            // print_state(state, "matrix_multiplication_4x4", r);
-
         }
-
-        print_state(state, "after first", 0);
 
         // Internal rounds
         uint256 p_end = rf_first + rounds_p;
@@ -250,10 +240,7 @@ library Poseidon2Lib {
             state[0] = state[0].add(round_constant[r][0]);
             state[0] = single_box(state[0]);
             internal_m_multiplication(state, internal_matrix_diagonal);
-            print_state(state, "for loop after internm", r);
         }
-
-        print_state(state, "after second", 0);
 
         // Remaining external rounds
         uint256 num_rounds = rounds_f + rounds_p;
@@ -263,8 +250,6 @@ library Poseidon2Lib {
             s_box(state);
             matrix_multiplication_4x4(state);
         }
-
-         print_state(state, "final third after all rounds", 0);
 
         return state;
     }
@@ -286,7 +271,6 @@ library Poseidon2Lib {
             // print_field(input[i]);
             input[i] = single_box(input[i]);
             // print_field(input[i]);
-
         }
     }
 
