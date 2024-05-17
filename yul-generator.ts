@@ -34,9 +34,9 @@ function yul_generate() {
             //
             // Absorb
             //
-            state0 := addmod(state0, calldataload(0), PRIME)
-            state1 := addmod(state1, calldataload(0x20), PRIME)
-            state2 := addmod(state2, calldataload(0x40), PRIME)
+            state0 := add(state0, calldataload(0))
+            state1 := add(state1, calldataload(0x20))
+            state2 := add(state2, calldataload(0x40))
 
             //
             // Squeeze
@@ -53,10 +53,10 @@ function yul_generate() {
               let rf_first = rounds_f / 2;
               for (let r = 0; r < rf_first; r++) {
                 code.push(`
-                    state0 := addmod(state0, ${round_constant[r][0]}, PRIME)
-                    state1 := addmod(state1, ${round_constant[r][1]}, PRIME)
-                    state2 := addmod(state2, ${round_constant[r][2]}, PRIME)
-                    state3 := addmod(state3, ${round_constant[r][3]}, PRIME)
+                    state0 := add(state0, ${round_constant[r][0]})
+                    state1 := add(state1, ${round_constant[r][1]})
+                    state2 := add(state2, ${round_constant[r][2]})
+                    state3 := add(state3, ${round_constant[r][3]})
                     ${s_box()}
                     ${matrix_multiplication_4x4()}
                 `);
@@ -73,7 +73,7 @@ function yul_generate() {
               let p_end = rf_first + rounds_p;
               for (let r = rf_first; r < p_end; r++) {
                 code.push(`
-                    state0 := addmod(state0, ${round_constant[r][0]}, PRIME)
+                    state0 := add(state0, ${round_constant[r][0]})
                     ${single_box("state0")}
 
                 ${internal_m_multiplication(
@@ -98,16 +98,18 @@ function yul_generate() {
               let num_rounds = rounds_f + rounds_p;
               for (let r = p_end; r < num_rounds; r++) {
                 code.push(`
-                    state0 := addmod(state0, ${round_constant[r][0]}, PRIME)
-                    state1 := addmod(state1, ${round_constant[r][1]}, PRIME)
-                    state2 := addmod(state2, ${round_constant[r][2]}, PRIME)
-                    state3 := addmod(state3, ${round_constant[r][3]}, PRIME)
+                    state0 := add(state0, ${round_constant[r][0]})
+                    state1 := add(state1, ${round_constant[r][1]})
+                    state2 := add(state2, ${round_constant[r][2]})
+                    state3 := add(state3, ${round_constant[r][3]})
                     ${s_box()}
                     ${matrix_multiplication_4x4()}
                 `);
               }
               return code.join("\n");
             })()}
+
+            state0 := mod(state0, PRIME)
 
             mstore(0, state0)
             return (0, 32)
@@ -148,13 +150,13 @@ function yul_generate() {
     return `
         {
             // internal_m_multiplication
-            let sum := addmod(state0, state1, PRIME)
-            sum := addmod(sum, state2, PRIME)
+            let sum := add(state0, state1)
+            sum := add(sum, state2)
             sum := addmod(sum, state3, PRIME)
-            state0 := addmod(mulmod(state0, ${d0}, PRIME), sum, PRIME)
-            state1 := addmod(mulmod(state1, ${d1}, PRIME), sum, PRIME)
-            state2 := addmod(mulmod(state2, ${d2}, PRIME), sum, PRIME)
-            state3 := addmod(mulmod(state3, ${d3}, PRIME), sum, PRIME)
+            state0 := add(mulmod(state0, ${d0}, PRIME), sum)
+            state1 := add(mulmod(state1, ${d1}, PRIME), sum)
+            state2 := add(mulmod(state2, ${d2}, PRIME), sum)
+            state3 := add(mulmod(state3, ${d3}, PRIME), sum)
         }
        `;
   }
@@ -163,18 +165,18 @@ function yul_generate() {
     return `
     {
         // matrix_multiplication_4x4
-        let t0 := addmod(state0, state1, PRIME)
-        let t1 := addmod(state2, state3, PRIME)
-        let t2 := addmod(state1, state1, PRIME)
-        t2 := addmod(t2, t1, PRIME)
-        let t3 := addmod(state3, state3, PRIME)
-        t3 := addmod(t3, t0, PRIME)
-        let t4 := addmod(t1, t1, PRIME)
+        let t0 := add(state0, state1)
+        let t1 := add(state2, state3)
+        let t2 := add(state1, state1)
+        t2 := add(t2, t1)
+        let t3 := add(state3, state3)
+        t3 := add(t3, t0)
+        let t4 := add(t1, t1)
         t4 := addmod(t4, t4, PRIME)
-        t4 := addmod(t4, t3, PRIME)
-        let t5 := addmod(t0, t0, PRIME)
+        t4 := add(t4, t3)
+        let t5 := add(t0, t0)
         t5 := addmod(t5, t5, PRIME)
-        t5 := addmod(t5, t2, PRIME)
+        t5 := add(t5, t2)
         let t6 := addmod(t3, t5, PRIME)
         let t7 := addmod(t2, t4, PRIME)
         state0 := t6
