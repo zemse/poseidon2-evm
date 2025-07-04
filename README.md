@@ -4,6 +4,8 @@ implementations of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf
 
 ## usage
 
+> attention: code in this repository has not been reviewed for security
+
 the `Poseidon2` contract needs to be deployed on the network and then you can make calls to it. here is an example to hash two field elements:
 
 ```solidity
@@ -20,11 +22,19 @@ contract MyContract {
 }
 ```
 
+## notes
+
+solidity code is inefficient due to lot of memory usage and functions.
+
+yul is generated using [yul-generator.ts](./yul-generator.ts) file and provides an inlined implementation that simply mutates 4 stack variables, uses no memory, which brings a lot of gas savings.
+
+huff uses a dirty approach where SWAPs are avoided which leaves unused elements on stack. EVM allows the stack to grow upto 1024 until we run into stack overflow. for parameters (t=4, rf=8, rp=56), we would leave 4*(8+56) = 256 garbage elements on stack which is much lower than 1024 limit.
+
 ## benchmarks
 
 ### huff
 
-gas cost for hashing one, two or three elements: 16949 
+gas cost for hashing one, two or three elements: 14934
 
 ### yul benchmarks
 
