@@ -10,7 +10,7 @@
    // takes: [PRIME]
 
    // generate initial value
-   0x5 calldatasize shr 0x40 shl // [iv, PRIME]
+   calldatasize 0x5 shr 0x40 shl // [iv, PRIME]
 
    // absorb input2 (by default zero is absorbed)
    0x40 calldataload // [input2, iv, PRIME]
@@ -28,10 +28,10 @@
    // generate initial value
    0x1 0x40 shl // [iv, PRIME]
 
-   // absorb input2 (by default zero is absorbed)
-   0x0 calldataload // [input2, iv, PRIME]
+   // absorb input2
+   0x0 // [input2, iv, PRIME]
 
-   // absorb input1 (by default zero is absorbed)
+   // absorb input1
    0x0 // [input1, input2, iv, PRIME]
 
    // absorb input0
@@ -44,8 +44,8 @@
    // generate initial value
    0x2 0x40 shl // [iv, PRIME]
 
-   // absorb input2 (by default zero is absorbed)
-   0x0 calldataload // [input2, iv, PRIME]
+   // absorb input2
+   0x0 // [input2, iv, PRIME]
 
    // absorb input1 (by default zero is absorbed)
    <input1> // [input1, input2, iv, PRIME]

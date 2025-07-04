@@ -4,3 +4,4 @@ out = "out"
 libs = ["lib"]
 gas_reports = ["*"]
 ffi = true
+evm_version = "cancun"
