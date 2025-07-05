@@ -70,7 +70,7 @@ contract Poseidon2Test is Test {
         }
     }
 
-    function test_hash_1_through_library() public view {
+    function test_hash_1_through_library() public pure {
         Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
         assertEq(
             _poseidon.hash_1(uint256(0x0000000000000000000000000000000000000000000000000000000000000000).toField())
@@ -79,7 +79,7 @@ contract Poseidon2Test is Test {
         );
     }
 
-    function test_var_length_hash_through_library() public view {
+    function test_var_length_hash_through_library() public pure {
         Poseidon2Lib.Constants memory _poseidon = Poseidon2Lib.load();
 
         Field.Type[] memory input = new Field.Type[](1);
@@ -299,7 +299,7 @@ contract Poseidon2Test is Test {
 
     // Hashing two elements through Huff
 
-     function test_hash_2_a_huff() public view {
+    function test_hash_2_a_huff() public view {
         assertEq(poseidon2Yul_2(0, 0), 0x0b63a53787021a4a962a452c2921b3663aff1ffd8d5510540f8e659e782956f1);
     }
 
@@ -449,8 +449,6 @@ contract Poseidon2Test is Test {
             0x1c93b16c25fa1e7b4933425b32876fa97c2013d44214792231634d3c96b6cc3f
         );
     }
-
-
 
     // Hashing three elements through Huff
 
