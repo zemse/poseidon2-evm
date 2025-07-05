@@ -11,7 +11,7 @@ function yul_generate() {
   return `
   // SPDX-License-Identifier: MIT
 
-    pragma solidity >=0.8.8;
+    pragma solidity >=0.6.0;
     
     contract Poseidon2Yul {
         ${hash_codegen()}
@@ -133,10 +133,10 @@ function yul_generate() {
     return `
         {
             // single_box
-            let in := ${var_name}
-            ${var_name} := mulmod(in, in, PRIME)
+            let intr := ${var_name}
+            ${var_name} := mulmod(intr, intr, PRIME)
             ${var_name} := mulmod(${var_name}, ${var_name}, PRIME)
-            ${var_name} := mulmod(${var_name}, in, PRIME)
+            ${var_name} := mulmod(${var_name}, intr, PRIME)
         }
         `;
   }

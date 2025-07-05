@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.8.0;
+pragma solidity >=0.6.0;
 
 contract Poseidon2Yul {
     fallback() external {
@@ -60,34 +60,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -121,34 +121,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -182,34 +182,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -243,34 +243,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -302,10 +302,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -327,10 +327,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -352,10 +352,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -377,10 +377,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -402,10 +402,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -427,10 +427,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -452,10 +452,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -477,10 +477,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -502,10 +502,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -527,10 +527,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -552,10 +552,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -577,10 +577,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -602,10 +602,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -627,10 +627,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -652,10 +652,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -677,10 +677,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -702,10 +702,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -727,10 +727,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -752,10 +752,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -777,10 +777,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -802,10 +802,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -827,10 +827,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -852,10 +852,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -877,10 +877,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -902,10 +902,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -927,10 +927,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -952,10 +952,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -977,10 +977,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1002,10 +1002,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1027,10 +1027,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1052,10 +1052,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1077,10 +1077,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1102,10 +1102,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1127,10 +1127,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1152,10 +1152,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1177,10 +1177,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1202,10 +1202,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1227,10 +1227,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1252,10 +1252,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1277,10 +1277,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1302,10 +1302,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1327,10 +1327,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1352,10 +1352,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1377,10 +1377,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1402,10 +1402,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1427,10 +1427,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1452,10 +1452,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1477,10 +1477,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1502,10 +1502,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1527,10 +1527,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1552,10 +1552,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1577,10 +1577,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1602,10 +1602,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1627,10 +1627,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1652,10 +1652,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1677,10 +1677,10 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
@@ -1710,34 +1710,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -1771,34 +1771,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -1832,34 +1832,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
@@ -1893,34 +1893,34 @@ contract Poseidon2Yul {
 
             {
                 // single_box
-                let in := state0
-                state0 := mulmod(in, in, PRIME)
+                let intr := state0
+                state0 := mulmod(intr, intr, PRIME)
                 state0 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(state0, in, PRIME)
+                state0 := mulmod(state0, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state1
-                state1 := mulmod(in, in, PRIME)
+                let intr := state1
+                state1 := mulmod(intr, intr, PRIME)
                 state1 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(state1, in, PRIME)
+                state1 := mulmod(state1, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state2
-                state2 := mulmod(in, in, PRIME)
+                let intr := state2
+                state2 := mulmod(intr, intr, PRIME)
                 state2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(state2, in, PRIME)
+                state2 := mulmod(state2, intr, PRIME)
             }
 
             {
                 // single_box
-                let in := state3
-                state3 := mulmod(in, in, PRIME)
+                let intr := state3
+                state3 := mulmod(intr, intr, PRIME)
                 state3 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(state3, in, PRIME)
+                state3 := mulmod(state3, intr, PRIME)
             }
 
             {
