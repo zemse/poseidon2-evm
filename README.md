@@ -2,11 +2,23 @@
 
 implementations of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf) in solidity, yul and huff.
 
-## usage
-
 > attention: code in this repository has not been reviewed for security
 
-the `Poseidon2` contract needs to be deployed on the network and then you can make calls to it. here is an example to hash two field elements:
+## install
+
+```
+forge install zemse/poseidon2-evm
+npm install poseidon2-evm
+```
+
+## usage
+
+contracts:
+- solidity: [Poseidon2.sol](./src/Poseidon2.sol)
+- yul: [Poseidon2Yul.sol](./src/Poseidon2Yul.sol)
+- huff: [Poseidon2.huff](./src/huff/Poseidon2.huff)
+
+any of the above contracts needs to be deployed on the network and then you can make calls to it. here is an example to hash two field elements:
 
 ```solidity
 contract MyContract {
