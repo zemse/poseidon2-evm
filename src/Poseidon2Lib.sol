@@ -199,17 +199,6 @@ library Poseidon2Lib {
         return result;
     }
 
-    // function print_state(Field.Type[4] memory inputs, string memory s, uint256 num) internal view {
-    //     console.log("State", s, num);
-    //     for (uint256 i; i < 4; i++) {
-    //         print_field(inputs[i]);
-    //     }
-    // }
-
-    // function print_field(Field.Type inp) internal view {
-    //     console.logBytes32(bytes32(Field.Type.unwrap(inp)));
-    // }
-
     function permutation(
         Field.Type[4] memory inputs,
         Field.Type[4] memory internal_matrix_diagonal,
@@ -253,22 +242,13 @@ library Poseidon2Lib {
     }
 
     function single_box(Field.Type x) private pure returns (Field.Type) {
-        // console.log("singlebox");
-        // print_field(x);
         Field.Type s = x.mul(x);
-        // print_field(s);
-        // print_field(s.mul(s));
-        // print_field(s.mul(s).mul(x));
-        // console.log("singlebox done");
         return s.mul(s).mul(x);
     }
 
     function s_box(Field.Type[4] memory input) private pure {
         for (uint256 i; i < 4; i++) {
-            // console.log("singlebox");
-            // print_field(input[i]);
             input[i] = single_box(input[i]);
-            // print_field(input[i]);
         }
     }
 

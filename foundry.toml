@@ -4,4 +4,5 @@ out = "out"
 libs = ["lib"]
 gas_reports = ["*"]
 ffi = true
+solc_version = "0.8.30"
 evm_version = "cancun"
