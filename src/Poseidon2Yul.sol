@@ -1945,8 +1945,6 @@ contract Poseidon2Yul {
                 state3 := t4
             }
 
-            state0 := mod(state0, PRIME)
-
             mstore(0, state0)
             return(0, 32)
         }
