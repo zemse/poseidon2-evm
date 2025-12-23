@@ -2,7 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-gas_reports = ["*"]
+gas_reports = ["Poseidon2", "Poseidon2Yul", "Poseidon2Huff"]
 ffi = true
 solc_version = "0.8.30"
 evm_version = "cancun"

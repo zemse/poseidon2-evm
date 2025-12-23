@@ -2,23 +2,30 @@
 
 pragma solidity >=0.6.0;
 
+/// @notice Poseidon2 hash function optimized in Yul assembly
+/// @dev ABI-compatible with IPoseidon2Hash interface
+/// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
 contract Poseidon2Yul {
     fallback() external {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
-            // Sponge state
-            let state0 := 0
-            let state1 := 0
-            let state2 := 0
-            let state3 := shl(64, shr(5, calldatasize())) // iv
+            // Sponge state - arguments start after 4-byte selector
+            let state0 := calldataload(0x04)
+            let state1 := calldataload(0x24)
+            let state2 := calldataload(0x44)
 
-            //
-            // Absorb
-            //
-            state0 := add(state0, calldataload(0))
-            state1 := add(state1, calldataload(0x20))
-            state2 := add(state2, calldataload(0x40))
+            // iv = number of arguments << 64
+            let state3 :=
+                shl(
+                    64,
+                    shr(
+                        5,
+                        // Here, number of args = (calldatasize - 4) / 32
+                        // We ignore the selector and focus on how many abi encoded params available.
+                        sub(calldatasize(), 4)
+                    )
+                )
 
             //
             // Squeeze

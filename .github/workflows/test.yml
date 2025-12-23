@@ -1,6 +1,11 @@
 name: test
 
-on: workflow_dispatch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
 
 env:
   FOUNDRY_PROFILE: ci
@@ -32,3 +37,10 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      - name: Check gas snapshots
+        run: |
+          cp gas-report gas-report.expected
+          ./gas_report.sh > gas-report.actual
+          diff gas-report.expected gas-report.actual
+        id: gas

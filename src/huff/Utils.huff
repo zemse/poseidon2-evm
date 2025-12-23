@@ -7,17 +7,20 @@
 #define macro ABSORB_CALLDATA() = takes (1) returns (5) {
    // takes: [PRIME]
 
-   // generate initial value
-   calldatasize 0x5 shr 0x40 shl // [iv, PRIME]
+   // generate initial value: iv = ((calldatasize - 4) / 32) << 64
+   // Arguments start after 4-byte selector for interface compatibility
+   // Interface: hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
+   // We ignore the selector and only focus on the parameters
+   0x4 calldatasize sub 0x5 shr 0x40 shl // [iv, PRIME]
 
    // absorb input2 (by default zero is absorbed)
-   0x40 calldataload // [input2, iv, PRIME]
+   0x44 calldataload // [input2, iv, PRIME]
 
    // absorb input1 (by default zero is absorbed)
-   0x20 calldataload // [input1, input2, iv, PRIME]
+   0x24 calldataload // [input1, input2, iv, PRIME]
 
    // absorb input0
-   0x0 calldataload // [input0, input1, input2, iv, PRIME]
+   0x04 calldataload // [input0, input1, input2, iv, PRIME]
 }
 
 #define macro ABSORB_1_INPUT(input0) = takes (1) returns (5) {
