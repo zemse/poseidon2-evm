@@ -6,9 +6,9 @@ import {Field} from "./Field.sol";
 
 // Poseidon2 hash function
 // credits: https://github.com/noir-lang/noir/blob/d8710c4442be2fcffc348f1f5776bc278d028ad0/acvm-repo/bn254_blackbox_solver/src/poseidon2.rs
-library Poseidon2Lib {
+library LibPoseidon2 {
     using Field for *;
-    using Poseidon2Lib for Sponge;
+    using LibPoseidon2 for Sponge;
 
     uint256 constant t = 4;
     uint256 constant rounds_f = 8;
@@ -64,13 +64,13 @@ library Poseidon2Lib {
     /**
      * Public API: best for multiple use in same call context
      */
-    function hash_1(Poseidon2Lib.Constants memory constants, Field.Type m) internal pure returns (Field.Type) {
+    function hash_1(LibPoseidon2.Constants memory constants, Field.Type m) internal pure returns (Field.Type) {
         Field.Type[] memory inputs = new Field.Type[](1);
         inputs[0] = m;
         return hash_internal(constants, inputs, 1, false);
     }
 
-    function hash_2(Poseidon2Lib.Constants memory constants, Field.Type m1, Field.Type m2)
+    function hash_2(LibPoseidon2.Constants memory constants, Field.Type m1, Field.Type m2)
         internal
         pure
         returns (Field.Type)
@@ -81,7 +81,7 @@ library Poseidon2Lib {
         return hash_internal(constants, inputs, 2, false);
     }
 
-    function hash_3(Poseidon2Lib.Constants memory constants, Field.Type m1, Field.Type m2, Field.Type m3)
+    function hash_3(LibPoseidon2.Constants memory constants, Field.Type m1, Field.Type m2, Field.Type m3)
         internal
         pure
         returns (Field.Type)
@@ -101,12 +101,12 @@ library Poseidon2Lib {
     }
 
     function hash_internal(
-        Poseidon2Lib.Constants memory constants,
+        LibPoseidon2.Constants memory constants,
         Field.Type[] memory input,
         uint256 std_input_length,
         bool is_variable_length
     ) internal pure returns (Field.Type) {
-        Poseidon2Lib.Sponge memory sponge = new_poseidon2(generate_iv(input.length), constants);
+        LibPoseidon2.Sponge memory sponge = new_poseidon2(generate_iv(input.length), constants);
 
         for (uint256 i; i < input.length; i++) {
             if (i < std_input_length) {
@@ -126,9 +126,9 @@ library Poseidon2Lib {
     function new_poseidon2(Field.Type iv, Constants memory constants)
         private
         pure
-        returns (Poseidon2Lib.Sponge memory)
+        returns (LibPoseidon2.Sponge memory)
     {
-        Poseidon2Lib.Sponge memory result = Poseidon2Lib.Sponge({
+        LibPoseidon2.Sponge memory result = LibPoseidon2.Sponge({
             iv: iv,
             cache: [Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0)],
             state: [Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0), Field.Type.wrap(0)],
@@ -140,7 +140,7 @@ library Poseidon2Lib {
         return result;
     }
 
-    function perform_duplex(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type[RATE] memory) {
+    function perform_duplex(LibPoseidon2.Sponge memory self) internal pure returns (Field.Type[RATE] memory) {
         // zero-pad the cache
         for (uint256 i; i < RATE; i++) {
             if (i >= self.cache_size) {
@@ -161,7 +161,7 @@ library Poseidon2Lib {
         return result;
     }
 
-    function absorb(Poseidon2Lib.Sponge memory self, Field.Type input) internal pure {
+    function absorb(LibPoseidon2.Sponge memory self, Field.Type input) internal pure {
         if ((!self.squeeze_mode) && (self.cache_size == RATE)) {
             // If we're absorbing, and the cache is full, apply the sponge permutation to compress the cache
             self.perform_duplex();
@@ -174,7 +174,7 @@ library Poseidon2Lib {
         }
     }
 
-    function squeeze(Poseidon2Lib.Sponge memory self) internal pure returns (Field.Type) {
+    function squeeze(LibPoseidon2.Sponge memory self) internal pure returns (Field.Type) {
         if (!self.squeeze_mode) {
             // If we're in absorb mode, apply sponge permutation to compress the cache, populate cache with compressed
             // state and switch to squeeze mode. Note: this code block will execute if the previous `if` condition was
