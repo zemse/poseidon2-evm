@@ -7,7 +7,9 @@
     "url": "https://github.com/zemse/poseidon2-evm"
   },
   "scripts": {
-    "test": "forge test"
+    "test": "forge test",
+    "generate:yul": "npx tsx yul-generator.ts > src/Poseidon2Yul.sol && forge fmt",
+    "generate:gas-report": "./gas-report.sh"
   },
   "keywords": [
     "solidity",
