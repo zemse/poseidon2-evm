@@ -4,4 +4,4 @@ Poseidon2:hash_3: 265733 gas
 Poseidon2Huff:hash_1: 14941 gas
 Poseidon2Huff:hash_2: 14941 gas
 Poseidon2Huff:hash_3: 14941 gas
-Poseidon2Yul:fallback: 18604 gas
+Poseidon2Yul:fallback: 18352 gas
