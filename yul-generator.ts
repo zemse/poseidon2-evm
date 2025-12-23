@@ -109,8 +109,6 @@ function yul_generate() {
               return code.join("\n");
             })()}
 
-            state0 := mod(state0, PRIME)
-
             mstore(0, state0)
             return (0, 32)
 
