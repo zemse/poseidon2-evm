@@ -2,30 +2,29 @@
 
 pragma solidity >=0.6.0;
 
-/// @notice Poseidon2 hash function optimized in Yul assembly
-/// @dev ABI-compatible with IPoseidon2 interface
-/// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
-contract Poseidon2Yul {
-    fallback() external {
+/// @notice Poseidon2 hash function library optimized in Yul assembly
+/// @dev Internal functions can be inlined without deploying a contract
+library LibPoseidon2Yul {
+    function hash_1(uint256 x) internal pure returns (uint256) {
+        return poseidon2_core(x, 0, 0, 1 << 64);
+    }
+
+    function hash_2(uint256 x, uint256 y) internal pure returns (uint256) {
+        return poseidon2_core(x, y, 0, 2 << 64);
+    }
+
+    function hash_3(uint256 x, uint256 y, uint256 z) internal pure returns (uint256) {
+        return poseidon2_core(x, y, z, 3 << 64);
+    }
+
+    function poseidon2_core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) internal pure returns (uint256 result) {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
-            // Sponge state - arguments start after 4-byte selector
-            let state0 := calldataload(0x04)
-            let state1 := calldataload(0x24)
-            let state2 := calldataload(0x44)
-
-            // iv = number of arguments << 64
-            let state3 :=
-                shl(
-                    64,
-                    // Here, number of args = (calldatasize - 4) / 32
-                    shr(
-                        5,
-                        // We ignore the selector and focus on how many abi encoded params available.
-                        sub(calldatasize(), 4)
-                    )
-                )
+            let state0 := s0
+            let state1 := s1
+            let state2 := s2
+            let state3 := s3
 
             // Apply 1st linear layer
 
@@ -1948,8 +1947,7 @@ contract Poseidon2Yul {
                 state3 := t4
             }
 
-            mstore(0, state0)
-            return(0, 32)
+            result := state0
         }
     }
 }

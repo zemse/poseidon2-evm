@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "forge test",
-    "generate:yul": "npx tsx yul-generator.ts > src/Poseidon2Yul.sol && forge fmt",
+    "generate:yul": "npx tsx generate-yul.ts && forge fmt",
+    "generate:huff": "npx tsx generate-huff.ts",
     "generate:gas-report": "./gas-report.sh"
   },
   "keywords": [
@@ -25,6 +26,7 @@
     "src",
     "out/IPoseidon2.sol/IPoseidon2.json",
     "out/Poseidon2.sol/Poseidon2.json",
-    "out/Poseidon2Yul.sol/Poseidon2Yul.json"
+    "out/Poseidon2Yul.sol/Poseidon2Yul.json",
+    "out/Poseidon2YulLib.sol/Poseidon2YulLib.json"
   ]
 }

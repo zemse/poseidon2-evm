@@ -1,28 +1,64 @@
 import { round_constant, internal_matrix_diagonal } from "./constants";
+// @ts-ignore import fs require type declarations
+import { writeFileSync } from "fs";
 
-console.log(yul_generate());
+const rounds_f = 8;
+const rounds_p = 56;
 
-function yul_generate() {
-  let t = 4;
-  let rounds_f = 8;
-  let rounds_p = 56;
-  let RATE = 3;
+writeFileSync("src/yul/Poseidon2Yul.sol", yul_generate_contract());
+writeFileSync("src/yul/LibPoseidon2Yul.sol", yul_generate_library());
+console.log(
+  "Generated src/yul/Poseidon2Yul.sol and src/yul/Poseidon2YulLib.sol"
+);
 
+function yul_generate_contract() {
   return `
-  // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
-    pragma solidity >=0.6.0;
+pragma solidity >=0.6.0;
 
-    /// @notice Poseidon2 hash function optimized in Yul assembly
-    /// @dev ABI-compatible with IPoseidon2Hash interface
-    /// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
-    contract Poseidon2Yul {
-        ${hash_codegen()}
+/// @notice Poseidon2 hash function optimized in Yul assembly
+/// @dev ABI-compatible with IPoseidon2 interface
+/// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
+contract Poseidon2Yul {
+    ${fallback_codegen()}
+}
+`;
+}
+
+function yul_generate_library() {
+  return `
+// SPDX-License-Identifier: MIT
+
+pragma solidity >=0.6.0;
+
+/// @notice Poseidon2 hash function library optimized in Yul assembly
+/// @dev Internal functions can be inlined without deploying a contract
+library LibPoseidon2Yul {
+    function hash_1(uint256 x) internal pure returns (uint256) {
+        return poseidon2_core(x, 0, 0, 1 << 64);
     }
-    `;
 
-  function hash_codegen() {
-    return `
+    function hash_2(uint256 x, uint256 y) internal pure returns (uint256) {
+        return poseidon2_core(x, y, 0, 2 << 64);
+    }
+
+    function hash_3(uint256 x, uint256 y, uint256 z) internal pure returns (uint256) {
+        return poseidon2_core(x, y, z, 3 << 64);
+    }
+
+    function poseidon2_core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) internal pure returns (uint256 result) {
+        assembly {
+            ${poseidon2_core("s0", "s1", "s2", "s3")}
+            result := state0
+        }
+    }
+}
+`;
+}
+
+function fallback_codegen() {
+  return `
     fallback() external {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
@@ -36,18 +72,38 @@ function yul_generate() {
             let state3 :=
                 shl(
                     64,
+                    // Here, number of args = (calldatasize - 4) / 32
                     shr(
                         5,
-                        // Here, number of args = (calldatasize - 4) / 32
                         // We ignore the selector and focus on how many abi encoded params available.
                         sub(calldatasize(), 4)
                     )
                 )
 
-            //
-            // Squeeze
-            //
+            ${poseidon2_rounds()}
 
+            mstore(0, state0)
+            return (0, 32)
+        }
+    }
+    `;
+}
+
+function poseidon2_core(s0: string, s1: string, s2: string, s3: string) {
+  return `
+            let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+
+            let state0 := ${s0}
+            let state1 := ${s1}
+            let state2 := ${s2}
+            let state3 := ${s3}
+
+            ${poseidon2_rounds()}
+`;
+}
+
+function poseidon2_rounds() {
+  return `
             // Apply 1st linear layer
             ${matrix_multiplication_4x4()}
 
@@ -114,27 +170,21 @@ function yul_generate() {
               }
               return code.join("\n");
             })()}
+`;
+}
 
-            mstore(0, state0)
-            return (0, 32)
-
-        }
-    }
-    `;
-  }
-
-  function s_box() {
-    return `
+function s_box() {
+  return `
         // full s_box
         ${single_box("state0")}
         ${single_box("state1")}
         ${single_box("state2")}
         ${single_box("state3")}
        `;
-  }
+}
 
-  function single_box(var_name: string) {
-    return `
+function single_box(var_name: string) {
+  return `
         {
             // single_box
             let intr := ${var_name}
@@ -143,15 +193,15 @@ function yul_generate() {
             ${var_name} := mulmod(${var_name}, intr, PRIME)
         }
         `;
-  }
+}
 
-  function internal_m_multiplication(
-    d0: string,
-    d1: string,
-    d2: string,
-    d3: string
-  ): string {
-    return `
+function internal_m_multiplication(
+  d0: string,
+  d1: string,
+  d2: string,
+  d3: string
+): string {
+  return `
         {
             // internal_m_multiplication
             let sum := add(state0, state1)
@@ -163,10 +213,10 @@ function yul_generate() {
             state3 := add(mulmod(state3, ${d3}, PRIME), sum)
         }
        `;
-  }
+}
 
-  function matrix_multiplication_4x4() {
-    return `
+function matrix_multiplication_4x4() {
+  return `
     {
         // matrix_multiplication_4x4
         let t0 := add(state0, state1)
@@ -189,5 +239,4 @@ function yul_generate() {
         state3 := t4
     }
    `;
-  }
 }
