@@ -1,9 +1,25 @@
+// Utils that mutate the consume stack variables, usually 5 (4 state values and 1 prime value)
+// and push new 4 state values and 1 prime value on top of the stack. We assume that stack is
+// large enough (1024) for our application that creates 5 x 64 = 320 elements without any popping.
+//
+// A value that is expected to be a field element but is larger than the field's prime is 
+// called "dirty" in this context.
+//
+// BN254 PRIME has two high significant bits zero. That enables us an optimisation opportinity
+// to safely add field elements only 3 times without mod PRIME. 
+// e.g. a + b + c + d is okay but next addition will require a mod otherwise it can overflow U256 
+// corrupting the state and causing hash computation to be incorrect.
+//
+// IMPORTANT: This module cannot work for any PRIMES that are larger than 2^254.
+
+// BN254 is smaller than 2^254 and optimisations in this module are sound.
 #define constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
 #define macro SETUP() = takes (0) returns (1) {
    [PRIME] // [PRIME]
 }
 
+// It is possible for user to supply dirty calldata but it is not a problem.
 #define macro ABSORB_CALLDATA() = takes (1) returns (5) {
    // takes: [PRIME]
 
@@ -55,7 +71,8 @@
    <input0> // [input0, input1, input2, iv, PRIME]
 }
 
-#define macro ADD_CONSTANTS_DIRTY(c0, c1, c2, c3) = takes (5) returns (10) {
+// Can accept dirty state and clean it.
+#define macro ADD_CONSTANTS(c0, c1, c2, c3) = takes (5) returns (10) {
    // takes: [state0, state1, state2, state3, PRIME]
 
    dup5 // [PRIME, state0, state1, state2, state3, PRIME]
@@ -73,73 +90,71 @@
    addmod // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
 }
 
+// Carefully computes on dirty state without causing any overflows.
 #define macro MATRIX_MULTIPLICATION_4X4_DIRTY() = takes (5) returns (14) {
-   // takes [state0, state1, state2, state3, PRIME]
+   // takes [state0, state1 overflown 1/3, state2, state3 overflown 1/3, PRIME]
 
-   // calc t0 = state0 + state1; dirty 2/4
+   // calc t0 = state0 + state1; overflown 2/3
    dup2 dup2 add // [t0, state0, state1, state2, state3, PRIME]
 
-   // calc t1 = state2 + state3; dirty 2/4
+   // calc t1 = state2 + state3; overflown 2/3
    dup5 dup5 add // [t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t2 = (state1 + state1) + t1; dirty 3/4
+   // calc t2 = (state1 + state1) + t1; overflown 3/3
    dup4 dup5 add // [s1+s1, t1, t0, state0, state1, state2, state3, PRIME]
    dup2 // [t1, s1+s1, PRIME, t1, t0, state0, state1, state2, state3, PRIME]
    add // [t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t3 = (state3 + state3) + t0; dirty 3/4
+   // calc t3 = (state3 + state3) + t0; overflown 3/3
    dup7 dup8 add // [s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup4 // [t0, s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    add // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   dup9 // [PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   dup9 // [PRIME, t3 overflown 3/3, t2 overflown 3/3, t1 overflown 2/3, t0 overflown 2/3, state0, state1, state2, state3, PRIME]
 
-   // calc t4 = ((t1 * 2) * 2) + t3; clean ---- TODO maybe use mulmod(t1, 4) here
-   dup1 // [PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 // [PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup6 dup7 add // [t1*2, PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 addmod // [t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup4 addmod // [t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   // calc t4 = t1 * 4 + t3; overflown 1/3
+   dup1 dup5 0x4 mulmod // [t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   dup3 // [t3, t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME] 
+   add // [t4 overflown 1/3, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
    // calc t7 = t2 + t4; clean
    dup2 // [PRIME, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup5 dup3 addmod // [t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t5 = ((t0 * 2) * 2) + t2; clean ---- TODO maybe use mulmod(t0, 4) here
-   dup3 // [PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 // [PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup9 dup10 add // [t0*2, PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 addmod // [t0*4, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup7 addmod // [t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   // calc t5 = t0 * 4 + t2; overflown 1/3
+   dup3 dup8 0x4 mulmod // [t0*4, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   dup6 // [t2, t0*4, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   add // [t5 overflown 1/3, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
    // calc t6 = t3 + t5; clean
    dup4 // [PRIME, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup6 dup3 addmod // [t6, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   // returns: [state0', state1', state2', state3', PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+   // returns: [state0', state1' overflown 1/3, state2', state3' overflown 1/3, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 }
 
-#define macro MATRIX_MULTIPLICATION_4X4_DIRTY_WITH_ADDITIONAL_PRIMES() = takes (5) returns (15) {
-   // takes [state0, state1, state2, state3, PRIME]
+// Carefully computes on dirty state without causing any overflows.
+#define macro MATRIX_MULTIPLICATION_4X4_WITH_ADDITIONAL_PRIMES() = takes (5) returns (15) {
+   // takes [state0, state1 overflown 1/3, state2, state3 overflown 1/3, PRIME]
 
-   // calc t0 = state0 + state1; dirty 2/4
+   // calc t0 = state0 + state1; overflown 1/3
    dup2 dup2 add // [t0, state0, state1, state2, state3, PRIME]
 
-   // calc t1 = state2 + state3; dirty 2/4
+   // calc t1 = state2 + state3; overflown 1/3
    dup5 dup5 add // [t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t2 = (state1 + state1) + t1; dirty 3/4
+   // calc t2 = (state1 + state1) + t1; overflown 2/3
    dup4 dup5 add // [s1+s1, t1, t0, state0, state1, state2, state3, PRIME]
    dup2 // [t1, s1+s1, PRIME, t1, t0, state0, state1, state2, state3, PRIME]
    add // [t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t3 = (state3 + state3) + t0; dirty 3/4
+   // calc t3 = (state3 + state3) + t0; overflown 2/3
    dup7 dup8 add // [s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup4 // [t0, s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    add // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
    dup9 // [PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t4 = ((t1 * 2) * 2) + t3; clean ---- TODO maybe use mulmod(t1, 4) here
+   // calc t4 = ((t1 + t1) + (t1 + t1)) + t3; clean
    dup1 // [PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup1 // [PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup6 dup7 add // [t1*2, PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
@@ -150,7 +165,7 @@
    dup2 // [PRIME, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup5 dup3 addmod // [t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t5 = ((t0 * 2) * 2) + t2; clean ---- TODO maybe use mulmod(t0, 4) here
+   // calc t5 = ((t0 + t0) + (t0 + t0)) + t2; clean
    dup3 // [PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup1 // [PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
    dup9 dup10 add // [t0*2, PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
@@ -165,7 +180,8 @@
    // returns: [state0', PRIME, state1', state2', state3', t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 }
 
-#define macro FULL_S_BOX_DIRTY() = takes (5) returns (10) {
+// Can accept dirty state and clean it.
+#define macro FULL_S_BOX() = takes (5) returns (10) {
    // takes [state0, state1, state2, state3, PRIME]
    dup5 // [PRIME, state0, state1, state2, state3, PRIME]
    dup1 dup6 SINGLE_BOX() // [state3', PRIME, state0, state1, state2, state3, PRIME]
@@ -173,32 +189,8 @@
    dup3 dup6 SINGLE_BOX() // [state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
    dup4 dup6 SINGLE_BOX() // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
 }
-#define macro FULL_S_BOX_DIRTY_MOD() = takes (5) returns (10) {
-   // takes [state0, state1, state2, state3, PRIME]
-   dup5 // [PRIME, state0, state1, state2, state3, PRIME]
-   dup1 dup6 SINGLE_BOX() // [state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup2 dup6 SINGLE_BOX() // [state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup3 dup6 SINGLE_BOX() // [state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup4 dup6  SINGLE_BOX() // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-}
 
-
-// generated from balls
-#define macro FULL_S_BOX_TIDY() = takes (5) returns (5) {
-   // takes:                      [state0, state1, state2, state3, PRIME]
-   swap2                       // [state2, state1, state0, state3, PRIME]
-   swap3                       // [state3, state1, state0, state2, PRIME]
-   swap1                       // [state1, state3, state0, state2, PRIME]
-   SINGLE_BOX()                // [state1', state3, state0, state2, PRIME]
-   swap1                       // [state3, state1', state0, state2, PRIME]
-   SINGLE_BOX()                // [state3', state1', state0, state2, PRIME]
-   swap3                       // [state2, state1', state0, state3', PRIME]
-   SINGLE_BOX()                // [state2', state1', state0, state3', PRIME]
-   swap2                       // [state0, state1', state2', state3', PRIME]
-   SINGLE_BOX()                // [state0', state1', state2', state3', PRIME]
-   // returns:                 [state0', state1', state2', state3', PRIME]
-}
-
+// Can accept dirty state and clean it.
 #define macro SINGLE_BOX() = takes (2) returns (1) {
    // takes: [value, PRIME]
    
@@ -210,7 +202,8 @@
    mulmod // [value**5]
 }
 
-#define macro INTERNAL_M_MULTIPLICATION_DIRTY(c0, c1, c2, c3) = takes (5) returns (11) {
+// REQUIRES clean state and results into clean states
+#define macro INTERNAL_M_MULTIPLICATION(c0, c1, c2, c3) = takes (5) returns (11) {
    // takes [state0, state1, state2, state3, PRIME]
 
    // sum = state0 + state1 + state2 + state3 % PRIME
@@ -251,7 +244,8 @@
    addmod // [state0', state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
 }
 
-#define macro INTERNAL_M_MULTIPLICATION_DIRTY_WITH_ADDITIONAL_PRIMES(c0, c1, c2, c3) = takes (5) returns (12) {
+// REQUIRES clean state and results into clean states
+#define macro INTERNAL_M_MULTIPLICATION_WITH_ADDITIONAL_PRIMES(c0, c1, c2, c3) = takes (5) returns (12) {
    // takes [state0, state1, state2, state3, PRIME]
 
    // sum = state0 + state1 + state2 + state3 % PRIME
@@ -321,7 +315,7 @@
 
 #define test TEST_FULL_S_BOX_0() = {
    SETUP()
-   0x4 0x3 0x2 0x1 FULL_S_BOX_DIRTY()
+   0x4 0x3 0x2 0x1 FULL_S_BOX()
    0x1 CUSTOM_ASSERT_EQ()
    0x20 CUSTOM_ASSERT_EQ()
    0xf3 CUSTOM_ASSERT_EQ()
@@ -335,9 +329,9 @@
    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
-#define test TEST_ADD_CONSTANTS_DIRTY_0() = {
+#define test TEST_ADD_CONSTANTS_0() = {
    SETUP()
-   0x4 0x3 0x2 0x1 ADD_CONSTANTS_DIRTY(0x1, 0x2, 0x3, 0x4)
+   0x4 0x3 0x2 0x1 ADD_CONSTANTS(0x1, 0x2, 0x3, 0x4)
    0x2 CUSTOM_ASSERT_EQ()
    0x4 CUSTOM_ASSERT_EQ()
    0x6 CUSTOM_ASSERT_EQ()
@@ -351,9 +345,9 @@
    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
-#define test TEST_INTERNAL_M_MULTIPLICATION_DIRTY_0() = {
+#define test TEST_INTERNAL_M_MULTIPLICATION_0() = {
    SETUP()
-   0x4 0x3 0x2 0x1 INTERNAL_M_MULTIPLICATION_DIRTY(0x1, 0x2, 0x3, 0x4)
+   0x4 0x3 0x2 0x1 INTERNAL_M_MULTIPLICATION(0x1, 0x2, 0x3, 0x4)
    // RETURN_NINE()
    0xB CUSTOM_ASSERT_EQ()
    0xE CUSTOM_ASSERT_EQ()
@@ -369,13 +363,13 @@
    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
-#define test TEST_INTERNAL_M_MULTIPLICATION_DIRTY_2() = {
+#define test TEST_INTERNAL_M_MULTIPLICATION_2() = {
    SETUP()
    0x13e156b3a58e23657fd9ae840bb894c1c1e69f805da4be989f0723319a161522 
    0x0bfffb7c8f2caf683b43733450cdce757786f6ffd51772bede8f750375d5c8b9 
    0x0f0895b3b9c180ed6e868726585f5f560db2f5ba804fbadda5331352a2108d1c 
    0x1a86852272bb8f74ac3acec93e0b96137f4916842a85cabd67ec42098bcc6486
-   INTERNAL_M_MULTIPLICATION_DIRTY(
+   INTERNAL_M_MULTIPLICATION(
     0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7,
     0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b,
     0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15,
@@ -396,9 +390,9 @@
    // [PRIME] CUSTOM_ASSERT_EQ()
 }
 
-#define test TEST_MATRIX_MULTIPLICATION_4X4_DIRTY_0() = {
+#define test TEST_MATRIX_MULTIPLICATION_4X4_0() = {
    SETUP()
-   0x4 0x3 0x2 0x1 MATRIX_MULTIPLICATION_4X4_DIRTY()
+   0x4 0x3 0x2 0x1 MATRIX_MULTIPLICATION_4X4()
    // RETURN_TWELVE()
    0x22 CUSTOM_ASSERT_EQ()
    0x17 CUSTOM_ASSERT_EQ()

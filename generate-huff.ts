@@ -28,16 +28,16 @@ function huff_generate() {
     for (let r = 0; r < rf_first; r++) {
       let is_last = r === rf_first - 1;
       code.push(`
-  ADD_CONSTANTS_DIRTY(
+  ADD_CONSTANTS(
     ${round_constant[r][0]}, 
     ${round_constant[r][1]}, 
     ${round_constant[r][2]}, 
     ${round_constant[r][3]}
   )
-  FULL_S_BOX_DIRTY()
+  FULL_S_BOX()
   ${
     is_last
-      ? "MATRIX_MULTIPLICATION_4X4_DIRTY_WITH_ADDITIONAL_PRIMES"
+      ? "MATRIX_MULTIPLICATION_4X4_WITH_ADDITIONAL_PRIMES"
       : "MATRIX_MULTIPLICATION_4X4_DIRTY"
   }()
       `);
@@ -62,8 +62,8 @@ function huff_generate() {
 
   ${
     is_last
-      ? "INTERNAL_M_MULTIPLICATION_DIRTY"
-      : "INTERNAL_M_MULTIPLICATION_DIRTY_WITH_ADDITIONAL_PRIMES"
+      ? "INTERNAL_M_MULTIPLICATION"
+      : "INTERNAL_M_MULTIPLICATION_WITH_ADDITIONAL_PRIMES"
   }(
     ${internal_matrix_diagonal[0]},
     ${internal_matrix_diagonal[1]},
@@ -85,13 +85,13 @@ function huff_generate() {
     let num_rounds = rounds_f + rounds_p;
     for (let r = p_end; r < num_rounds; r++) {
       code.push(`
-  ADD_CONSTANTS_DIRTY(
+  ADD_CONSTANTS(
     ${round_constant[r][0]}, 
     ${round_constant[r][1]}, 
     ${round_constant[r][2]}, 
     ${round_constant[r][3]}
   )
-  FULL_S_BOX_DIRTY()
+  FULL_S_BOX()
   MATRIX_MULTIPLICATION_4X4_DIRTY()`);
     }
     return code.join("\n");
