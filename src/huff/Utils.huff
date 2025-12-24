@@ -1,494 +1,498 @@
-// Utils that mutate the consume stack variables, usually 5 (4 state values and 1 prime value)
-// and push new 4 state values and 1 prime value on top of the stack. We assume that stack is
-// large enough (1024) for our application that creates 5 x 64 = 320 elements without any popping.
-//
-// A value that is expected to be a field element but is larger than the field's prime is 
-// called "dirty" in this context.
-//
-// BN254 PRIME has two high significant bits zero. That enables us an optimisation opportinity
-// to safely add field elements only 3 times without mod PRIME. 
-// e.g. a + b + c + d is okay but next addition will require a mod otherwise it can overflow U256 
-// corrupting the state and causing hash computation to be incorrect.
-//
-// IMPORTANT: This module cannot work for any PRIMES that are larger than 2^254.
+/// @title Poseidon2 Huff Utils
+/// @notice Low-level macros for Poseidon2 permutation optimized for the EVM stack machine
+/// @dev Stack Management Strategy:
+///   - Macros consume stack variables (typically 4 state values + PRIME) and push new values on top
+///   - Old values remain as "garbage" below, exploiting the 1024 stack depth limit
+///   - For 64 rounds × 5 elements = 320 max stack depth, well within limits
+///
+/// @dev Dirty Value Convention:
+///   - A "dirty" value may exceed PRIME but fits in uint256
+///   - Clean values are always < PRIME (proper field elements)
+///   - Dirty values must be cleaned (mod PRIME) before certain operations
+///
+/// @dev Overflow Safety (BN254-specific):
+///   - BN254 PRIME ≈ 2^254, leaving 2 high bits as headroom
+///   - Safe to add up to 3 field elements without overflow: a + b + c < 2^256
+///   - Fourth addition requires modular reduction to prevent uint256 overflow
+///   - IMPORTANT: These optimizations are ONLY valid for primes < 2^254
 
-// BN254 is smaller than 2^254 and optimisations in this module are sound.
+/// @dev BN254 scalar field prime: 21888242871839275222246405745257275088548364400416034343698204186575808495617
 #define constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
+/// @notice Initialize stack with PRIME constant
 #define macro SETUP() = takes (0) returns (1) {
-   [PRIME] // [PRIME]
+    [PRIME] // [PRIME]
 }
 
-// It is possible for user to supply dirty calldata but it is not a problem.
+/// @notice Absorb calldata inputs into sponge state for interface-compatible hashing
+/// @dev Supports IPoseidon2 interface: hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
+/// @dev Calldata layout: [4-byte selector][32-byte arg0][32-byte arg1][32-byte arg2]
+/// @dev User-supplied dirty calldata (>= PRIME) is acceptable; will be cleaned by S-box
 #define macro ABSORB_CALLDATA() = takes (1) returns (5) {
-   // takes: [PRIME]
+    // takes: [PRIME]
 
-   // generate initial value: iv = ((calldatasize - 4) / 32) << 64
-   // Arguments start after 4-byte selector for interface compatibility
-   // Interface: hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
-   // We ignore the selector and only focus on the parameters
-   0x4 calldatasize sub 0x5 shr 0x40 shl // [iv, PRIME]
+    // Calculate IV: number of arguments << 64
+    // Formula: iv = ((calldatasize - 4) / 32) << 64
+    0x4 calldatasize sub    // [calldatasize - 4, PRIME]
+    0x5 shr                 // [(calldatasize - 4) / 32, PRIME]
+    0x40 shl                // [iv, PRIME]
 
-   // absorb input2 (by default zero is absorbed)
-   0x44 calldataload // [input2, iv, PRIME]
-
-   // absorb input1 (by default zero is absorbed)
-   0x24 calldataload // [input1, input2, iv, PRIME]
-
-   // absorb input0
-   0x04 calldataload // [input0, input1, input2, iv, PRIME]
+    // Load inputs from calldata
+    0x44 calldataload       // [input2, iv, PRIME]
+    0x24 calldataload       // [input1, input2, iv, PRIME]
+    0x04 calldataload       // [input0, input1, input2, iv, PRIME]
+    // returns: [state0, state1, state2, state3, PRIME]
 }
 
+/// @notice Absorb single input for testing
 #define macro ABSORB_1_INPUT(input0) = takes (1) returns (5) {
-   // takes: [PRIME]
-
-   // generate initial value
-   0x1 0x40 shl // [iv, PRIME]
-
-   // absorb input2
-   0x0 // [input2, iv, PRIME]
-
-   // absorb input1
-   0x0 // [input1, input2, iv, PRIME]
-
-   // absorb input0
-   <input0> // [input0, input1, input2, iv, PRIME]
+    // takes: [PRIME]
+    0x1 0x40 shl            // [iv = 1 << 64, PRIME]
+    0x0                     // [0, iv, PRIME]
+    0x0                     // [0, 0, iv, PRIME]
+    <input0>                // [input0, 0, 0, iv, PRIME]
+    // returns: [state0, state1, state2, state3, PRIME]
 }
 
+/// @notice Absorb two inputs for testing
 #define macro ABSORB_2_INPUTS(input0, input1) = takes (1) returns (5) {
-   // takes: [PRIME]
-
-   // generate initial value
-   0x2 0x40 shl // [iv, PRIME]
-
-   // absorb input2
-   0x0 // [input2, iv, PRIME]
-
-   // absorb input1 (by default zero is absorbed)
-   <input1> // [input1, input2, iv, PRIME]
-
-   // absorb input0
-   <input0> // [input0, input1, input2, iv, PRIME]
+    // takes: [PRIME]
+    0x2 0x40 shl            // [iv = 2 << 64, PRIME]
+    0x0                     // [0, iv, PRIME]
+    <input1>                // [input1, 0, iv, PRIME]
+    <input0>                // [input0, input1, 0, iv, PRIME]
+    // returns: [state0, state1, state2, state3, PRIME]
 }
 
-// Can accept dirty state and clean it.
+/// @notice Add round constants to state (cleans dirty inputs via addmod)
+/// @dev Each addmod costs 8 gas but guarantees clean output
 #define macro ADD_CONSTANTS(c0, c1, c2, c3) = takes (5) returns (10) {
-   // takes: [state0, state1, state2, state3, PRIME]
+    // takes: [state0, state1, state2, state3, PRIME]
 
-   dup5 // [PRIME, state0, state1, state2, state3, PRIME]
+    dup5                    // [PRIME, state0, state1, state2, state3, PRIME]
 
-   dup1 <c3> dup7 // [state3, c3, PRIME, PRIME, state0, state1, state2, state3, PRIME]
-   addmod // [state3', state0, state1, state2, state3, PRIME]
+    dup1 <c3> dup7          // [state3, c3, PRIME, PRIME, state0, state1, state2, state3, PRIME]
+    addmod                  // [state3', PRIME, state0, state1, state2, state3, PRIME]
 
-   dup2 <c2> dup7 // [state2, c2, PRIME, state3', PRIME, state0, state1, state2, state3, PRIME]
-   addmod // [state2', state3', state0, state1, state2, state3, PRIME]
+    dup2 <c2> dup7          // [state2, c2, PRIME, state3', PRIME, state0, state1, state2, state3, PRIME]
+    addmod                  // [state2', state3', PRIME, state0, state1, state2, state3, PRIME]
 
-   dup3 <c1> dup7 // [state1, c1, PRIME, state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   addmod // [state1', state2', state3', state0, state1, state2, state3, PRIME]
-   
-   dup4 <c0> dup7 // [state0, c0, PRIME, state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   addmod // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    dup3 <c1> dup7          // [state1, c1, PRIME, state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    addmod                  // [state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+
+    dup4 <c0> dup7          // [state0, c0, PRIME, state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    addmod                  // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    // returns: [state0', state1', state2', state3', PRIME, ...garbage...]
 }
 
-// Carefully computes on dirty state without causing any overflows.
+/// @notice 4x4 matrix multiplication for external rounds (Poseidon2 M4 matrix)
+/// @dev Computes the circulant matrix multiplication with careful overflow tracking
+/// @dev Overflow notation: "N/3" means N additions without mod (max 3 before overflow risk)
+/// @dev Matrix M4 structure enables efficient computation via:
+///      t0 = s0 + s1, t1 = s2 + s3, t2 = 2*s1 + t1, t3 = 2*s3 + t0
+///      t4 = 4*t1 + t3, t5 = 4*t0 + t2, t6 = t3 + t5, t7 = t2 + t4
+///      Output: [t6, t5, t7, t4]
 #define macro MATRIX_MULTIPLICATION_4X4_DIRTY() = takes (5) returns (14) {
-   // takes [state0, state1 overflown 1/3, state2, state3 overflown 1/3, PRIME]
+    // takes: [state0, state1 (1/3), state2, state3 (1/3), PRIME]
+    // Input may be dirty (1/3 overflow headroom used)
 
-   // calc t0 = state0 + state1; overflown 2/3
-   dup2 dup2 add // [t0, state0, state1, state2, state3, PRIME]
+    // t0 = state0 + state1 (2/3 overflow)
+    dup2 dup2 add           // [t0, state0, state1, state2, state3, PRIME]
 
-   // calc t1 = state2 + state3; overflown 2/3
-   dup5 dup5 add // [t1, t0, state0, state1, state2, state3, PRIME]
+    // t1 = state2 + state3 (2/3 overflow)
+    dup5 dup5 add           // [t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t2 = (state1 + state1) + t1; overflown 3/3
-   dup4 dup5 add // [s1+s1, t1, t0, state0, state1, state2, state3, PRIME]
-   dup2 // [t1, s1+s1, PRIME, t1, t0, state0, state1, state2, state3, PRIME]
-   add // [t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t2 = 2*state1 + t1 (3/3 overflow - at limit!)
+    dup4 dup5 add           // [2*s1, t1, t0, state0, state1, state2, state3, PRIME]
+    dup2 add                // [t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t3 = (state3 + state3) + t0; overflown 3/3
-   dup7 dup8 add // [s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup4 // [t0, s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   add // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t3 = 2*state3 + t0 (3/3 overflow - at limit!)
+    dup7 dup8 add           // [2*s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    dup4 add                // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   dup9 // [PRIME, t3 overflown 3/3, t2 overflown 3/3, t1 overflown 2/3, t0 overflown 2/3, state0, state1, state2, state3, PRIME]
+    dup9                    // [PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t4 = t1 * 4 + t3; overflown 1/3
-   dup1 dup5 0x4 mulmod // [t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup3 // [t3, t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME] 
-   add // [t4 overflown 1/3, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t4 = 4*t1 + t3 (clean after mulmod, then 1/3 after add)
+    dup1 dup5 0x4 mulmod    // [4*t1, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    dup3 add                // [t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t7 = t2 + t4; clean
-   dup2 // [PRIME, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup5 dup3 addmod // [t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t7 = t2 + t4 (clean via addmod)
+    dup2                    // [PRIME, t4, PRIME, t3, t2, t1, t0, ...]
+    dup5 dup3 addmod        // [t7, t4, PRIME, t3, t2, t1, t0, ...]
 
-   // calc t5 = t0 * 4 + t2; overflown 1/3
-   dup3 dup8 0x4 mulmod // [t0*4, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup6 // [t2, t0*4, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   add // [t5 overflown 1/3, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t5 = 4*t0 + t2 (clean after mulmod, then 1/3 after add)
+    dup3 dup8 0x4 mulmod    // [4*t0, t7, t4, PRIME, t3, t2, t1, t0, ...]
+    dup6 add                // [t5, t7, t4, PRIME, t3, t2, t1, t0, ...]
 
-   // calc t6 = t3 + t5; clean
-   dup4 // [PRIME, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup6 dup3 addmod // [t6, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   // returns: [state0', state1' overflown 1/3, state2', state3' overflown 1/3, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t6 = t3 + t5 (clean via addmod)
+    dup4                    // [PRIME, t5, t7, t4, PRIME, t3, t2, t1, t0, ...]
+    dup6 dup3 addmod        // [t6, t5, t7, t4, PRIME, t3, t2, t1, t0, ...]
+
+    // returns: [state0'=t6, state1'=t5 (1/3), state2'=t7, state3'=t4 (1/3), PRIME, ...garbage...]
 }
 
-// Carefully computes on dirty state without causing any overflows.
+/// @notice Matrix multiplication variant that leaves extra PRIMEs on stack for next operation
+/// @dev This is used only once and the resulting state is clean.
 #define macro MATRIX_MULTIPLICATION_4X4_WITH_ADDITIONAL_PRIMES() = takes (5) returns (15) {
-   // takes [state0, state1 overflown 1/3, state2, state3 overflown 1/3, PRIME]
+    // takes: [state0, state1 (1/3), state2, state3 (1/3), PRIME]
 
-   // calc t0 = state0 + state1; overflown 1/3
-   dup2 dup2 add // [t0, state0, state1, state2, state3, PRIME]
+    // t0 = state0 + state1
+    dup2 dup2 add           // [t0, state0, state1, state2, state3, PRIME]
 
-   // calc t1 = state2 + state3; overflown 1/3
-   dup5 dup5 add // [t1, t0, state0, state1, state2, state3, PRIME]
+    // t1 = state2 + state3
+    dup5 dup5 add           // [t1, t0, state0, state1, state2, state3, PRIME]
 
-   // calc t2 = (state1 + state1) + t1; overflown 2/3
-   dup4 dup5 add // [s1+s1, t1, t0, state0, state1, state2, state3, PRIME]
-   dup2 // [t1, s1+s1, PRIME, t1, t0, state0, state1, state2, state3, PRIME]
-   add // [t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t2 = 2*state1 + t1
+    dup4 dup5 add           // [2*s1, t1, t0, ...]
+    dup2 add                // [t2, t1, t0, ...]
 
-   // calc t3 = (state3 + state3) + t0; overflown 2/3
-   dup7 dup8 add // [s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup4 // [t0, s3+s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   add // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t3 = 2*state3 + t0
+    dup7 dup8 add           // [2*s3, t2, t1, t0, ...]
+    dup4 add                // [t3, t2, t1, t0, ...]
 
-   dup9 // [PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    dup9                    // [PRIME, t3, t2, t1, t0, ...]
 
-   // calc t4 = ((t1 + t1) + (t1 + t1)) + t3; clean
-   dup1 // [PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 // [PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup6 dup7 add // [t1*2, PRIME, PRIME, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 addmod // [t1*4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup4 addmod // [t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t4 = 4*t1 + t3 (using double-and-add for multiply by 4)
+    dup1 dup1               // [PRIME, PRIME, PRIME, t3, t2, t1, t0, ...]
+    dup6 dup7 add           // [2*t1, PRIME, PRIME, PRIME, t3, t2, t1, t0, ...]
+    dup1 addmod             // [4*t1, PRIME, t3, t2, t1, t0, ...]
+    dup4 addmod             // [t4, PRIME, t3, t2, t1, t0, ...]
 
-   // calc t7 = t2 + t4; clean
-   dup2 // [PRIME, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup5 dup3 addmod // [t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t7 = t2 + t4
+    dup2                    // [PRIME, t4, PRIME, t3, t2, t1, t0, ...]
+    dup5 dup3 addmod        // [t7, t4, PRIME, t3, t2, t1, t0, ...]
 
-   // calc t5 = ((t0 + t0) + (t0 + t0)) + t2; clean
-   dup3 // [PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 // [PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup9 dup10 add // [t0*2, PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup1 addmod // [t0*4, PRIME, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup7 addmod // [t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t5 = 4*t0 + t2 (using double-and-add)
+    dup3 dup1               // [PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, ...]
+    dup9 dup10 add          // [2*t0, PRIME, PRIME, t7, t4, PRIME, t3, t2, t1, t0, ...]
+    dup1 addmod             // [4*t0, PRIME, t7, t4, PRIME, t3, t2, t1, t0, ...]
+    dup7 addmod             // [t5, t7, t4, PRIME, t3, t2, t1, t0, ...]
 
-   dup4 dup1 // used to optimise out a swap
+    // Push extra PRIMEs for subsequent operation to avoid using SWAP
+    dup4 dup1               // [PRIME, PRIME, t5, t7, t4, PRIME, t3, ...]
 
-   // calc t6 = t3 + t5
-   dup6 // [PRIME, PRIME, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   dup8 dup5 addmod // [t6, PRIME, t5, t7, t4, PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-   // returns: [state0', PRIME, state1', state2', state3', t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t6 = t3 + t5
+    dup6                    // [PRIME, PRIME, PRIME, t5, t7, t4, PRIME, t3, ...]
+    dup8 dup5 addmod        // [t6, PRIME, t5, t7, t4, PRIME, t3, ...]
+
+    // returns: [state0'=t6, PRIME, state1'=t5, state2'=t7, state3'=t4, PRIME, ...garbage...]
 }
 
-// Can accept dirty state and clean it.
+/// @notice Full S-box: apply x^5 to all 4 state elements (cleans dirty inputs)
 #define macro FULL_S_BOX() = takes (5) returns (10) {
-   // takes [state0, state1, state2, state3, PRIME]
-   dup5 // [PRIME, state0, state1, state2, state3, PRIME]
-   dup1 dup6 SINGLE_BOX() // [state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup2 dup6 SINGLE_BOX() // [state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup3 dup6 SINGLE_BOX() // [state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
-   dup4 dup6 SINGLE_BOX() // [state0', state1', state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    // takes: [state0, state1, state2, state3, PRIME]
+
+    dup5                            // [PRIME, state0, state1, state2, state3, PRIME]
+    dup1 dup6 SINGLE_BOX()          // [state3', PRIME, state0, state1, state2, state3, PRIME]
+    dup2 dup6 SINGLE_BOX()          // [state2', state3', PRIME, state0, state1, state2, state3, PRIME]
+    dup3 dup6 SINGLE_BOX()          // [state1', state2', state3', PRIME, state0, ...]
+    dup4 dup6 SINGLE_BOX()          // [state0', state1', state2', state3', PRIME, ...]
+
+    // returns: [state0', state1', state2', state3', PRIME, ...garbage...]
 }
 
-// Can accept dirty state and clean it.
+/// @notice Single S-box: compute x^5 mod PRIME (the Poseidon2 S-box)
+/// @dev Computes x^5 using 3 multiplications
+/// @dev Always produces clean output regardless of input
 #define macro SINGLE_BOX() = takes (2) returns (1) {
-   // takes: [value, PRIME]
-   
-   dup2
-      dup1 dup3 dup1 // [value, value, PRIME, PRIME, value, PRIME]
-      mulmod // [value**2, PRIME, value, PRIME]
-   dup1 // [value**2, value**2, PRIME, value, PRIME]
-   mulmod // [value**4, value, PRIME]
-   mulmod // [value**5]
+    // takes: [value, PRIME]
+
+    dup2                    // [PRIME, value, PRIME]
+    dup1 dup3 dup1          // [value, value, PRIME, PRIME, value, PRIME]
+    mulmod                  // [value^2, PRIME, value, PRIME]
+    dup1                    // [value^2, value^2, PRIME, value, PRIME]
+    mulmod                  // [value^4, value, PRIME]
+    mulmod                  // [value^5]
+
+    // returns: [value^5]
 }
 
-// REQUIRES clean state and results into clean states
+/// @notice Internal round matrix multiplication (diagonal matrix + sum)
+/// @dev Computes: state[i]' = state[i] * diagonal[i] + sum(state) for each i
+/// @dev REQUIRES clean input state (all values < PRIME)
 #define macro INTERNAL_M_MULTIPLICATION(c0, c1, c2, c3) = takes (5) returns (11) {
-   // takes [state0, state1, state2, state3, PRIME]
+    // takes: [state0, state1, state2, state3, PRIME]
 
-   // sum = state0 + state1 + state2 + state3 % PRIME
-   dup4 // [state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state2, state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state1, state2, state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state0, state1, state2, state3, PRIME, state0, state1, state2, state3, PRIME]
-   add add add // [sum, state0, state1, state2, state3, PRIME]
+    // sum = state0 + state1 + state2 + state3 (dirty 3/3, but fits in uint256)
+    dup4                    // [state3, state0, state1, state2, state3, PRIME]
+    dup4                    // [state2, state3, state0, ...]
+    dup4                    // [state1, state2, state3, state0, ...]
+    dup4                    // [state0, state1, state2, state3, state0, ...]
+    add add add             // [sum (3/3), state0, state1, state2, state3, PRIME]
 
-   dup6 // [PRIME, sum, state0, state1, state2, state3, PRIME]
+    dup6                    // [PRIME, sum (3/3), state0, state1, state2, state3, PRIME]
 
-   // state3' = (state3 * c3 % PRIME) + sum % PRIME
-   dup1 // [PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c3> // [c3, state3, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp3, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup4 // [sum, temp3, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state3' = (state3 * c3) + sum
+    dup1 dup1 dup8 <c3>     // [c3, state3, PRIME, PRIME, PRIME, sum (3/3), ...]
+    mulmod                  // [state3*c3, PRIME, PRIME, sum, ...]
+    dup4 addmod             // [state3', PRIME, sum (3/3), state0, state1, state2, state3, PRIME]
 
-   // state2' = (state2 * c2 % PRIME) + sum % PRIME
-   dup2 // [PRIME, state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c2> // [c2, state2, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp2, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup5 // [sum, temp2, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state2' = (state2 * c2) + sum
+    dup2 dup1 dup8 <c2>     // [c2, state2, PRIME, PRIME, state3', PRIME, sum (3/3), ...]
+    mulmod                  // [state2*c2, PRIME, state3', PRIME, sum (3/3), ...]
+    dup5 addmod             // [state2', state3', PRIME, sum (3/3), ...]
 
-   // state1' = (state1 * c1 % PRIME) + sum % PRIME
-   dup3 // [PRIME, state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c1> // [c1, state1, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp1, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup6 // [sum, temp1, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state1' = (state1 * c1) + sum
+    dup3 dup1 dup8 <c1>     // [c1, state1, PRIME, PRIME, state2', state3', PRIME, sum (3/3), ...]
+    mulmod                  // [state1*c1, PRIME, state2', state3', PRIME, sum (3/3), ...]
+    dup6 addmod             // [state1', state2', state3', PRIME, sum (3/3), ...]
 
-   // state0' = (state0 * c0 % PRIME) + sum % PRIME
-   dup4 // [PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c0> // [c0, state0, PRIME, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp0, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup7 // [sum, temp0, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state0', state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state0' = (state0 * c0) + sum
+    dup4 dup1 dup8 <c0>     // [c0, state0, PRIME, PRIME, state1', state2', state3', PRIME, sum (3/3), ...]
+    mulmod                  // [state0*c0, PRIME, state1', state2', state3', PRIME, sum (3/3), ...]
+    dup7 addmod             // [state0', state1', state2', state3', PRIME, sum (3/3), ...]
+
+    // returns: [state0', state1', state2', state3', PRIME, ...garbage...]
 }
 
-// REQUIRES clean state and results into clean states
+/// @notice Internal matrix multiplication variant with extra PRIMEs for next operation
 #define macro INTERNAL_M_MULTIPLICATION_WITH_ADDITIONAL_PRIMES(c0, c1, c2, c3) = takes (5) returns (12) {
-   // takes [state0, state1, state2, state3, PRIME]
+    // takes: [state0, state1, state2, state3, PRIME]
 
-   // sum = state0 + state1 + state2 + state3 % PRIME
-   dup4 // [state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state2, state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state1, state2, state3, state0, state1, state2, state3, PRIME]
-   dup4 // [state0, state1, state2, state3, PRIME, state0, state1, state2, state3, PRIME]
-   add add add // [sum, state0, state1, state2, state3, PRIME]
+    // sum = state0 + state1 + state2 + state3 (dirty 3/3, but fits in uint256)
+    dup4                    // [state3, state0, state1, state2, state3, PRIME]
+    dup4                    // [state2, state3, state0, ...]
+    dup4                    // [state1, state2, state3, state0, ...]
+    dup4                    // [state0, state1, state2, state3, state0, ...]
+    add add add             // [sum (3/3), state0, state1, state2, state3, PRIME]
 
-   dup6 // [PRIME, sum, state0, state1, state2, state3, PRIME]
+    dup6                    // [PRIME, sum (3/3), state0, state1, state2, state3, PRIME]
 
-   // state3' = (state3 * c3 % PRIME) + sum % PRIME
-   dup1 // [PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c3> // [c3, state3, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp3, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup4 // [sum, temp3, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state3' = (state3 * c3) + sum
+    dup1 dup1 dup8 <c3>     // [c3, state3, PRIME, PRIME, PRIME, sum (3/3), ...]
+    mulmod                  // [state3*c3, PRIME, PRIME, sum, ...]
+    dup4 addmod             // [state3', PRIME, sum (3/3), state0, state1, state2, state3, PRIME]
 
-   // state2' = (state2 * c2 % PRIME) + sum % PRIME
-   dup2 // [PRIME, state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c2> // [c2, state2, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp2, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup5 // [sum, temp2, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state2' = (state2 * c2) + sum
+    dup2 dup1 dup8 <c2>     // [c2, state2, PRIME, PRIME, state3', PRIME, sum (3/3), ...]
+    mulmod                  // [state2*c2, PRIME, state3', PRIME, sum (3/3), ...]
+    dup5 addmod             // [state2', state3', PRIME, sum (3/3), ...]
 
-   // state1' = (state1 * c1 % PRIME) + sum % PRIME
-   dup3 // [PRIME, state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup8 <c1> // [c1, state1, PRIME, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp1, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup6 // [sum, temp1, PRIME, PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state1' = (state1 * c1) + sum
+    dup3 dup1 dup8 <c1>     // [c1, state1, PRIME, PRIME, state2', state3', PRIME, sum (3/3), ...]
+    mulmod                  // [state1*c1, PRIME, state2', state3', PRIME, sum (3/3), ...]
+    dup6 addmod             // [state1', state2', state3', PRIME, sum (3/3), ...]
 
-   dup4 dup1
+    // Push extra PRIMEs for subsequent operation
+    dup4 dup1               // [PRIME, PRIME, state1', state2', state3', PRIME, sum, ...]
 
-   // state0' = (state0 * c0 % PRIME) + sum % PRIME
-   dup6 // [PRIME, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup1 dup10 <c0> // [c0, state0, PRIME, PRIME, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   mulmod // [temp0, PRIME, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   dup9 // [sum, temp0, PRIME, PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
-   addmod // [state0', PRIME, state1', state2', state3', PRIME, sum, state0, state1, state2, state3, PRIME]
+    // state0' = (state0 * c0) + sum
+    dup6 dup1 dup10 <c0>
+    mulmod dup9 addmod      // [state0', PRIME, state1', state2', state3', PRIME, sum, ...]
+
+    // returns: [state0', PRIME, state1', state2', state3', PRIME, ...garbage...]
 }
 
-// Tests
+// ============================================================================
+// Test Utilities
+// ============================================================================
 
 #include "../../lib/huffmate/src/utils/Errors.huff"
 
 #define test TEST_SINGLE_BOX_0() = {
-   SETUP()
-   0x0 SINGLE_BOX()
-   0x0 eq ASSERT()
+    SETUP()
+    0x0 SINGLE_BOX()
+    0x0 eq ASSERT()
 }
+
 #define test TEST_SINGLE_BOX_1() = {
-   SETUP()
-   0x4 SINGLE_BOX()
-   0x400 eq ASSERT()
+    SETUP()
+    0x4 SINGLE_BOX()
+    0x400 eq ASSERT()  // 4^5 = 1024 = 0x400
 }
+
 #define test TEST_SINGLE_BOX_2() = {
-   SETUP()
-   0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26268b0878e269ed23e5 SINGLE_BOX()
-   0x2bbfe95d7eb93d942cb2129c24ba1826bc2426402732e2b429cca1988ce50960 eq ASSERT()
+    SETUP()
+    0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26268b0878e269ed23e5 SINGLE_BOX()
+    0x2bbfe95d7eb93d942cb2129c24ba1826bc2426402732e2b429cca1988ce50960 eq ASSERT()
 }
+
 #define test TEST_SINGLE_BOX_3() = {
-   SETUP()
-   0x19b849f69450b06848da1d39bd5e4a4302bb86a44edc26238b0878e269ed23e5 SINGLE_BOX()
-   0x291ecc7d1b5e33947aad04ec89ed9c393d157b146260609cddc5db4843089eca eq ASSERT()
+    SETUP()
+    0x19b849f69450b06848da1d39bd5e4a4302bb86a44edc26238b0878e269ed23e5 SINGLE_BOX()
+    0x291ecc7d1b5e33947aad04ec89ed9c393d157b146260609cddc5db4843089eca eq ASSERT()
 }
 
 #define test TEST_FULL_S_BOX_0() = {
-   SETUP()
-   0x4 0x3 0x2 0x1 FULL_S_BOX()
-   0x1 CUSTOM_ASSERT_EQ()
-   0x20 CUSTOM_ASSERT_EQ()
-   0xf3 CUSTOM_ASSERT_EQ()
-   0x400 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
-   // garbage
-   0x1 CUSTOM_ASSERT_EQ()
-   0x2 CUSTOM_ASSERT_EQ()
-   0x3 CUSTOM_ASSERT_EQ()
-   0x4 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
+    SETUP()
+    0x4 0x3 0x2 0x1 FULL_S_BOX()
+    // Expected: [1^5, 2^5, 3^5, 4^5] = [1, 32, 243, 1024]
+    0x1 CUSTOM_ASSERT_EQ()
+    0x20 CUSTOM_ASSERT_EQ()     // 32
+    0xf3 CUSTOM_ASSERT_EQ()     // 243
+    0x400 CUSTOM_ASSERT_EQ()    // 1024
+    [PRIME] CUSTOM_ASSERT_EQ()
+    // Garbage below (old state)
+    0x1 CUSTOM_ASSERT_EQ()
+    0x2 CUSTOM_ASSERT_EQ()
+    0x3 CUSTOM_ASSERT_EQ()
+    0x4 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
 #define test TEST_ADD_CONSTANTS_0() = {
-   SETUP()
-   0x4 0x3 0x2 0x1 ADD_CONSTANTS(0x1, 0x2, 0x3, 0x4)
-   0x2 CUSTOM_ASSERT_EQ()
-   0x4 CUSTOM_ASSERT_EQ()
-   0x6 CUSTOM_ASSERT_EQ()
-   0x8 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
-   // garbage
-   0x1 CUSTOM_ASSERT_EQ()
-   0x2 CUSTOM_ASSERT_EQ()
-   0x3 CUSTOM_ASSERT_EQ()
-   0x4 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
+    SETUP()
+    0x4 0x3 0x2 0x1 ADD_CONSTANTS(0x1, 0x2, 0x3, 0x4)
+    // Expected: [1+1, 2+2, 3+3, 4+4] = [2, 4, 6, 8]
+    0x2 CUSTOM_ASSERT_EQ()
+    0x4 CUSTOM_ASSERT_EQ()
+    0x6 CUSTOM_ASSERT_EQ()
+    0x8 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
+    // Garbage
+    0x1 CUSTOM_ASSERT_EQ()
+    0x2 CUSTOM_ASSERT_EQ()
+    0x3 CUSTOM_ASSERT_EQ()
+    0x4 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
 #define test TEST_INTERNAL_M_MULTIPLICATION_0() = {
-   SETUP()
-   0x4 0x3 0x2 0x1 INTERNAL_M_MULTIPLICATION(0x1, 0x2, 0x3, 0x4)
-   // RETURN_NINE()
-   0xB CUSTOM_ASSERT_EQ()
-   0xE CUSTOM_ASSERT_EQ()
-   0x13 CUSTOM_ASSERT_EQ()
-   0x1A CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
-   // garbage
-   0xA CUSTOM_ASSERT_EQ()
-   0x1 CUSTOM_ASSERT_EQ()
-   0x2 CUSTOM_ASSERT_EQ()
-   0x3 CUSTOM_ASSERT_EQ()
-   0x4 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
+    SETUP()
+    0x4 0x3 0x2 0x1 INTERNAL_M_MULTIPLICATION(0x1, 0x2, 0x3, 0x4)
+    // sum = 1+2+3+4 = 10 = 0xA
+    // state0' = 1*1 + 10 = 11 = 0xB
+    // state1' = 2*2 + 10 = 14 = 0xE
+    // state2' = 3*3 + 10 = 19 = 0x13
+    // state3' = 4*4 + 10 = 26 = 0x1A
+    0xB CUSTOM_ASSERT_EQ()
+    0xE CUSTOM_ASSERT_EQ()
+    0x13 CUSTOM_ASSERT_EQ()
+    0x1A CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
+    // Garbage
+    0xA CUSTOM_ASSERT_EQ()     // sum
+    0x1 CUSTOM_ASSERT_EQ()
+    0x2 CUSTOM_ASSERT_EQ()
+    0x3 CUSTOM_ASSERT_EQ()
+    0x4 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
 #define test TEST_INTERNAL_M_MULTIPLICATION_2() = {
-   SETUP()
-   0x13e156b3a58e23657fd9ae840bb894c1c1e69f805da4be989f0723319a161522 
-   0x0bfffb7c8f2caf683b43733450cdce757786f6ffd51772bede8f750375d5c8b9 
-   0x0f0895b3b9c180ed6e868726585f5f560db2f5ba804fbadda5331352a2108d1c 
-   0x1a86852272bb8f74ac3acec93e0b96137f4916842a85cabd67ec42098bcc6486
-   INTERNAL_M_MULTIPLICATION(
-    0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7,
-    0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b,
-    0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15,
-    0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b
-  )
-   // RETURN_NINE()
-   0x25f553d6ed63ac15dfdb480d5a3189d5640098740c9d4a5cf57f8c798e3a4eae CUSTOM_ASSERT_EQ()
-   0x01bcaa8e095310b40f3a13c743e37b69aae70ad19ebec6dadf8116e142cd7fc9 CUSTOM_ASSERT_EQ()
-   0x065b108b8783be031552bf3dde3020c934be88229f7fcbe8826600a04433206b CUSTOM_ASSERT_EQ()
-   0x1ae21b6eec823b0cefc2dca6d3184bae2652fb97f8fe9f8a8c60ebbd2887e741 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
-   // garbage
-   // 0xA CUSTOM_ASSERT_EQ()
-   // 0x1 CUSTOM_ASSERT_EQ()
-   // 0x2 CUSTOM_ASSERT_EQ()
-   // 0x3 CUSTOM_ASSERT_EQ()
-   // 0x4 CUSTOM_ASSERT_EQ()
-   // [PRIME] CUSTOM_ASSERT_EQ()
+    SETUP()
+    0x13e156b3a58e23657fd9ae840bb894c1c1e69f805da4be989f0723319a161522
+    0x0bfffb7c8f2caf683b43733450cdce757786f6ffd51772bede8f750375d5c8b9
+    0x0f0895b3b9c180ed6e868726585f5f560db2f5ba804fbadda5331352a2108d1c
+    0x1a86852272bb8f74ac3acec93e0b96137f4916842a85cabd67ec42098bcc6486
+    INTERNAL_M_MULTIPLICATION(
+        0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7,
+        0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b,
+        0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15,
+        0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b
+    )
+    0x25f553d6ed63ac15dfdb480d5a3189d5640098740c9d4a5cf57f8c798e3a4eae CUSTOM_ASSERT_EQ()
+    0x01bcaa8e095310b40f3a13c743e37b69aae70ad19ebec6dadf8116e142cd7fc9 CUSTOM_ASSERT_EQ()
+    0x065b108b8783be031552bf3dde3020c934be88229f7fcbe8826600a04433206b CUSTOM_ASSERT_EQ()
+    0x1ae21b6eec823b0cefc2dca6d3184bae2652fb97f8fe9f8a8c60ebbd2887e741 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
 }
 
 #define test TEST_MATRIX_MULTIPLICATION_4X4_0() = {
-   SETUP()
-   0x4 0x3 0x2 0x1 MATRIX_MULTIPLICATION_4X4()
-   // RETURN_TWELVE()
-   0x22 CUSTOM_ASSERT_EQ()
-   0x17 CUSTOM_ASSERT_EQ()
-   0x32 CUSTOM_ASSERT_EQ()
-   0x27 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
-   // garbage
-   0xB CUSTOM_ASSERT_EQ()
-   0xB CUSTOM_ASSERT_EQ()
-   0x7 CUSTOM_ASSERT_EQ()
-   0x3 CUSTOM_ASSERT_EQ()
-   0x1 CUSTOM_ASSERT_EQ()
-   0x2 CUSTOM_ASSERT_EQ()
-   0x3 CUSTOM_ASSERT_EQ()
-   0x4 CUSTOM_ASSERT_EQ()
-   [PRIME] CUSTOM_ASSERT_EQ()
+    SETUP()
+    0x4 0x3 0x2 0x1 MATRIX_MULTIPLICATION_4X4_DIRTY()
+    // M4 matrix multiplication result
+    0x22 CUSTOM_ASSERT_EQ()    // 34 = t6
+    0x17 CUSTOM_ASSERT_EQ()    // 23 = t5
+    0x32 CUSTOM_ASSERT_EQ()    // 50 = t7
+    0x27 CUSTOM_ASSERT_EQ()    // 39 = t4
+    [PRIME] CUSTOM_ASSERT_EQ()
+    // Garbage: intermediate values
+    0xB CUSTOM_ASSERT_EQ()     // t3
+    0xB CUSTOM_ASSERT_EQ()     // t2
+    0x7 CUSTOM_ASSERT_EQ()     // t1
+    0x3 CUSTOM_ASSERT_EQ()     // t0
+    0x1 CUSTOM_ASSERT_EQ()
+    0x2 CUSTOM_ASSERT_EQ()
+    0x3 CUSTOM_ASSERT_EQ()
+    0x4 CUSTOM_ASSERT_EQ()
+    [PRIME] CUSTOM_ASSERT_EQ()
 }
+
+// ============================================================================
+// Debug/Return Utilities
+// ============================================================================
 
 #define macro RETURN_ONE() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 0x0 return
+    0x0 mstore
+    0x20 0x0 return
 }
 
-#define macro RETURN_TWO() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 0x0 return
-}
-
-#define macro RETURN_FOUR() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 mstore
-   0x60 mstore
-   0x80 0x0 return
-}
-
-#define macro RETURN_FIVE() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 mstore
-   0x60 mstore
-   0x80 mstore
-   0xA0 0x0 return
-}
-
-#define macro RETURN_EIGHT() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 mstore
-   0x60 mstore
-   0x80 mstore
-   0xA0 mstore
-   0xC0 mstore
-   0x100 0x0 return
-}
-
-#define macro RETURN_NINE() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 mstore
-   0x60 mstore
-   0x80 mstore
-   0xA0 mstore
-   0xC0 mstore
-   0xE0 mstore
-   0x120 0x0 return
-}
-
-#define macro RETURN_TWELVE() = takes (1) returns (0) {
-   0x0 mstore
-   0x20 mstore
-   0x40 mstore
-   0x60 mstore
-   0x80 mstore
-   0xA0 mstore
-   0xC0 mstore
-   0xE0 mstore
-   0x100 mstore
-   0x120 mstore
-   0x140 mstore
-   0x160 0x0 return
-}
-
-
-#define macro CUSTOM_ASSERT_EQ(num) = takes (2) returns (0) {
-   // takes:               // [left right]
-    dup2 dup2 eq
-
-    do_not_panic2            // [do_not_panic_jumpdest, condition]
-    jumpi                   // []
-   
+#define macro RETURN_TWO() = takes (2) returns (0) {
     0x0 mstore
     0x20 mstore
+    0x40 0x0 return
+}
+
+#define macro RETURN_FOUR() = takes (4) returns (0) {
+    0x0 mstore
+    0x20 mstore
+    0x40 mstore
+    0x60 mstore
+    0x80 0x0 return
+}
+
+#define macro RETURN_FIVE() = takes (5) returns (0) {
+    0x0 mstore
+    0x20 mstore
+    0x40 mstore
+    0x60 mstore
+    0x80 mstore
+    0xA0 0x0 return
+}
+
+#define macro RETURN_EIGHT() = takes (8) returns (0) {
+    0x0 mstore
+    0x20 mstore
+    0x40 mstore
+    0x60 mstore
+    0x80 mstore
+    0xA0 mstore
+    0xC0 mstore
+    0xE0 mstore
+    0x100 0x0 return
+}
+
+#define macro RETURN_NINE() = takes (9) returns (0) {
+    0x0 mstore
+    0x20 mstore
+    0x40 mstore
+    0x60 mstore
+    0x80 mstore
+    0xA0 mstore
+    0xC0 mstore
+    0xE0 mstore
+    0x100 mstore
+    0x120 0x0 return
+}
+
+#define macro RETURN_TWELVE() = takes (12) returns (0) {
+    0x0 mstore
+    0x20 mstore
+    0x40 mstore
+    0x60 mstore
+    0x80 mstore
+    0xA0 mstore
+    0xC0 mstore
+    0xE0 mstore
+    0x100 mstore
+    0x120 mstore
+    0x140 mstore
+    0x160 mstore
+    0x180 0x0 return
+}
+
+/// @notice Assert two stack values are equal, revert with both values if not
+#define macro CUSTOM_ASSERT_EQ() = takes (2) returns (0) {
+    // takes: [actual, expected]
+    dup2 dup2 eq             // [actual == expected, actual, expected]
+    do_not_panic jumpi       // Jump if equal
+
+    // Revert with both values for debugging
+    0x0 mstore               // Store actual
+    0x20 mstore              // Store expected
     0x40 0x0 revert
 
-    do_not_panic2:           // []
+    do_not_panic:
     pop pop
 }
