@@ -2,9 +2,9 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {Field, Poseidon2, LibPoseidon2} from "../src/solidity/Poseidon2.sol";
-import {Poseidon2Yul} from "../src/yul/Poseidon2Yul.sol";
-import {LibPoseidon2Yul} from "../src/yul/LibPoseidon2Yul.sol";
+import {Field, Poseidon2_BN254, LibPoseidon2} from "../src/bn254/solidity/Poseidon2.sol";
+import {Poseidon2Yul_BN254} from "../src/bn254/yul/Poseidon2Yul.sol";
+import {LibPoseidon2Yul} from "../src/bn254/yul/LibPoseidon2Yul.sol";
 import {IPoseidon2} from "../src/IPoseidon2.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
@@ -12,15 +12,15 @@ contract Poseidon2Test is Test {
     using Field for *;
     using LibPoseidon2 for *;
 
-    Poseidon2 private poseidon2;
+    Poseidon2_BN254 private poseidon2;
     IPoseidon2 private poseidon2Yul;
     IPoseidon2 private poseidon2Huff;
 
     function setUp() public {
-        poseidon2 = new Poseidon2();
-        poseidon2Yul = IPoseidon2(address(new Poseidon2Yul()));
-        poseidon2Huff = IPoseidon2(HuffDeployer.deploy("huff/Poseidon2"));
-        vm.label(address(poseidon2Huff), "Poseidon2Huff");
+        poseidon2 = new Poseidon2_BN254();
+        poseidon2Yul = IPoseidon2(address(new Poseidon2Yul_BN254()));
+        poseidon2Huff = IPoseidon2(HuffDeployer.deploy("bn254/huff/Poseidon2"));
+        vm.label(address(poseidon2Huff), "Poseidon2Huff_BN254");
     }
 
     function test_hash_1_through_library() public pure {

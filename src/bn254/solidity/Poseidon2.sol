@@ -5,7 +5,7 @@ pragma solidity >=0.8.8;
 import {Field} from "./Field.sol";
 import {LibPoseidon2} from "./LibPoseidon2.sol";
 
-contract Poseidon2 {
+contract Poseidon2_BN254 {
     using Field for *;
 
     function hash_1(Field.Type x) public pure returns (Field.Type) {
