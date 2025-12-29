@@ -2,7 +2,7 @@ import { round_constant, internal_matrix_diagonal } from "./constants";
 // @ts-ignore import fs require type declarations
 import { writeFileSync } from "fs";
 
-writeFileSync("src/huff/Permutation.huff", huff_generate());
+writeFileSync("src/bn254/huff/Permutation.huff", huff_generate());
 
 function huff_generate() {
   let t = 4;
