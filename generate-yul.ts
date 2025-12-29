@@ -91,21 +91,21 @@ function fallback_codegen() {
 
 function poseidon2_core(s0: string, s1: string, s2: string, s3: string) {
   return `
-            let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+    let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
-            let state0 := ${s0}
-            let state1 := ${s1}
-            let state2 := ${s2}
-            let state3 := ${s3}
+    let state0 := ${s0}
+    let state1 := ${s1}
+    let state2 := ${s2}
+    let state3 := ${s3}
 
-            ${poseidon2_rounds()}
+    ${poseidon2_rounds()}
 `;
 }
 
 function poseidon2_rounds() {
   return `
             // Apply 1st linear layer
-            ${matrix_multiplication_4x4()}
+            ${matrix_multiplication_4x4_dirty()}
 
             
             // First set of external rounds
@@ -115,12 +115,14 @@ function poseidon2_rounds() {
               let rf_first = rounds_f / 2;
               for (let r = 0; r < rf_first; r++) {
                 code.push(`
-                    state0 := add(state0, ${round_constant[r][0]})
-                    state1 := add(state1, ${round_constant[r][1]})
-                    state2 := add(state2, ${round_constant[r][2]})
-                    state3 := add(state3, ${round_constant[r][3]})
-                    ${s_box()}
-                    ${matrix_multiplication_4x4()}
+                  state0 := add(state0, ${round_constant[r][0]})
+                  state1 := add(state1, ${round_constant[r][1]})
+                  state2 := add(state2, ${round_constant[r][2]})
+                  state3 := add(state3, ${round_constant[r][3]})
+                  ${s_box()}
+                  ${matrix_multiplication_4x4_dirty({
+                    output_clean_state: r == rf_first - 1,
+                  })}
                 `);
               }
               return code.join("\n");
@@ -135,17 +137,16 @@ function poseidon2_rounds() {
               let p_end = rf_first + rounds_p;
               for (let r = rf_first; r < p_end; r++) {
                 code.push(`
-                    state0 := add(state0, ${round_constant[r][0]})
-                    ${single_box("state0")}
+                  state0 := add(state0, ${round_constant[r][0]})
+                  ${single_box("state0")}
 
-                ${internal_m_multiplication(
-                  internal_matrix_diagonal[0],
-                  internal_matrix_diagonal[1],
-                  internal_matrix_diagonal[2],
-                  internal_matrix_diagonal[3]
-                )}
-
-                    `);
+                  ${internal_m_multiplication(
+                    internal_matrix_diagonal[0],
+                    internal_matrix_diagonal[1],
+                    internal_matrix_diagonal[2],
+                    internal_matrix_diagonal[3]
+                  )}
+                `);
               }
               return code.join("\n");
             })()}
@@ -165,7 +166,9 @@ function poseidon2_rounds() {
                     state2 := add(state2, ${round_constant[r][2]})
                     state3 := add(state3, ${round_constant[r][3]})
                     ${s_box()}
-                    ${matrix_multiplication_4x4()}
+                    ${matrix_multiplication_4x4_dirty({
+                      output_clean_state: false,
+                    })}
                 `);
               }
               return code.join("\n");
@@ -202,39 +205,68 @@ function internal_m_multiplication(
   d3: string
 ): string {
   return `
-        {
-            // internal_m_multiplication
-            let sum := add(state0, state1)
-            sum := add(sum, state2)
-            sum := addmod(sum, state3, PRIME)
-            state0 := add(mulmod(state0, ${d0}, PRIME), sum)
-            state1 := add(mulmod(state1, ${d1}, PRIME), sum)
-            state2 := add(mulmod(state2, ${d2}, PRIME), sum)
-            state3 := add(mulmod(state3, ${d3}, PRIME), sum)
-        }
-       `;
+    {
+        // internal_m_multiplication
+        let sum := add(state0, state1)
+        sum := add(sum, state2)
+        sum := addmod(sum, state3, PRIME)
+        state0 := addmod(mulmod(state0, ${d0}, PRIME), sum, PRIME)
+        state1 := addmod(mulmod(state1, ${d1}, PRIME), sum, PRIME)
+        state2 := addmod(mulmod(state2, ${d2}, PRIME), sum, PRIME)
+        state3 := addmod(mulmod(state3, ${d3}, PRIME), sum, PRIME)
+    }
+  `;
 }
 
-function matrix_multiplication_4x4() {
+function matrix_multiplication_4x4_dirty({
+  output_clean_state,
+}: { output_clean_state?: boolean } = {}) {
+  // state0 is clean
+  // state1 is 1/3 dirty
+  // state2 is clean
+  // state3 is 1/3 dirty
   return `
     {
-        // matrix_multiplication_4x4
-        let t0 := add(state0, state1)
-        let t1 := add(state2, state3)
-        let t2 := add(state1, state1)
-        t2 := add(t2, t1)
-        let t3 := add(state3, state3)
-        t3 := add(t3, t0)
-        let t4 := mulmod(t1, 4, PRIME)
-        t4 := add(t4, t3)
-        let t5 := mulmod(t0, 4, PRIME)
-        t5 := add(t5, t2)
-        let t6 := addmod(t3, t5, PRIME)
-        let t7 := addmod(t2, t4, PRIME)
-        state0 := t6
-        state1 := t5
-        state2 := t7
-        state3 := t4
+      // matrix_multiplication_4x4
+      let t0 := add(state0, state1) // dirty 2/3
+      let t1 := add(state2, state3) // dirty 2/3
+      let t2 := add(state1, state1)
+      t2 := addmod(t2, t1, PRIME) // clean
+      let t3 := add(state3, state3)
+      t3 := addmod(t3, t0, PRIME) // clean
+      let t4 := mulmod(t1, 4, PRIME)
+      ${
+        output_clean_state
+          ? "t4 := addmod(t4, t3, PRIME) // clean"
+          : "t4 := add(t4, t3) // dirty 1/3"
+      }
+      let t5 := mulmod(t0, 4, PRIME)
+      ${
+        output_clean_state
+          ? "t5 := addmod(t5, t2, PRIME) // clean"
+          : "t5 := add(t5, t2) // dirty 1/3"
+      }
+      let t6 := addmod(t3, t5, PRIME) // clean
+      let t7 := addmod(t2, t4, PRIME) // clean
+      state0 := t6 // clean
+      state1 := t5 // ${output_clean_state ? "clean" : "dirty 1/3"}
+      state2 := t7 // clean
+      state3 := t4 // ${output_clean_state ? "clean" : "dirty 1/3"}
     }
-   `;
+  `;
+}
+
+function consolelog4() {
+  return `
+    {
+      // console.log(uint256,uint256,uint256,uint256) selector: 0x193fb800
+      let ptr := mload(0x40)
+      mstore(ptr, shl(224, 0x193fb800))
+      mstore(add(ptr, 0x04), state0)
+      mstore(add(ptr, 0x24), state1)
+      mstore(add(ptr, 0x44), state2)
+      mstore(add(ptr, 0x64), state3)
+      pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, ptr, 0x84, 0, 0))
+    }
+  `;
 }

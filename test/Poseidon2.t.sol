@@ -693,4 +693,59 @@ contract Poseidon2Test is Test {
 
         assertEq(poseidon2.hash(input).toUint256(), 0x1eab26c4915afff7148c904edac0220dc6b86dca67ee342db5705027c4e489f1);
     }
+
+    // ============================================================
+    // Fuzz tests - verify all implementations produce same output
+    // ============================================================
+
+    function testFuzz_hash_1_all_implementations(uint256 x) public view {
+        // Bound input to valid field element
+        x = bound(x, 0, Field.PRIME - 1);
+
+        // Get results from all implementations
+        uint256 solidityResult = poseidon2.hash_1(x.toField()).toUint256();
+        uint256 yulResult = poseidon2Yul.hash_1(x);
+        uint256 yulLibResult = LibPoseidon2Yul.hash_1(x);
+        uint256 huffResult = poseidon2Huff.hash_1(x);
+
+        // All must match
+        assertEq(solidityResult, yulResult, "Solidity != Yul");
+        assertEq(solidityResult, yulLibResult, "Solidity != YulLib");
+        assertEq(solidityResult, huffResult, "Solidity != Huff");
+    }
+
+    function testFuzz_hash_2_all_implementations(uint256 x, uint256 y) public view {
+        // Bound inputs to valid field elements
+        x = bound(x, 0, Field.PRIME - 1);
+        y = bound(y, 0, Field.PRIME - 1);
+
+        // Get results from all implementations
+        uint256 solidityResult = poseidon2.hash_2(x.toField(), y.toField()).toUint256();
+        uint256 yulResult = poseidon2Yul.hash_2(x, y);
+        uint256 yulLibResult = LibPoseidon2Yul.hash_2(x, y);
+        uint256 huffResult = poseidon2Huff.hash_2(x, y);
+
+        // All must match
+        assertEq(solidityResult, yulResult, "Solidity != Yul");
+        assertEq(solidityResult, yulLibResult, "Solidity != YulLib");
+        assertEq(solidityResult, huffResult, "Solidity != Huff");
+    }
+
+    function testFuzz_hash_3_all_implementations(uint256 x, uint256 y, uint256 z) public view {
+        // Bound inputs to valid field elements
+        x = bound(x, 0, Field.PRIME - 1);
+        y = bound(y, 0, Field.PRIME - 1);
+        z = bound(z, 0, Field.PRIME - 1);
+
+        // Get results from all implementations
+        uint256 solidityResult = poseidon2.hash_3(x.toField(), y.toField(), z.toField()).toUint256();
+        uint256 yulResult = poseidon2Yul.hash_3(x, y, z);
+        uint256 yulLibResult = LibPoseidon2Yul.hash_3(x, y, z);
+        uint256 huffResult = poseidon2Huff.hash_3(x, y, z);
+
+        // All must match
+        assertEq(solidityResult, yulResult, "Solidity != Yul");
+        assertEq(solidityResult, yulLibResult, "Solidity != YulLib");
+        assertEq(solidityResult, huffResult, "Solidity != Huff");
+    }
 }
