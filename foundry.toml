@@ -6,3 +6,7 @@ gas_reports = ["Poseidon2", "Poseidon2Yul", "Poseidon2Huff"]
 ffi = true
 solc_version = "0.8.30"
 evm_version = "cancun"
+
+[fuzz]
+runs = 10000
+max_test_rejects = 0

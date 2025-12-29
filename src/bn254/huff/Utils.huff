@@ -102,13 +102,15 @@
     // t1 = state2 + state3 (2/3 overflow)
     dup5 dup5 add           // [t1, t0, state0, state1, state2, state3, PRIME]
 
-    // t2 = 2*state1 + t1 (3/3 overflow - at limit!)
-    dup4 dup5 add           // [2*s1, t1, t0, state0, state1, state2, state3, PRIME]
-    dup2 add                // [t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t2 = 2*state1 + t1 (clean)
+    dup7                    // [PRIME, t1, t0, state0, state1, state2, state3, PRIME]
+    dup5 dup1 add           // [2*s1 (3/3), PRIME, t1, t0, state0, state1, state2, state3, PRIME]
+    dup3 addmod             // [t2, t1, t0, state0, state1, state2, state3, PRIME]
 
-    // t3 = 2*state3 + t0 (3/3 overflow - at limit!)
-    dup7 dup8 add           // [2*s3, t2, t1, t0, state0, state1, state2, state3, PRIME]
-    dup4 add                // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    // t3 = 2*state3 + t0 (clean)
+    dup8                    // [PRIME, t2, t1, t0, state0, state1, state2, state3, PRIME]
+    dup8 dup1 add           // [2*s3 (3/3), PRIME t2, t1, t0, state0, state1, state2, state3, PRIME]
+    dup5 addmod             // [t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
     dup9                    // [PRIME, t3, t2, t1, t0, state0, state1, state2, state3, PRIME]
 
@@ -288,6 +290,50 @@
 // ============================================================================
 
 #include "../../lib/huffmate/src/utils/Errors.huff"
+
+// For clean stack [a, b, c, d]
+#define macro CONSOLELOG4() = takes (4) returns (4) {
+    // Stack: [a, b, c, d]
+
+    // Load free memory pointer
+    0x100              // [ptr, a, b, c, d]
+
+    // Store selector at ptr: mstore(ptr, selector)
+    0x193fb800 0xe0 shl     // [selector, ptr, a, b, c, d]
+    dup2                    // [ptr, selector, ptr, a, b, c, d]
+    mstore                  // [ptr, a, b, c, d]
+
+    // Store a at ptr+0x04
+    dup2                    // [a, ptr, a, b, c, d]
+    dup2 0x04 add           // [ptr+0x04, a, ptr, a, b, c, d]
+    mstore                  // [ptr, a, b, c, d]
+
+    // Store b at ptr+0x24
+    dup3                    // [b, ptr, a, b, c, d]
+    dup2 0x24 add           // [ptr+0x24, b, ptr, a, b, c, d]
+    mstore                  // [ptr, a, b, c, d]
+
+    // Store c at ptr+0x44
+    dup4                    // [c, ptr, a, b, c, d]
+    dup2 0x44 add           // [ptr+0x44, c, ptr, a, b, c, d]
+    mstore                  // [ptr, a, b, c, d]
+
+    // Store d at ptr+0x64
+    dup5                    // [d, ptr, a, b, c, d]
+    dup2 0x64 add           // [ptr+0x64, d, ptr, a, b, c, d]
+    mstore                  // [ptr, a, b, c, d]
+
+    // staticcall(gas, console, ptr, 0x84, 0, 0)
+    0x00                    // [0, ptr, a, b, c, d]
+    0x00                    // [0, 0, ptr, a, b, c, d]
+    0x84                    // [0x84, 0, 0, ptr, a, b, c, d]
+    dup4                    // [ptr, 0x84, 0, 0, ptr, a, b, c, d]
+    0x000000000000000000636f6e736f6c652e6c6f67
+    gas                     // [gas, console, ptr, 0x84, 0, 0, ptr, a, b, c, d]
+    staticcall              // [success, ptr, a, b, c, d]
+    pop                     // [ptr, a, b, c, d]
+    pop                     // [a, b, c, d]
+}
 
 #define test TEST_SINGLE_BOX_0() = {
     SETUP()
