@@ -5,8 +5,8 @@ import { writeFileSync } from "fs";
 const rounds_f = 8;
 const rounds_p = 56;
 
-writeFileSync("src/yul/Poseidon2Yul.sol", yul_generate_contract());
-writeFileSync("src/yul/LibPoseidon2Yul.sol", yul_generate_library());
+writeFileSync("src/bn254/yul/Poseidon2Yul.sol", yul_generate_contract());
+writeFileSync("src/bn254/yul/LibPoseidon2Yul.sol", yul_generate_library());
 console.log(
   "Generated src/yul/Poseidon2Yul.sol and src/yul/Poseidon2YulLib.sol"
 );
@@ -20,7 +20,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 hash function optimized in Yul assembly
 /// @dev ABI-compatible with IPoseidon2 interface
 /// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
-contract Poseidon2Yul {
+contract Poseidon2Yul_BN254 {
     ${fallback_codegen()}
 }
 `;
