@@ -110,52 +110,53 @@ function poseidon2_rounds() {
             ${matrix_multiplication_4x4_dirty()}
 
             
-            // First set of external rounds
-            // 1st for-loop
+            // External rounds (first half)
             ${(() => {
               let code: string[] = [];
               let rf_first = rounds_f / 2;
               for (let r = 0; r < rf_first; r++) {
                 code.push(`
-                  state0 := add(state0, ${round_constant[r][0]})
-                  state1 := add(state1, ${round_constant[r][1]})
-                  state2 := add(state2, ${round_constant[r][2]})
-                  state3 := add(state3, ${round_constant[r][3]})
-                  ${s_box()}
-                  ${matrix_multiplication_4x4_dirty({
-                    output_clean_state: r == rf_first - 1,
-                  })}
+                  // Round ${r} (external)
+                  {
+                    state0 := add(state0, ${round_constant[r][0]})
+                    state1 := add(state1, ${round_constant[r][1]})
+                    state2 := add(state2, ${round_constant[r][2]})
+                    state3 := add(state3, ${round_constant[r][3]})
+                    ${s_box()}
+                    ${matrix_multiplication_4x4_dirty({
+                      output_clean_state: r == rf_first - 1,
+                    })}
+                  }
                 `);
               }
               return code.join("\n");
             })()}
 
             // Internal rounds
-            // 2nd for-loop
-            
             ${(() => {
               let code: string[] = [];
               let rf_first = rounds_f / 2;
               let p_end = rf_first + rounds_p;
               for (let r = rf_first; r < p_end; r++) {
                 code.push(`
-                  state0 := add(state0, ${round_constant[r][0]})
-                  ${single_box("state0")}
+                  // Round ${r} (internal)
+                  {
+                    state0 := add(state0, ${round_constant[r][0]})
+                    ${single_box("state0")}
 
-                  ${internal_m_multiplication(
-                    internal_matrix_diagonal[0],
-                    internal_matrix_diagonal[1],
-                    internal_matrix_diagonal[2],
-                    internal_matrix_diagonal[3]
-                  )}
+                    ${internal_m_multiplication(
+                      internal_matrix_diagonal[0],
+                      internal_matrix_diagonal[1],
+                      internal_matrix_diagonal[2],
+                      internal_matrix_diagonal[3]
+                    )}
+                  }
                 `);
               }
               return code.join("\n");
             })()}
 
-            // Remaining external rounds
-            // 3rd for-loop
-            
+            // External rounds (second half)
             ${(() => {
               let code: string[] = [];
               let rf_first = rounds_f / 2;
@@ -163,14 +164,17 @@ function poseidon2_rounds() {
               let num_rounds = rounds_f + rounds_p;
               for (let r = p_end; r < num_rounds; r++) {
                 code.push(`
-                    state0 := add(state0, ${round_constant[r][0]})
-                    state1 := add(state1, ${round_constant[r][1]})
-                    state2 := add(state2, ${round_constant[r][2]})
-                    state3 := add(state3, ${round_constant[r][3]})
-                    ${s_box()}
-                    ${matrix_multiplication_4x4_dirty({
-                      output_clean_state: false,
-                    })}
+                    // Round ${r} (external)
+                    {
+                      state0 := add(state0, ${round_constant[r][0]})
+                      state1 := add(state1, ${round_constant[r][1]})
+                      state2 := add(state2, ${round_constant[r][2]})
+                      state3 := add(state3, ${round_constant[r][3]})
+                      ${s_box()}
+                      ${matrix_multiplication_4x4_dirty({
+                        output_clean_state: false,
+                      })}
+                    }
                 `);
               }
               return code.join("\n");

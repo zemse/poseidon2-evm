@@ -30,6 +30,7 @@ function huff_generate() {
     for (let r = 0; r < rf_first; r++) {
       let is_last = r === rf_first - 1;
       code.push(`
+  // Round ${r} (external)
   ADD_CONSTANTS(
     ${round_constant[r][0]}, 
     ${round_constant[r][1]}, 
@@ -57,7 +58,7 @@ function huff_generate() {
     for (let r = rf_first; r < p_end; r++) {
       let is_last = r === p_end - 1;
       code.push(`
-
+  // Round ${r} (internal)
   ${round_constant[r][0]} addmod
   
   SINGLE_BOX()
@@ -87,6 +88,7 @@ function huff_generate() {
     let num_rounds = rounds_f + rounds_p;
     for (let r = p_end; r < num_rounds; r++) {
       code.push(`
+  // Round ${r} (external)
   ADD_CONSTANTS(
     ${round_constant[r][0]}, 
     ${round_constant[r][1]}, 
