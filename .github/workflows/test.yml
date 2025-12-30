@@ -22,10 +22,24 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check generated files are in sync
+        run: |
+          npx tsx generate-yul.ts
+          npx tsx generate-huff.ts
+          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul' and 'npm run generate:huff' and commit the changes." && exit 1)
+
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
+
+      - name: Check formatting
+        run: forge fmt --check
 
       - name: Run Forge build
         run: |
