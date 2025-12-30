@@ -1,69 +1,108 @@
-# poseidon2 for evm
+# Poseidon2 for EVM
 
-implementations of poseidon2 hash function (https://eprint.iacr.org/2023/323.pdf) in solidity, yul and huff.
+Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.iacr.org/2023/323.pdf) for the EVM. [Updates on TG](https://t.me/poseidon2_evm)
 
-> attention: code in this repository has not been reviewed for security
+## Implementation Details
 
-## install
+See impl-specific documentation:
 
-```
+- [BN254 (Rf=8, Rp=56)](src/bn254/README.md)
+
+> Goldilocks support is planned.
+
+## Gas Costs
+
+| Implementation | hash_1  | hash_2  | hash_3  | Notes                     |
+| -------------- | ------- | ------- | ------- | ------------------------- |
+| Solidity       | 264,090 | 264,836 | 265,733 | Reference implementation  |
+| Yul            | 20,304  | 20,304  | 20,304  | **Recommended** optimised |
+| Huff           | 14,845  | 14,845  | 14,845  | Heavy optimised           |
+
+It is recommended to use yul implementation.
+
+## Usage example
+
+### Recommended: Helper Library
+
+1. Install the dependency.
+
+```bash
+# Foundry
 forge install zemse/poseidon2-evm
+
+# npm
 npm install poseidon2-evm
 ```
 
-## usage
-
-contracts:
-
-- solidity: [Poseidon2.sol](./src/Poseidon2.sol)
-- yul: [Poseidon2Yul.sol](./src/Poseidon2Yul.sol)
-- huff: [Poseidon2.huff](./src/huff/Poseidon2.huff)
-
-any of the above contracts needs to be deployed on the network and then you can make calls to it. here is an example to hash two field elements:
+2. Import the file
 
 ```solidity
+import {Poseidon2} from "poseidon2-evm/src/bn254/Poseidon2.sol";
+
 contract MyContract {
-    function myFunction() external returns (uint256) {
-        uint256 result = 0xPoseidon2ContractAddress.call(
-            abi.encode(
-                0x1762d324c2db6a912e607fd09664aaa02dfe45b90711c0dae9627d62a4207788,
-                0x1047bd52da536f6bdd26dfe642d25d9092c458e64a78211298648e81414cbf35
-            )
-        );
-        return result;
+    function someWork() external {
+        uint left;
+        uint right;
+
+        // Default: calls the globally deployed Yul contract with checked input
+        uint result = Poseidon2.hash_2(left, right);
+    }
+
+    function someExperiment() external pure returns (uint256) {
+        uint left;
+        uint right;
+
+        // Explicitly use Huff contract (lowest gas, unchecked)
+        uint result = Poseidon2.hash_2_huff_unchecked(secret, nullifier);
     }
 }
 ```
 
-## notes
+### Alternative: Direct Interface
 
-solidity code is inefficient due to lot of memory usage and functions.
+Copy the interface into your project [IPoseidon2.sol](./src/IPoseidon2.sol) and use it.
 
-yul is generated using [yul-generator.ts](./yul-generator.ts) file and provides an inlined implementation that simply mutates 4 stack variables, uses no memory, which brings a lot of gas savings.
+```solidity
+interface IPoseidon2 {
+    function hash_2(uint256 x, uint256 y) external pure returns (uint256);
+}
 
-huff uses a dirty approach where SWAPs are avoided which leaves unused elements on stack. EVM allows the stack to grow upto 1024 until we run into stack overflow. for parameters (t=4, rf=8, rp=56), we would leave 4\*(8+56) = 256 garbage elements on stack which is much lower than 1024 limit. this is similar to how solidity keeps garbage data on memory.
+contract MyContract {
+    function someWork() external {
+        uint left;
+        uint right;
 
-## benchmarks
+        // Makes direct call to the contract. But you need to make sure inputs i.e.
+        // left & right are valid field elements (< PRIME).
+        uint result = IPoseidon2(0xDeployedAddress).hash_2(left, right);
+    }
+}
+```
 
-### huff
+## Deployed Contracts
 
-gas cost for hashing one, two or three elements: 14934
+Contracts are deployed with same address on all EVM networks.
 
-### yul benchmarks
+### BN254 (Rf=8, Rp=56)
 
-gas cost for hasing one, two or three elements: 27517
+| Implementation | Address |
+| -------------- | ------- |
+| Yul            | TODO    |
+| Huff           | TODO    |
 
-### solidity benchmarks
+## Development
 
-| num elements | est gas |
-| ------------ | ------- |
-| hash_1       | 219544  |
-| hash_2       | 220018  |
-| hash_3       | 220641  |
-| hash 4       | 416486  |
-| hash 5       | 417197  |
-| hash 6       | 417952  |
-| hash 7       | 604599  |
-| hash 8       | 605311  |
-| hash 9       | 606064  |
-| hash 10      | 792604  |
+- Run tests: forge test
+- Generate gas report: ./gas-report.sh
+- Generate yul code: npm run generate:yul
+- Generare huff code: npm run generate:huff
+
+Tests include correctness vectors, fuzz testing against the reference Solidity implementation, and overflow safety checks for the ADDMOD optimization.
+
+## Security
+
+**Not yet audited.** These implementations have not undergone a formal third-party security audit. Review the code before using in production. Also see [SECURITY.md](./SECURITY.md).
+
+## License
+
+MIT
