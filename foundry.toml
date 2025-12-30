@@ -6,6 +6,8 @@ gas_reports = ["Poseidon2", "Poseidon2Yul", "Poseidon2Huff"]
 ffi = true
 solc_version = "0.8.30"
 evm_version = "cancun"
+optimizer = true
+optimizer_runs = 1000000
 
 [fuzz]
 runs = 10000
