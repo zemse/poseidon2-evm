@@ -32,6 +32,11 @@ jobs:
         with:
           version: nightly
 
+      - name: Install Huff
+        uses: huff-language/huff-toolchain@v3
+        with:
+          version: nightly
+
       - name: Check formatting
         run: forge fmt --check
 
