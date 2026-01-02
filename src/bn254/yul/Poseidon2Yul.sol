@@ -22,16 +22,15 @@ contract Poseidon2Yul_BN254 {
             state2 := calldataload(0x44)
 
             // iv = number of arguments << 64
-            state3 :=
-                shl(
-                    64,
-                    // Here, number of args = (calldatasize - 4) / 32
-                    shr(
-                        5,
-                        // We ignore the selector and focus on how many abi encoded params available.
-                        sub(calldatasize(), 4)
-                    )
+            state3 := shl(
+                64,
+                // Here, number of args = (calldatasize - 4) / 32
+                shr(
+                    5,
+                    // We ignore the selector and focus on how many abi encoded params available.
+                    sub(calldatasize(), 4)
                 )
+            )
         }
 
         uint256 result = LibPoseidon2Yul.poseidon2_core(state0, state1, state2, state3);
