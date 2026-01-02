@@ -27,12 +27,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Check generated files are in sync
-        run: |
-          npx tsx generate-yul.ts
-          npx tsx generate-huff.ts
-          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul' and 'npm run generate:huff' and commit the changes." && exit 1)
-
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -40,6 +34,12 @@ jobs:
 
       - name: Check formatting
         run: forge fmt --check
+
+      - name: Check generated files are in sync
+        run: |
+          npm run generate:yul
+          npm run generate:huff
+          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff' and commit the changes." && exit 1)
 
       - name: Run Forge build
         run: |
