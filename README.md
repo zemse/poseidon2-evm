@@ -6,25 +6,24 @@ Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.ia
 
 See impl-specific documentation:
 
-- [BN254 (Rf=8, Rp=56)](src/bn254/README.md)
+- [BN254 (t=4, Rf=8, Rp=56)](src/bn254/README.md)
 
 > Goldilocks support is planned.
 
 ## Gas Costs
 
-| Implementation | hash_1  | hash_2  | hash_3  | Notes           |
-| -------------- | ------- | ------- | ------- | --------------- |
-| Yul            | 20,304  | 20,304  | 20,304  | Optimised       |
-| Huff           | 14,845  | 14,845  | 14,845  | Heavy optimised |
-| Solidity       | 264,090 | 264,836 | 265,733 | Reference impl  |
+| Implementation | hash_1 | hash_2 | hash_3 |
+| -------------- | ------ | ------ | ------ |
+| Yul            | 20,304 | 20,304 | 20,304 |
+| Huff           | 14,845 | 14,845 | 14,845 |
 
-It is recommended to use yul implementation. Huff is experimental.
+It is recommended to use Yul implementation. Huff is experimental. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
 
 ## Deployed Contracts
 
 Contracts are deployed with same address on popular EVM testnets.
 
-### BN254 (Rf=8, Rp=56)
+### BN254 (t=4, Rf=8, Rp=56)
 
 Both contracts have same interface [IPoseidon2](./src/IPoseidon2.sol).
 
