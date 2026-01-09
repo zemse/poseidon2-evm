@@ -1,6 +1,6 @@
 # Poseidon2 for EVM
 
-Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.iacr.org/2023/323.pdf) for the EVM. [Updates on TG](https://t.me/poseidon2_evm)
+Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.iacr.org/2023/323.pdf) for the EVM.
 
 ## Implementation Details
 
@@ -12,13 +12,28 @@ See impl-specific documentation:
 
 ## Gas Costs
 
-| Implementation | hash_1  | hash_2  | hash_3  | Notes                     |
-| -------------- | ------- | ------- | ------- | ------------------------- |
-| Solidity       | 264,090 | 264,836 | 265,733 | Reference implementation  |
-| Yul            | 20,304  | 20,304  | 20,304  | **Recommended** optimised |
-| Huff           | 14,845  | 14,845  | 14,845  | Heavy optimised           |
+| Implementation | hash_1  | hash_2  | hash_3  | Notes           |
+| -------------- | ------- | ------- | ------- | --------------- |
+| Yul            | 20,304  | 20,304  | 20,304  | Optimised       |
+| Huff           | 14,845  | 14,845  | 14,845  | Heavy optimised |
+| Solidity       | 264,090 | 264,836 | 265,733 | Reference impl  |
 
-It is recommended to use yul implementation.
+It is recommended to use yul implementation. Huff is experimental.
+
+## Deployed Contracts
+
+Contracts are deployed with same address on popular EVM testnets.
+
+### BN254 (Rf=8, Rp=56)
+
+Both contracts have same interface [IPoseidon2](./src/IPoseidon2.sol).
+
+| Implementation | Address                                    |
+| -------------- | ------------------------------------------ |
+| Yul            | 0xB25415b1512b1f179978b3028645Dbd6E1AaE20e |
+| Huff           | 0xB2541a90d8c72C6CfD85bC4E9e85B1595CAc00ff |
+
+_If you need help deploying the contract on new network, feel free to msg [@zemse](https://t.me/zemse)._
 
 ## Usage example
 
@@ -40,25 +55,28 @@ npm install poseidon2-evm
 import {Poseidon2} from "poseidon2-evm/src/bn254/Poseidon2.sol";
 
 contract MyContract {
-    function someWork() external {
+    function myFunction() external {
         uint left;
         uint right;
 
-        // Default: calls the globally deployed Yul contract with checked input
+        // Calls the globally deployed Yul contract
+        // Checks that left and right are valid field elements
         uint result = Poseidon2.hash_2(left, right);
     }
 
-    function someExperiment() external pure returns (uint256) {
+    function myFunction2() external pure returns (uint256) {
         uint left;
         uint right;
 
-        // Explicitly use Huff contract (lowest gas, unchecked)
+        // Explicitly use experimental Huff contract lowest gas
+        // Does not check if left and right are invalid field elements, this
+        // results incorrect hash value.
         uint result = Poseidon2.hash_2_huff_unchecked(secret, nullifier);
     }
 }
 ```
 
-### Alternative: Direct Interface
+### Advanced: Direct Interface
 
 Copy the interface into your project [IPoseidon2.sol](./src/IPoseidon2.sol) and use it.
 
@@ -68,27 +86,19 @@ interface IPoseidon2 {
 }
 
 contract MyContract {
-    function someWork() external {
+    function someFunction() external {
+        // yul contract is deployed on most testnets
+        address poseidon2addy = 0xB25415b1512b1f179978b3028645Dbd6E1AaE20e;
+
         uint left;
         uint right;
 
         // Makes direct call to the contract. But you need to make sure inputs i.e.
         // left & right are valid field elements (< PRIME).
-        uint result = IPoseidon2(0xDeployedAddress).hash_2(left, right);
+        uint result = IPoseidon2(poseidon2addy).hash_2(left, right);
     }
 }
 ```
-
-## Deployed Contracts
-
-Contracts are deployed with same address on all EVM networks.
-
-### BN254 (Rf=8, Rp=56)
-
-| Implementation | Address |
-| -------------- | ------- |
-| Yul            | TODO    |
-| Huff           | TODO    |
 
 ## Development
 
