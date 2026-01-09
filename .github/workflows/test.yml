@@ -32,6 +32,11 @@ jobs:
         with:
           version: nightly
 
+      - name: Install Huff
+        uses: huff-language/huff-toolchain@v3
+        with:
+          version: nightly
+
       - name: Check formatting
         run: forge fmt --check
 
@@ -55,6 +60,6 @@ jobs:
       - name: Check gas snapshots
         run: |
           cp gas-report gas-report.expected
-          ./gas_report.sh > gas-report.actual
+          ./gas-report.sh > gas-report.actual
           diff gas-report.expected gas-report.actual
         id: gas
