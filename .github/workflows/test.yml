@@ -60,6 +60,6 @@ jobs:
       - name: Check gas snapshots
         run: |
           cp gas-report gas-report.expected
-          ./gas-report.sh > gas-report.actual
-          diff gas-report.expected gas-report.actual
+          ./gas-report.sh
+          diff gas-report.expected gas-report
         id: gas
