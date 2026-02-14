@@ -97,7 +97,7 @@ function poseidon2_rounds() {
                       internal_matrix_diagonal[0],
                       internal_matrix_diagonal[1],
                       internal_matrix_diagonal[2],
-                      internal_matrix_diagonal[3]
+                      internal_matrix_diagonal[3],
                     )}
                   }
                 `);
@@ -157,7 +157,7 @@ function internal_m_multiplication(
   d0: string,
   d1: string,
   d2: string,
-  d3: string
+  d3: string,
 ): string {
   return `
     {

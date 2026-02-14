@@ -1,0 +1,6 @@
+# Dependencies
+lib/
+
+# Build artifacts
+out/
+cache/
