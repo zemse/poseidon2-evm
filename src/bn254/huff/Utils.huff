@@ -27,7 +27,7 @@
 /// @notice Absorb calldata inputs into sponge state for interface-compatible hashing
 /// @dev Supports IPoseidon2 interface: hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
 /// @dev Calldata layout: [4-byte selector][32-byte arg0][32-byte arg1][32-byte arg2]
-/// @dev User-supplied dirty calldata (>= PRIME) is acceptable; will be cleaned by S-box
+/// @dev Inputs are cleaned via mod PRIME to ensure proper field element values
 #define macro ABSORB_CALLDATA() = takes (1) returns (5) {
     // takes: [PRIME]
 
@@ -37,10 +37,16 @@
     0x5 shr                 // [(calldatasize - 4) / 32, PRIME]
     0x40 shl                // [iv, PRIME]
 
-    // Load inputs from calldata
-    0x44 calldataload       // [input2, iv, PRIME]
-    0x24 calldataload       // [input1, input2, iv, PRIME]
-    0x04 calldataload       // [input0, input1, input2, iv, PRIME]
+    // Load inputs from calldata and apply mod PRIME
+    dup2                    // [PRIME, iv, PRIME]
+    0x44 calldataload       // [input2, PRIME, iv, PRIME]
+    mod                     // [input2 % PRIME, iv, PRIME]
+    dup3                    // [PRIME, input2 % PRIME, iv, PRIME]
+    0x24 calldataload       // [input1, PRIME, input2 % PRIME, iv, PRIME]
+    mod                     // [input1 % PRIME, input2 % PRIME, iv, PRIME]
+    dup4                    // [PRIME, input1 % PRIME, input2 % PRIME, iv, PRIME]
+    0x04 calldataload       // [input0, PRIME, input1 % PRIME, input2 % PRIME, iv, PRIME]
+    mod                     // [input0 % PRIME, input1 % PRIME, input2 % PRIME, iv, PRIME]
     // returns: [state0, state1, state2, state3, PRIME]
 }
 

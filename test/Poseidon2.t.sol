@@ -200,6 +200,93 @@ contract Poseidon2Test is Test {
     }
 
     // ============================================================
+    // Input sanitization tests
+    // ============================================================
+
+    function test_input_sanitization() public view {
+        // Test that inputs >= PRIME are handled correctly
+        uint256 PRIME = Field.PRIME;
+
+        // Test input = PRIME (should be treated as 0)
+        {
+            uint256 result = poseidon2Yul.hash_1(PRIME);
+            uint256 expected = poseidon2Yul.hash_1(0);
+            assertEq(result, expected, "Yul: PRIME should equal 0");
+        }
+        {
+            uint256 result = poseidon2Huff.hash_1(PRIME);
+            uint256 expected = poseidon2Huff.hash_1(0);
+            assertEq(result, expected, "Huff: PRIME should equal 0");
+        }
+
+        // Test input = PRIME + 5 (should be treated as 5)
+        {
+            uint256 result = poseidon2Yul.hash_1(PRIME + 5);
+            uint256 expected = poseidon2Yul.hash_1(5);
+            assertEq(result, expected, "Yul: PRIME+5 should equal 5");
+        }
+        {
+            uint256 result = poseidon2Huff.hash_1(PRIME + 5);
+            uint256 expected = poseidon2Huff.hash_1(5);
+            assertEq(result, expected, "Huff: PRIME+5 should equal 5");
+        }
+
+        // Test input = type(uint256).max (should be treated as type(uint256).max % PRIME)
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Yul.hash_1(type(uint256).max);
+            uint256 expected = poseidon2Yul.hash_1(maxModPrime);
+            assertEq(result, expected, "Yul: uint256.max should equal max % PRIME");
+        }
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Huff.hash_1(type(uint256).max);
+            uint256 expected = poseidon2Huff.hash_1(maxModPrime);
+            assertEq(result, expected, "Huff: uint256.max should equal max % PRIME");
+        }
+
+        // Test hash_2 with mixed inputs
+        {
+            uint256 result = poseidon2Yul.hash_2(PRIME + 3, PRIME + 7);
+            uint256 expected = poseidon2Yul.hash_2(3, 7);
+            assertEq(result, expected, "Yul: hash_2 sanitization");
+        }
+        {
+            uint256 result = poseidon2Huff.hash_2(PRIME + 3, PRIME + 7);
+            uint256 expected = poseidon2Huff.hash_2(3, 7);
+            assertEq(result, expected, "Huff: hash_2 sanitization");
+        }
+
+        // Test hash_2 with type(uint256).max
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Yul.hash_2(type(uint256).max, type(uint256).max);
+            uint256 expected = poseidon2Yul.hash_2(maxModPrime, maxModPrime);
+            assertEq(result, expected, "Yul: hash_2 with uint256.max");
+        }
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Huff.hash_2(type(uint256).max, type(uint256).max);
+            uint256 expected = poseidon2Huff.hash_2(maxModPrime, maxModPrime);
+            assertEq(result, expected, "Huff: hash_2 with uint256.max");
+        }
+
+        // Test hash_3 with type(uint256).max
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Yul.hash_3(type(uint256).max, type(uint256).max, type(uint256).max);
+            uint256 expected = poseidon2Yul.hash_3(maxModPrime, maxModPrime, maxModPrime);
+            assertEq(result, expected, "Yul: hash_3 with uint256.max");
+        }
+        {
+            uint256 maxModPrime = type(uint256).max % PRIME;
+            uint256 result = poseidon2Huff.hash_3(type(uint256).max, type(uint256).max, type(uint256).max);
+            uint256 expected = poseidon2Huff.hash_3(maxModPrime, maxModPrime, maxModPrime);
+            assertEq(result, expected, "Huff: hash_3 with uint256.max");
+        }
+    }
+
+    // ============================================================
     // Variable length hashing tests
     // ============================================================
 
