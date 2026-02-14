@@ -23,10 +23,10 @@ library LibPoseidon2Yul {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
-            let state0 := s0
-            let state1 := s1
-            let state2 := s2
-            let state3 := s3
+            let state0 := mod(s0, PRIME)
+            let state1 := mod(s1, PRIME)
+            let state2 := mod(s2, PRIME)
+            let state3 := mod(s3, PRIME)
 
             // Apply 1st linear layer
 
