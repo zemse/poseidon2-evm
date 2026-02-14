@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "forge test",
+    "fmt": "prettier --write '**/*.{ts,js,json,md}' && forge fmt",
     "generate:yul": "npx tsx generate-yul.ts && forge fmt",
     "generate:huff": "npx tsx generate-huff.ts",
     "generate:gas-report": "./gas-report.sh"
@@ -28,5 +29,8 @@
     "out/Poseidon2.sol/Poseidon2_BN254.json",
     "out/Poseidon2Yul.sol/Poseidon2Yul_BN254.json",
     "out/LibPoseidon2Yul.sol/LibPoseidon2Yul.json"
-  ]
+  ],
+  "devDependencies": {
+    "prettier": "^3.8.1"
+  }
 }
