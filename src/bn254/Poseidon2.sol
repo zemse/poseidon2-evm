@@ -12,10 +12,10 @@ library Poseidon2 {
     uint256 internal constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 
     /// @notice Deployed Yul contract address (same on all networks)
-    address internal constant YUL = address(0); // TBD
+    address internal constant YUL = 0xB2542195Ad96AcfBC962C48A97D7640A9F5386D2;
 
     /// @notice Deployed Huff contract address (same on all networks)
-    address internal constant HUFF = address(0); // TBD
+    address internal constant HUFF = 0xB25421813D7d7B8001BB19d6b70642A277422eff;
 
     error ContractNotDeployed(address target);
     error InvalidFieldElement(uint256 value);

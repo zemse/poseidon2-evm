@@ -1,6 +1,6 @@
 {
   "name": "poseidon2-evm",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Solidity implementation of the Poseidon2 hash function for the EVM.",
   "repository": {
     "type": "git",
