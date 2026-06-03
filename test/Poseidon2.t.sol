@@ -118,6 +118,28 @@ contract Poseidon2Test is Test {
     }
 
     // ============================================================
+    // Regression: bug-report counterexamples (v1.0.0 overflow)
+    // ============================================================
+
+    /// @dev The published v1.0.0 Yul/Huff returned wrong hashes for these inputs
+    ///      due to a missing modular reduction (e.g. hash_2(13,14)). Lock in that
+    ///      every implementation now agrees with the reference for those exact cases.
+    function test_regression_overflow_counterexamples() public view {
+        uint256[2][5] memory pairs =
+            [[uint256(13), 14], [uint256(17), 18], [uint256(103), 104], [uint256(105), 106], [uint256(117), 118]];
+
+        for (uint256 i = 0; i < pairs.length; i++) {
+            uint256 a = pairs[i][0];
+            uint256 b = pairs[i][1];
+            uint256 expected = poseidon2.hash_2(a.toField(), b.toField()).toUint256();
+
+            assertEq(poseidon2Yul.hash_2(a, b), expected, "Yul regression");
+            assertEq(LibPoseidon2Yul.hash_2(a, b), expected, "YulLib regression");
+            assertEq(poseidon2Huff.hash_2(a, b), expected, "Huff regression");
+        }
+    }
+
+    // ============================================================
     // Test Vectors for hash_3
     // ============================================================
 

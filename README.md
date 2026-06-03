@@ -29,72 +29,28 @@ Both contracts have same interface [IPoseidon2](./src/IPoseidon2.sol).
 
 | Implementation | Address                                    |
 | -------------- | ------------------------------------------ |
-| Yul            | 0xB25415b1512b1f179978b3028645Dbd6E1AaE20e |
-| Huff           | 0xB2541a90d8c72C6CfD85bC4E9e85B1595CAc00ff |
+| Yul            | 0xB2542195Ad96AcfBC962C48A97D7640A9F5386D2 |
+| Huff           | 0xB25421813D7d7B8001BB19d6b70642A277422eff |
 
 _If you need help deploying the contract on new network, feel free to msg [@zemse](https://t.me/zemse)._
 
 ## Usage example
 
-### Recommended: Helper Library
-
-1. Install the dependency.
-
-```bash
-# Foundry
-forge install zemse/poseidon2-evm
-
-# npm
-npm install poseidon2-evm
-```
-
-2. Import the file
+Both contracts implement the [IPoseidon2](./src/IPoseidon2.sol) interface and are live at the same address on popular EVM networks (see [Deployed Contracts](#deployed-contracts) above). Inputs are reduced `mod PRIME` on-chain, so any `uint256` yields a correct, deterministic hash — just point the interface at the address and call it.
 
 ```solidity
-import {Poseidon2} from "poseidon2-evm/src/bn254/Poseidon2.sol";
-
-contract MyContract {
-    function myFunction() external {
-        uint left;
-        uint right;
-
-        // Calls the globally deployed Yul contract
-        // Checks that left and right are valid field elements
-        uint result = Poseidon2.hash_2(left, right);
-    }
-
-    function myFunction2() external pure returns (uint256) {
-        uint left;
-        uint right;
-
-        // Explicitly use experimental Huff contract lowest gas
-        // Does not check if left and right are invalid field elements, this
-        // results incorrect hash value.
-        uint result = Poseidon2.hash_2_huff_unchecked(secret, nullifier);
-    }
-}
-```
-
-### Advanced: Direct Interface
-
-Copy the interface into your project [IPoseidon2.sol](./src/IPoseidon2.sol) and use it.
-
-```solidity
+// Or import it instead: import {IPoseidon2} from "poseidon2-evm/src/IPoseidon2.sol";
 interface IPoseidon2 {
+    function hash_1(uint256 x) external pure returns (uint256);
     function hash_2(uint256 x, uint256 y) external pure returns (uint256);
+    function hash_3(uint256 x, uint256 y, uint256 z) external pure returns (uint256);
 }
 
 contract MyContract {
-    function someFunction() external {
-        // yul contract is deployed on most testnets
-        address poseidon2addy = 0xB25415b1512b1f179978b3028645Dbd6E1AaE20e;
+    IPoseidon2 constant POSEIDON2 = IPoseidon2(0xB2542195Ad96AcfBC962C48A97D7640A9F5386D2);
 
-        uint left;
-        uint right;
-
-        // Makes direct call to the contract. But you need to make sure inputs i.e.
-        // left & right are valid field elements (< PRIME).
-        uint result = IPoseidon2(poseidon2addy).hash_2(left, right);
+    function someFunction(uint256 left, uint256 right) external view {
+        uint256 result = POSEIDON2.hash_2(left, right);
     }
 }
 ```
