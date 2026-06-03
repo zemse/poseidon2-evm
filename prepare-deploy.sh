@@ -49,10 +49,14 @@ mkdir -p "$DEPLOY_DIR"
 
 if [ "$TYPE" = "huff" ]; then
     huffc ./src/$CURVE/huff/Poseidon2.huff -b > "$DEPLOY_DIR/Poseidon2huff.out"
+    # JSON wrapper for tools that require a Foundry-style artifact (e.g. eth-vanity create2)
+    printf '{"bytecode":{"object":"0x%s"}}' "$(cat "$DEPLOY_DIR/Poseidon2huff.out")" > "$DEPLOY_DIR/Poseidon2huff.json"
     echo "Deployment files prepared in $DEPLOY_DIR"
 elif [ "$TYPE" = "yul" ]; then
-    # Capitalize first letter of curve for the JSON filename
+    # Capitalize first letter of curve for the destination filename (deployed-artifacts convention)
     CURVE_UPPER="$(echo "${CURVE:0:1}" | tr '[:lower:]' '[:upper:]')${CURVE:1}"
-    cp "out/Poseidon2Yul.sol/Poseidon2Yul_${CURVE_UPPER}.json" "$DEPLOY_DIR/Poseidon2Yul_${CURVE_UPPER}.json"
+    # Forge emits the artifact with a fully-uppercased curve suffix (e.g. Poseidon2Yul_BN254)
+    CURVE_ARTIFACT="$(echo "$CURVE" | tr '[:lower:]' '[:upper:]')"
+    cp "out/Poseidon2Yul.sol/Poseidon2Yul_${CURVE_ARTIFACT}.json" "$DEPLOY_DIR/Poseidon2Yul_${CURVE_UPPER}.json"
     echo "Deployment files prepared in $DEPLOY_DIR"
 fi
