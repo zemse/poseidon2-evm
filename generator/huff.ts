@@ -46,8 +46,11 @@ export function renderEntry(params: Params): string {
   const loads: string[] = [];
   for (let i = t - 1; i >= 0; i--) {
     const off = i === 0 ? "0x0" : "0x" + (32 * i).toString(16);
+    // PRIME sits under the words loaded so far
+    const stack = Array.from({ length: t - i }, (_, k) => `s${i + k}`);
     loads.push(
-      `    dup1 ${off} calldataload mod`.padEnd(40) + ` // [s${i}, ..., PRIME]`,
+      `    dup${t - i} ${off} calldataload mod`.padEnd(40) +
+        ` // [${stack.join(", ")}, PRIME]`,
     );
   }
   const stores: string[] = [];

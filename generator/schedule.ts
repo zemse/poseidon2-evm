@@ -747,8 +747,16 @@ export function buildBest(
     }
   }
   if (!best) {
+    const reasons = new Map<string, number>();
+    for (const f of failures) {
+      const reason = f.slice(f.indexOf("}: ") + 3);
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    }
+    const summary = [...reasons].map(([r, n]) => `${n}x ${r}`).join("\n  ");
     throw new Error(
-      `no schedule works for t = ${params.t}:\n  ${failures.join("\n  ")}`,
+      `no stack-only schedule works for t = ${params.t} ` +
+        `(${candidates.length} option combinations tried, ` +
+        `stack-only supports t <= 12):\n  ${summary}`,
     );
   }
   return { ...best, failures };
