@@ -60,7 +60,7 @@ export type BuildResult = {
   pops: number;
 };
 
-export const DIAG_MEMORY_BASE = 0x80;
+export const DIAG_MEMORY_BASE = 0;
 
 class Builder {
   readonly e: Emitter;
