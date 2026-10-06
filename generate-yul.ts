@@ -1,4 +1,4 @@
-import { round_constant, internal_matrix_diagonal } from "./constants";
+import { round_constant, internal_matrix_diagonal } from "./constants.ts";
 // @ts-ignore import fs require type declarations
 import { writeFileSync } from "fs";
 

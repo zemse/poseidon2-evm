@@ -21,9 +21,9 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 
 | Implementation  | hash_1  | hash_2  | hash_3  |
 | --------------- | ------- | ------- | ------- |
-| Pure Solidity   | 264,090 | 264,836 | 265,733 |
-| Yul (contract)  | 20,304  | 20,304  | 20,304  |
-| Huff (contract) | 14,845  | 14,845  | 14,845  |
+| Pure Solidity   | 217,702 | 218,222 | 218,801 |
+| Yul (contract)  | 19,639  | 19,639  | 19,639  |
+| Huff (contract) | 12,558  | 12,558  | 12,558  |
 
 ## Recommendation
 
@@ -58,7 +58,30 @@ The EVM has a stack limit of 1024. Hence, compilers are designed to avoid runnin
 
 However, it is cheaper to not rearrange elements on the stack and instead `DUP`licate them in the order we want. This works when we are working with fewer than 16 variables (including temporary) because we have `DUP1` to `DUP16`.
 
-This instance of Poseidon2 has 64 total rounds. There are 8 rounds that do `MATRIX_MULTIPLICATION_4X4` and each pushes 19 elements on the stack. The 56 internal rounds each push 7 elements on the stack. It can be estimated that the stack height reaches 549 for these Poseidon2 parameters.
+This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 dead values on the stack and each internal round 6, so the stack height reaches 456 for t = 4. For t = 12 the generator reclaims dead slots with `SWAP` + `POP` because the 1024 limit would otherwise be hit.
+
+### Huff Generator
+
+`generate-huff.ts` (modules in `generator/`) builds the Huff permutation for a state width t:
+
+- `params.ts` ports the HorizenLabs `poseidon2_rust_params.sage` script: round numbers, Grain LFSR round constants and the internal matrix diagonal with its minimal polynomial check. `test-reference.ts` checks t = 4 against `constants.ts` and the Barretenberg KAT, t = 3 against the HorizenLabs instance, and the round numbers against the paper.
+- `reference.ts` is the BigInt reference permutation.
+- `emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs.
+- `schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits.
+
+Generated permutations for t other than 4 live in `huff/t<t>/` with an entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`.
+
+| t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes |
+| --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- |
+| 2   | 8   | 56  | 6,463           | 6,515    | 276             | 13      | 4,032         |
+| 3   | 8   | 56  | 8,049           | 8,124    | 351             | 15      | 4,743         |
+| 4   | 8   | 56  | 12,480          | 12,558   | 456             | 16      | 13,192        |
+| 8   | 8   | 57  | 25,719          | 25,909   | 889             | 16      | 14,394        |
+| 12  | 8   | 57  | 43,912          | 44,194   | 274             | 16      | 23,646        |
+
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator refuses it. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the 24,576 byte code size limit.
+
+Only t = 4 and t = 3 have independently published constants (Barretenberg and HorizenLabs). The constants for t = 2, 8 and 12 are derived by the same port and are only as trustworthy as it.
 
 ## Security Considerations
 

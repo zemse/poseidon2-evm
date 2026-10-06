@@ -14,8 +14,8 @@ See impl-specific documentation:
 
 | Implementation | hash_1 | hash_2 | hash_3 |
 | -------------- | ------ | ------ | ------ |
-| Yul            | 20,304 | 20,304 | 20,304 |
-| Huff           | 14,845 | 14,845 | 14,845 |
+| Yul            | 19,639 | 19,639 | 19,639 |
+| Huff           | 12,558 | 12,558 | 12,558 |
 
 It is recommended to use Yul implementation. Huff is experimental. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
 
@@ -60,7 +60,9 @@ contract MyContract {
 - Run tests: forge test
 - Generate gas report: ./gas-report.sh
 - Generate yul code: npm run generate:yul
-- Generare huff code: npm run generate:huff
+- Generate huff code: npm run generate:huff (or `node generate-huff.ts <t>` for one state width, node 24+)
+
+The Huff generator derives the Poseidon2 parameters for any supported state width t (2, 3, 4, 8, 12) the same way as the reference sage script, then emits a stack schedule that it simulates and checks against a BigInt reference permutation before writing anything. See [src/bn254/README.md](src/bn254/README.md#huff-generator).
 
 Tests include correctness vectors, fuzz testing against the reference Solidity implementation, and overflow safety checks for the ADDMOD optimization.
 
