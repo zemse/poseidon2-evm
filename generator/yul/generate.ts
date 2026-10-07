@@ -26,7 +26,10 @@ import {
 // Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
 // via-IR): locals up to the DUP16 / SWAP16 reach, diag constants moved to
 // memory only as far as the 24,576 byte code size of a contract using the
-// library requires.
+// library requires. From t = 16 the permutation alone exceeds that size, so
+// those widths are generated for experiments only (their tests need
+// FOUNDRY_CODE_SIZE_LIMIT raised and have no Huff permutation to fuzz
+// against).
 function layoutFor(t: number): Layout {
   if (t <= 4) {
     return { stackElements: t, diagInMemory: 0, m4Temps: 4, ssa: true };
@@ -37,7 +40,7 @@ function layoutFor(t: number): Layout {
   if (t === 12) {
     return { stackElements: 12, diagInMemory: 10, m4Temps: 2, ssa: false };
   }
-  return { stackElements: 12, diagInMemory: t, m4Temps: 2, ssa: false };
+  return { stackElements: 11, diagInMemory: t, m4Temps: 2, ssa: false };
 }
 
 function generate(t: number) {
@@ -69,11 +72,16 @@ function generate(t: number) {
     output: permutation(params, input),
   }));
   const test = `test/Poseidon2YulT${t}.t.sol`;
-  writeFileSync(test, renderForgeTest(params, vectors));
+  writeFileSync(test, renderForgeTest(params, vectors, t <= 12));
   console.log(
     `t=${t} Rf=${params.roundsF} Rp=${params.roundsP}: ${layout.stackElements} locals, ` +
       `${layout.diagInMemory} diag constants in memory, wrote ${lib}, ${test}`,
   );
+  if (t > 12) {
+    console.log(
+      `  t=${t} exceeds the 24,576 byte code size limit; run its test with FOUNDRY_CODE_SIZE_LIMIT=100000`,
+    );
+  }
 }
 
 const widths = process.argv.slice(2).map(Number);

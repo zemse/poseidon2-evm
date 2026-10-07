@@ -81,7 +81,12 @@ ${result.lines.join("\n")}
 
 export type Vector = { input: bigint[]; output: bigint[] };
 
-export function renderForgeTest(params: Params, vectors: Vector[]): string {
+// withHuff adds a fuzz test against the Huff permutation of the same width.
+export function renderForgeTest(
+  params: Params,
+  vectors: Vector[],
+  withHuff: boolean,
+): string {
   const { t } = params;
   const lib = libraryName(t);
   const wrapper = `Poseidon2YulT${t}`;
@@ -102,8 +107,7 @@ export function renderForgeTest(params: Params, vectors: Vector[]): string {
   return `${HEADER}pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
-import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
-import {${lib}} from "../src/bn254/yul/t${t}/${lib}.sol";
+${withHuff ? 'import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";\n' : ""}import {${lib}} from "../src/bn254/yul/t${t}/${lib}.sol";
 
 /// @notice Deployed in the test so the gas and code size of a contract using the library are measured
 contract ${wrapper} {
@@ -118,23 +122,25 @@ contract ${wrapper}Test is Test {
     uint256 constant PRIME = ${hex(PRIME)};
 
     ${wrapper} private perm;
-    address private huff;
-
+${withHuff ? `    address private huff;\n` : ""}
     function setUp() public {
         perm = new ${wrapper}();
-        huff = HuffDeployer.deploy("bn254/huff/t${t}/Poseidon2");
-    }
+${withHuff ? `        huff = HuffDeployer.deploy("bn254/huff/t${t}/Poseidon2");\n` : ""}    }
 
     function _permute(uint256[${t}] memory input) internal view returns (uint256[${t}] memory) {
         return perm.permute(input);
     }
-
+${
+  withHuff
+    ? `
     function _permuteHuff(uint256[${t}] memory input) internal view returns (uint256[${t}] memory out) {
         (bool ok, bytes memory ret) = huff.staticcall(abi.encode(input));
         require(ok, "huff permutation call failed");
         out = abi.decode(ret, (uint256[${t}]));
     }
-
+`
+    : ""
+}
     function assertEq(uint256[${t}] memory a, uint256[${t}] memory b, string memory err) internal pure {
         for (uint256 i = 0; i < ${t}; i++) {
             assertEq(a[i], b[i], err);
@@ -157,12 +163,16 @@ ${cases}
         }
         assertEq(_permute(a), _permute(b), "sanitization max");
     }
-
+${
+  withHuff
+    ? `
     /// @dev the Yul and Huff permutations of the same width must agree on any input
     /// forge-config: default.fuzz.runs = 1000
     function testFuzz_matches_huff(uint256[${t}] memory input) public view {
         assertEq(_permute(input), _permuteHuff(input), "yul != huff");
     }
-}
+`
+    : ""
+}}
 `;
 }

@@ -108,8 +108,15 @@ class Builder {
     else this.p.block(f);
   }
 
-  addr(i: number): string {
-    return i === 0 ? "state" : `add(state, 0x${(32 * i).toString(16)})`;
+  // address of element i in the state array; `mem` aliases `state` once
+  // the locals are declared, because the function argument sits under all
+  // of them and would be out of reach
+  addr(i: number, base = "mem"): string {
+    return i === 0 ? base : `add(${base}, 0x${(32 * i).toString(16)})`;
+  }
+
+  get inMemory(): number {
+    return this.t - this.layout.stackElements;
   }
 
   set(i: number, v: Value, base = "s"): Value {
@@ -123,21 +130,27 @@ class Builder {
     return this.state[i];
   }
 
-  // Locals are stack slots in declaration order: state0 is the deepest.
-  // Anything else (temporaries, loads, expressions) is within easy reach.
+  // Locals are stack slots in declaration order: state0 is the deepest,
+  // then the `mem` pointer that loads of memory elements go through.
+  // Anything else (temporaries, expressions) is within easy reach.
   rank(v: Value): number {
     const m = /^(?:state|s)(\d+)/.exec(v.name);
-    return m && this.isLocal(Number(m[1])) ? Number(m[1]) : Infinity;
+    if (m && this.isLocal(Number(m[1]))) return Number(m[1]);
+    if (v.name.startsWith("mload(mem") || v.name.startsWith("mload(add(mem"))
+      return this.layout.stackElements;
+    return Infinity;
   }
 
   // Whether v can be DUPed with `intermediates` values pushed above the
   // live lets. Locals sit under every later let (PRIME, the diag table
-  // pointer, temporaries); ssa values are always recent.
+  // pointer, temporaries); a memory element also pushes its offset before
+  // `mem` is read; ssa values are always recent.
   reachable(v: Value, intermediates: number): boolean {
     const i = this.rank(v);
     if (this.layout.ssa || i === Infinity) return true;
+    const offset = i === this.layout.stackElements ? 1 : 0;
     const above = this.p.live - 1 - i;
-    return above + intermediates + 1 <= 16;
+    return above + intermediates + offset + 1 <= 16;
   }
 
   // ---- arithmetic ----------------------------------------------------------
@@ -197,13 +210,19 @@ class Builder {
       window = [];
     };
     // intermediates on the stack when operand j of a window of n is read:
-    // the operands outside it, plus PRIME for each reducing step from j out
-    const fits = (w: { v: Value; reduce: boolean }[]) =>
-      w.every(({ v }, j) => {
-        const outer = w.slice(j);
-        const reductions = outer.filter((o) => o.reduce).length;
-        return this.reachable(v, outer.length - 1 + reductions);
-      });
+    // the operands outside it, plus PRIME for each reducing step from j out.
+    // The first value of the chain is innermost of all and read last.
+    const fits = (w: { v: Value; reduce: boolean }[]) => {
+      const reach = (v: Value, outer: { reduce: boolean }[], own: number) =>
+        this.reachable(
+          v,
+          outer.length - own + outer.filter((o) => o.reduce).length,
+        );
+      return (
+        (acc === variable || reach(acc!, w, 0)) &&
+        w.every(({ v }, j) => reach(v, w.slice(j), 1))
+      );
+    };
     for (let j = 0; j < order.length; j++) {
       const v = order[j];
       if (acc === undefined) {
@@ -407,18 +426,19 @@ class Builder {
     const prime = this.layout.ssa
       ? p.let("PRIME", p.constant(PRIME))
       : p.constant(PRIME);
-    for (let i = 0; i < t; i++) {
-      const vals = this.inputs.map((input) => input[i]);
-      const raw =
-        this.mode.kind === "hash"
-          ? p.input(`s${i}`, vals)
-          : p.input(`mload(${this.addr(i)})`, vals);
-      const reduced = p.expr("mod", raw, prime);
-      this.state[i] = this.isLocal(i)
-        ? p.let(this.name(i), reduced)
-        : p.mstore(this.addr(i), reduced);
+    const raw = (i: number) =>
+      p.input(
+        this.mode.kind === "hash" ? `s${i}` : `mload(${this.addr(i, "state")})`,
+        this.inputs.map((input) => input[i]),
+      );
+    for (let i = 0; i < this.layout.stackElements; i++) {
+      this.state[i] = p.let(this.name(i), p.expr("mod", raw(i), prime));
     }
+    if (this.inMemory > 0) p.let("mem", p.input("state", []));
     if (!this.layout.ssa) p.let("PRIME", prime);
+    for (let i = this.layout.stackElements; i < t; i++) {
+      this.state[i] = p.mstore(this.addr(i), p.expr("mod", raw(i), this.P));
+    }
     p.blank();
 
     p.comment("initial linear layer");
@@ -474,9 +494,9 @@ class Builder {
     if (this.mode.kind === "hash") {
       p.assign("result", this.state[0]);
     } else {
-      for (let i = 0; i < t; i++) {
-        if (!this.isLocal(i)) continue;
-        p.line(`mstore(${this.addr(i)}, ${this.state[i].name})`);
+      for (let i = 0; i < this.layout.stackElements; i++) {
+        const base = this.inMemory > 0 ? "mem" : "state";
+        p.line(`mstore(${this.addr(i, base)}, ${this.state[i].name})`);
       }
     }
 
