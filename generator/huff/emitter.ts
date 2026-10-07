@@ -1,39 +1,16 @@
 // Huff emitter backed by a symbolic stack simulator.
 //
-// Every stack slot holds a Value. A Value carries an exact upper bound
-// (inclusive, as a BigInt) so the schedule can choose ADD over ADDMOD only
-// when the sum provably fits in uint256, plus one concrete evaluation per test
-// vector so the emitted stream is checked against the reference before any
-// file is written. The emitter also records gas, maximum depth, maximum DUP
-// index and bytecode size, and refuses any DUP or SWAP deeper than 16.
+// Every stack slot holds a Value (../value.ts). A Value carries an exact upper
+// bound (inclusive, as a BigInt) so the schedule can choose ADD over ADDMOD
+// only when the sum provably fits in uint256, plus one concrete evaluation per
+// test vector so the emitted stream is checked against the reference before
+// any file is written. The emitter also records gas, maximum depth, maximum
+// DUP index and bytecode size, and refuses any DUP or SWAP deeper than 16.
 
 import { PRIME, UINT256_MAX, hex } from "../field.ts";
+import { ARITY, Value, applyOp, type Op } from "../value.ts";
 
-export class Value {
-  private static counter = 0;
-  readonly id: number;
-  readonly bound: bigint;
-  readonly vals: bigint[];
-  readonly constant: bigint | undefined;
-  name: string;
-
-  constructor(name: string, bound: bigint, vals: bigint[], constant?: bigint) {
-    this.id = Value.counter++;
-    this.name = name;
-    this.bound = bound;
-    this.vals = vals;
-    this.constant = constant;
-    if (bound > UINT256_MAX) throw new Error(`bound overflow for ${name}`);
-    for (const v of vals) {
-      if (v > bound)
-        throw new Error(`concrete value exceeds bound for ${name}`);
-    }
-  }
-
-  get isPrime(): boolean {
-    return this.constant === PRIME;
-  }
-}
+export { Value, type Op };
 
 export const GAS = {
   push0: 2,
@@ -47,16 +24,6 @@ export const GAS = {
   mulmod: 8,
   mod: 5,
 } as const;
-
-export type Op = "add" | "mul" | "addmod" | "mulmod" | "mod";
-
-const ARITY: Record<Op, number> = {
-  add: 2,
-  mul: 2,
-  addmod: 3,
-  mulmod: 3,
-  mod: 2,
-};
 
 // Marks an operand the caller expects to already sit at its final position
 // (it gets consumed in place). Other operands are duplicated or pushed.
@@ -268,59 +235,9 @@ export class Emitter {
   }
 
   private apply(op: Op, args: Value[], name: string): Value {
-    const [a, b, n] = args;
-    const each = (f: (i: number) => bigint) =>
-      Array.from({ length: this.vectors }, (_, i) => f(i));
-    switch (op) {
-      case "add": {
-        const bound = a.bound + b.bound;
-        if (bound > UINT256_MAX) {
-          throw new Error(`add overflow: ${a.name} + ${b.name}`);
-        }
-        this.opcode("add", GAS.add, 1);
-        return new Value(
-          name,
-          bound,
-          each((i) => a.vals[i] + b.vals[i]),
-        );
-      }
-      case "mul": {
-        const bound = a.bound * b.bound;
-        if (bound > UINT256_MAX) {
-          throw new Error(`mul overflow: ${a.name} * ${b.name}`);
-        }
-        this.opcode("mul", GAS.mul, 1);
-        return new Value(
-          name,
-          bound,
-          each((i) => a.vals[i] * b.vals[i]),
-        );
-      }
-      case "addmod":
-        if (!n.isPrime) throw new Error("addmod modulus must be PRIME");
-        this.opcode("addmod", GAS.addmod, 1);
-        return new Value(
-          name,
-          PRIME - 1n,
-          each((i) => (a.vals[i] + b.vals[i]) % PRIME),
-        );
-      case "mulmod":
-        if (!n.isPrime) throw new Error("mulmod modulus must be PRIME");
-        this.opcode("mulmod", GAS.mulmod, 1);
-        return new Value(
-          name,
-          PRIME - 1n,
-          each((i) => (a.vals[i] * b.vals[i]) % PRIME),
-        );
-      case "mod":
-        if (!b.isPrime) throw new Error("mod modulus must be PRIME");
-        this.opcode("mod", GAS.mod, 1);
-        return new Value(
-          name,
-          PRIME - 1n,
-          each((i) => a.vals[i] % PRIME),
-        );
-    }
+    const result = applyOp(op, args, name, this.vectors);
+    this.opcode(op, GAS[op], 1);
+    return result;
   }
 
   // True when a + b can be emitted as a plain ADD.
