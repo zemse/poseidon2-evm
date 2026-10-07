@@ -9,9 +9,9 @@
 // an entry contract and a Foundry test.
 
 import { mkdirSync, writeFileSync } from "fs";
-import { PRIME, mod } from "../field.ts";
 import { generateParams } from "../params.ts";
 import { permutation } from "../reference.ts";
+import { testInputs } from "../vectors.ts";
 import { buildBest } from "./schedule.ts";
 import {
   renderEntry,
@@ -23,32 +23,6 @@ import {
 const CODE_SIZE_LIMIT = 24576;
 // entry contract (calldata loads, stores, return) plus Utils.huff constants
 const ENTRY_OVERHEAD = 12 * 12 + 64;
-
-// deterministic 256-bit values from a splitmix64 stream
-function prng(seed: bigint): () => bigint {
-  let s = seed;
-  const next64 = () => {
-    s = (s + 0x9e3779b97f4a7c15n) & 0xffffffffffffffffn;
-    let z = s;
-    z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & 0xffffffffffffffffn;
-    z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & 0xffffffffffffffffn;
-    return z ^ (z >> 31n);
-  };
-  return () =>
-    mod((next64() << 192n) | (next64() << 128n) | (next64() << 64n) | next64());
-}
-
-function testInputs(t: number): bigint[][] {
-  const rand = prng(BigInt(t));
-  const inputs = [
-    Array.from({ length: t }, (_, i) => BigInt(i)),
-    new Array(t).fill(0n),
-    new Array(t).fill(PRIME - 1n),
-    Array.from({ length: t }, (_, i) => PRIME - 1n - BigInt(i)),
-  ];
-  for (let k = 0; k < 4; k++) inputs.push(Array.from({ length: t }, rand));
-  return inputs;
-}
 
 function generate(t: number) {
   const params = generateParams(t);
