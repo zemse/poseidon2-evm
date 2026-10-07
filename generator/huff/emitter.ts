@@ -20,6 +20,7 @@ export const GAS = {
   pop: 2,
   add: 3,
   mul: 5,
+  shl: 3,
   addmod: 8,
   mulmod: 8,
   mod: 5,

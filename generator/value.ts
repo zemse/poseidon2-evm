@@ -35,18 +35,20 @@ export class Value {
   }
 }
 
-export type Op = "add" | "mul" | "addmod" | "mulmod" | "mod";
+export type Op = "add" | "mul" | "shl" | "addmod" | "mulmod" | "mod";
 
 export const ARITY: Record<Op, number> = {
   add: 2,
   mul: 2,
+  shl: 2,
   addmod: 3,
   mulmod: 3,
   mod: 2,
 };
 
-// Result of op on args (first operand first), with the bound of the result
-// and its concrete value for each of the `vectors` test inputs.
+// Result of op on args (first operand first, so shl takes the constant shift
+// first like the opcode), with the bound of the result and its concrete value
+// for each of the `vectors` test inputs.
 export function applyOp(
   op: Op,
   args: Value[],
@@ -77,6 +79,19 @@ export function applyOp(
         name,
         bound,
         each((i) => a.vals[i] * b.vals[i]),
+      );
+    }
+    case "shl": {
+      if (a.constant === undefined)
+        throw new Error("shl needs a constant shift");
+      const bound = b.bound << a.constant;
+      if (bound > UINT256_MAX) {
+        throw new Error(`shl overflow: ${b.name} << ${a.name}`);
+      }
+      return new Value(
+        name,
+        bound,
+        each((i) => b.vals[i] << a.constant!),
       );
     }
     case "addmod":
