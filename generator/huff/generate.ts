@@ -1,24 +1,24 @@
 // Generates the Poseidon2 BN254 Huff permutation for a state width t.
 //
-//   node generate-huff.ts [t ...]      (default: 4)
+//   node generator/huff/generate.ts [t ...]      (default: 4)
 //
-// Parameters are derived like the HorizenLabs sage script (generator/params.ts),
+// Parameters are derived like the HorizenLabs sage script (../params.ts),
 // the stack schedule is simulated and checked against the BigInt reference
-// permutation before anything is written (generator/schedule.ts). t = 4 goes to
+// permutation before anything is written (schedule.ts). t = 4 goes to
 // src/bn254/huff/Permutation.huff, other widths get their own directory with
 // an entry contract and a Foundry test.
 
 import { mkdirSync, writeFileSync } from "fs";
-import { PRIME, mod } from "./generator/field.ts";
-import { generateParams } from "./generator/params.ts";
-import { permutation } from "./generator/reference.ts";
-import { buildBest } from "./generator/schedule.ts";
+import { PRIME, mod } from "../field.ts";
+import { generateParams } from "../params.ts";
+import { permutation } from "../reference.ts";
+import { buildBest } from "./schedule.ts";
 import {
   renderEntry,
   renderForgeTest,
   renderPermutation,
   type Vector,
-} from "./generator/huff.ts";
+} from "./render.ts";
 
 const CODE_SIZE_LIMIT = 24576;
 // entry contract (calldata loads, stores, return) plus Utils.huff constants

@@ -62,12 +62,12 @@ This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 de
 
 ### Huff Generator
 
-`generate-huff.ts` (modules in `generator/`) builds the Huff permutation for a state width t:
+`generator/huff/generate.ts` (shared modules in `generator/`, Huff-specific ones in `generator/huff/`) builds the Huff permutation for a state width t:
 
 - `params.ts` ports the HorizenLabs `poseidon2_rust_params.sage` script: round numbers, Grain LFSR round constants and the internal matrix diagonal with its minimal polynomial check. `test-reference.ts` checks t = 4 against `constants.ts` and the Barretenberg KAT, t = 3 against the HorizenLabs instance, and the round numbers against the paper.
 - `reference.ts` is the BigInt reference permutation.
-- `emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs.
-- `schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits.
+- `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs.
+- `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits.
 
 Generated permutations for t other than 4 live in `huff/t<t>/` with an entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`.
 

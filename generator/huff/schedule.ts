@@ -13,9 +13,9 @@
 // of pre-placed ADDMOD operands.
 
 import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
-import { PRIME, UINT256_MAX } from "./field.ts";
-import type { Params } from "./params.ts";
-import { permutation } from "./reference.ts";
+import { PRIME, UINT256_MAX } from "../field.ts";
+import type { Params } from "../params.ts";
+import { permutation } from "../reference.ts";
 
 export type BuildOptions = {
   // keep the internal diag constants in memory instead of PUSH32 (t >= 4)

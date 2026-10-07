@@ -1,6 +1,10 @@
 # Huff Generator
 
-`node generate-huff.ts [t ...]` builds the Poseidon2 BN254 Huff permutation for a state width t (2, 3, 4, 8, 12).
+`node generator/huff/generate.ts [t ...]` builds the Poseidon2 BN254 Huff permutation for a state width t (2, 3, 4, 8, 12).
+
+- `field.ts`, `params.ts`, `reference.ts`: shared by both generators (field arithmetic, parameter derivation, BigInt reference permutation). `test-reference.ts` checks them.
+- `huff/`: `generate.ts` (CLI), `schedule.ts`, `emitter.ts`, `render.ts`.
+- `yul/`: `generate.ts`, writes `src/bn254/yul/LibPoseidon2Yul.sol`.
 
 ## Evidence that the output matches other implementations
 

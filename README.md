@@ -60,7 +60,7 @@ contract MyContract {
 - Run tests: forge test
 - Generate gas report: ./gas-report.sh
 - Generate yul code: npm run generate:yul
-- Generate huff code: npm run generate:huff (or `node generate-huff.ts <t>` for one state width, node 24+)
+- Generate huff code: npm run generate:huff (or `node generator/huff/generate.ts <t>` for one state width, node 24+)
 
 The Huff generator derives the Poseidon2 parameters for any supported state width t (2, 3, 4, 8, 12) the same way as the reference sage script, then emits a stack schedule that it simulates and checks against a BigInt reference permutation before writing anything. See [src/bn254/README.md](src/bn254/README.md#huff-generator).
 

@@ -7,7 +7,7 @@
 // file is written. The emitter also records gas, maximum depth, maximum DUP
 // index and bytecode size, and refuses any DUP or SWAP deeper than 16.
 
-import { PRIME, UINT256_MAX, hex } from "./field.ts";
+import { PRIME, UINT256_MAX, hex } from "../field.ts";
 
 export class Value {
   private static counter = 0;

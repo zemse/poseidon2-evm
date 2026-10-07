@@ -10,8 +10,8 @@
   "scripts": {
     "test": "forge test",
     "fmt": "prettier --write '**/*.{ts,js,json,md}' && forge fmt",
-    "generate:yul": "node generate-yul.ts && forge fmt",
-    "generate:huff": "node generate-huff.ts 2 3 4 8 12 && forge fmt",
+    "generate:yul": "node generator/yul/generate.ts && forge fmt",
+    "generate:huff": "node generator/huff/generate.ts 2 3 4 8 12 && forge fmt",
     "generate:gas-report": "./gas-report.sh"
   },
   "keywords": [
