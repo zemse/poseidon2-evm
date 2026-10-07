@@ -1,10 +1,12 @@
-# Huff Generator
+# Generators
 
-`node generator/huff/generate.ts [t ...]` builds the Poseidon2 BN254 Huff permutation for a state width t (2, 3, 4, 8, 12).
+`node generator/huff/generate.ts [t ...]` builds the Poseidon2 BN254 Huff permutation and `node generator/yul/generate.ts [t ...]` the Yul library for a state width t (2, 3, 4, 8, 12).
 
-- `field.ts`, `params.ts`, `reference.ts`: shared by both generators (field arithmetic, parameter derivation, BigInt reference permutation). `test-reference.ts` checks them.
+- `field.ts`, `params.ts`, `reference.ts`, `value.ts`, `vectors.ts`: shared by both generators (field arithmetic, parameter derivation, BigInt reference permutation, bound-tracked values with the opcode semantics, test inputs). `test-reference.ts` checks the first three.
 - `huff/`: `generate.ts` (CLI), `schedule.ts`, `emitter.ts`, `render.ts`.
-- `yul/`: `generate.ts`, writes `src/bn254/yul/LibPoseidon2Yul.sol`.
+- `yul/`: `generate.ts` (CLI), `schedule.ts`, `program.ts`, `render.ts`.
+
+Both generators simulate what they emit: every value carries an exact upper bound (`value.ts`), an `ADD` / `MUL` / `SHL` is refused when the bound could exceed 2^256 - 1, and the outputs of the simulated code are compared with `reference.ts` on the inputs of `vectors.ts` before any file is written. The Huff emitter simulates the stack as well (reach, depth, gas, size); the Yul program emits nested expressions and lets and leaves the stack to solc, shaping the text for the legacy pipeline (see [src/bn254/README.md](../src/bn254/README.md#yul-generator)).
 
 ## Evidence that the output matches other implementations
 
@@ -24,7 +26,7 @@ Counts are the internal diagonal (t >= 4) plus all non-zero round constants. For
 
 ### Permutation outputs
 
-Matching constants do not prove the matrices or round order. Matching outputs do. Each generated Foundry test (`test/Poseidon2T<t>.t.sol`, `test_vector_0`) runs the compiled Huff on input [0, 1, ..., t-1] and asserts every output word. Those words appear in independent test suites:
+Matching constants do not prove the matrices or round order. Matching outputs do. Each generated Foundry test (`test/Poseidon2T<t>.t.sol` for Huff, `test/Poseidon2YulT<t>.t.sol` for Yul, `test_vector_0`) runs the compiled permutation on input [0, 1, ..., t-1] and asserts every output word. Those words appear in independent test suites:
 
 | t   | Generated test       | External test with the same outputs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,12 +35,12 @@ Matching constants do not prove the matrices or round order. Matching outputs do
 | 8   | `Poseidon2T8.t.sol`  | [TACEO noir-poseidon `test_8`](https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/permutation.nr#L504) (8/8), [TACEO co-snarks `t8_kat1`](https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L454) (8/8), [Polygon pil2 `hash_t8`](https://github.com/0xPolygonHermez/pil2-proofman/blob/d61d40bee66b3c7f02bd4ab8661f9f29ad6730a4/pil2-stark/src/bn128/tests/tests.cpp#L236) (state[0], state[7])                                                                                                                                                                           |
 | 12  | `Poseidon2T12.t.sol` | [TACEO noir-poseidon `test_12`](https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/permutation.nr#L741) (12/12), [Polygon pil2 `hash_t12`](https://github.com/0xPolygonHermez/pil2-proofman/blob/d61d40bee66b3c7f02bd4ab8661f9f29ad6730a4/pil2-stark/src/bn128/tests/tests.cpp#L249) (state[0], state[11])                                                                                                                                                                                                                                                                                                                                                            |
 
-For t = 4 the Huff is the `hash_*` sponge contract. `reference.ts` reproduces the permutation KAT on [0, 1, 2, 3] in [Barretenberg](https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp#L447-L458) and [TACEO co-snarks `t4_kat1`](https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L378) (4/4). The compiled Huff passes the vectors in `test/Poseidon2.t.sol` and 3 x 10,001 fuzz runs against the Solidity implementation.
+For t = 4 the Huff and the Yul are the `hash_*` sponge contracts. `reference.ts` reproduces the permutation KAT on [0, 1, 2, 3] in [Barretenberg](https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp#L447-L458) and [TACEO co-snarks `t4_kat1`](https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L378) (4/4). The compiled Huff and Yul pass the vectors in `test/Poseidon2.t.sol` and 3 x 10,001 fuzz runs against the Solidity implementation.
 
 TACEO (Rust / Noir), Polygon pil2 (C++) and gnark-crypto (Go) each implement the permutation separately. The constant tables all come from the same HorizenLabs script, so this shows a faithful port of that script, not an independent derivation of the parameters.
 
 ## Not covered
 
 - The script's subspace-trail checks (`algorithm_1/2/3`) are not ported. They only abort, never change constants, and the matching tables above were generated by the script.
-- For t != 4 the Foundry tests are 8 fixed vectors plus input sanitisation. Only `vector_0` is externally sourced, and there is no fuzzing yet. Overflow safety rests on the emitter's bound check, which holds for all inputs.
+- For t != 4 the Foundry tests are 8 fixed vectors plus input sanitisation, and the Yul tests fuzz the Yul permutation against the Huff one (1,000 runs). Only `vector_0` is externally sourced. Overflow safety rests on the bound check in `value.ts`, which holds for all inputs.
 - `node generator/test-reference.ts` gates t = 3 and t = 4 only. The t = 2, 8, 12 comparisons above were run by hand.

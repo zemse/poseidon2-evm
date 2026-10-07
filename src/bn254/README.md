@@ -22,7 +22,7 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 | Implementation  | hash_1  | hash_2  | hash_3  |
 | --------------- | ------- | ------- | ------- |
 | Pure Solidity   | 217,702 | 218,222 | 218,801 |
-| Yul (contract)  | 19,639  | 19,639  | 19,639  |
+| Yul (contract)  | 14,858  | 14,858  | 14,858  |
 | Huff (contract) | 12,558  | 12,558  | 12,558  |
 
 ## Recommendation
@@ -41,14 +41,9 @@ Using `ADD` is cheaper (3 gas) compared to `ADDMOD` (8 gas) which also needs a p
 
 Applying this optimization for the BN254 curve is tricky because the PRIME is almost close to uint256 max, which means the value could overflow the uint256 variable, corrupting the state and leading to an incorrect hash value. For other curves with smaller prime fields, this optimization is trivial.
 
-BN254 prime allows adding 4 field values (3 additions, i.e., a + b + c + d < uint256 max). This implementation tracks dirty values in the comments using the notation:
+BN254 prime allows adding 5 field values (4 additions, since 2^256 / p is about 5.29). Both the Yul and the Huff code are generated, and the generators prove every lazy operation: `generator/value.ts` carries an exact inclusive upper bound per value and refuses an `ADD`, `MUL` or `SHL` whose result could exceed 2^256 - 1, so the choice between `ADD` and `ADDMOD` is made by the bound, never by hand. Where a reduction is forced early (the M4 temporaries, the internal round sum) it is because it keeps more of the following additions lazy. The generated code is also executed on test vectors against the BigInt reference before it is written.
 
-- `0/3` means clean (no pending additions)
-- `1/3` means one addition pending
-- `2/3` means two additions pending
-- `3/3` means no further unsafe additions possible
-
-If there is even a single situation where an unsafe addition could overflow uint256 max, then it is possible for an attacker to vanity mine the input.
+If there is even a single situation where an unsafe addition could overflow uint256 max, then it is possible for an attacker to vanity mine the input. The published v1.0.0 Yul had such an addition (hand-tracked in comments); `test_regression_overflow_counterexamples` locks in the inputs that exposed it.
 
 ### No Stack Scheduling
 
@@ -82,6 +77,25 @@ Generated permutations for t other than 4 live in `huff/t<t>/` with an entry con
 Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator refuses it. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the 24,576 byte code size limit.
 
 The constants and permutation outputs for every generated t match other implementations of the same HorizenLabs instance (gnark-crypto, TACEO, Polygon pil2). See [generator/README.md](../../generator/README.md#evidence-that-the-output-matches-other-implementations) for the links.
+
+### Yul Generator
+
+`generator/yul/generate.ts` builds the Yul libraries from the same `params.ts`, `reference.ts` and `value.ts`:
+
+- `yul/program.ts` emits straight-line Yul. Every operand is a bound-tracked value whose name is the Yul text producing it (a local, a literal, an `mload` or a nested expression), so an `add` is only written where the bound allows it and the whole permutation is checked against the reference before the file is written.
+- `yul/schedule.ts` orders the field operations and places the state. Internal round outputs stay lazy (below 2p) with one reduced sum per round, M4 reduces only its two inner temporaries, and the text is shaped for the legacy solc pipeline: nested expressions instead of assignments, fresh `let`s for t <= 4 (dead values are popped once at the end instead of swapped out per assignment), and for t = 12 a two-temporary M4 and sum chains cut so that the deepest local stays within `DUP16` / `SWAP16`.
+
+t = 4 keeps `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3` / `poseidon2_core`) and only computes the first output of the last round. Other widths get `yul/t<t>/LibPoseidon2YulT<t>.sol` with `permute(uint256[t] memory state)`, which permutes the array in place after reducing it mod PRIME, and a test in `test/Poseidon2YulT<t>.t.sol` with the reference vectors, input sanitisation and a fuzz against the Huff permutation of the same width.
+
+| t   | Rf  | Rp  | call gas | runtime bytes | state placement                                   |
+| --- | --- | --- | -------- | ------------- | ------------------------------------------------- |
+| 2   | 8   | 56  | 8,869    | 5,002         | locals, fresh lets                                |
+| 3   | 8   | 56  | 11,210   | 5,893         | locals, fresh lets                                |
+| 4   | 8   | 56  | 14,858   | 14,236        | locals, fresh lets                                |
+| 8   | 8   | 57  | 31,833   | 24,130        | 8 locals, 2 diag constants in memory              |
+| 12  | 8   | 57  | 49,892   | 24,105        | 12 locals, 10 diag constants in memory, 2-temp M4 |
+
+Call gas and runtime bytes are those of a contract that inlines the library: `Poseidon2Yul_BN254` for t = 4 (one `hash_*` call) and the `permute(uint256[t])` wrapper deployed by each test otherwise, so they include the ABI decoding and encoding of t words. The gas is above the Huff table because solc inserts a `SWAP` + `POP` per assignment and `DUP`s every operand, and because the diag constants that do not fit the code size as `PUSH32` are loaded from memory (9 gas more each). t = 12 is the largest shipped width: the 2-temporary M4 and the split sum chains are already at the `DUP16` limit, and the code is at the 24,576 byte limit with 10 of 12 diag constants in memory. t = 16 generates and passes its vectors with 11 locals and 5 elements kept in the state array (78,287 gas), but its permutation alone is 33 KB of runtime code, so it is not shipped.
 
 ## Security Considerations
 
