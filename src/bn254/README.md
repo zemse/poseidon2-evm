@@ -81,7 +81,7 @@ Generated permutations for t other than 4 live in `huff/t<t>/` with an entry con
 
 Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator refuses it. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the 24,576 byte code size limit.
 
-Only t = 4 and t = 3 have independently published constants (Barretenberg and HorizenLabs). The constants for t = 2, 8 and 12 are derived by the same port and are only as trustworthy as it.
+The constants and permutation outputs for every generated t match other implementations of the same HorizenLabs instance (gnark-crypto, TACEO, Polygon pil2). See [generator/README.md](../../generator/README.md#evidence-that-the-output-matches-other-implementations) for the links.
 
 ## Security Considerations
 
