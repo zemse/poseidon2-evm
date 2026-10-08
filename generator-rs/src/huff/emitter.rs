@@ -63,6 +63,7 @@ pub mod gas {
     pub const JUMPDEST: u64 = 1;
     /// plus 3 per word copied
     pub const CODECOPY: u64 = 3;
+    pub const CALLDATALOAD: u64 = 3;
 }
 
 /// A code table of 32-byte words next to the macro (the round constants of
@@ -184,6 +185,9 @@ pub struct Emitter {
     // produced in and the next one, then the slot is reused
     slots: HashMap<Id, usize>,
     holder: HashMap<usize, Id>,
+    /// calldata offsets of the inputs that sit in calldata as the stack
+    /// holds them (a part after the first): loaded from there, never stored
+    calldata: HashMap<Id, usize>,
     pool: Vec<Slot>,
     round: i64,
     pub slot_base: usize,
@@ -230,6 +234,7 @@ impl Emitter {
             permissive,
             slots: HashMap::new(),
             holder: HashMap::new(),
+            calldata: HashMap::new(),
             pool: Vec::new(),
             round: 0,
             slot_base: 0,
@@ -316,7 +321,9 @@ impl Emitter {
     /// true when v sits within DUP reach or has a shadow copy to load
     pub fn reachable(&self, v: Id) -> bool {
         let n = self.find(v);
-        (n > 0 && n <= self.max_reach) || self.slots.contains_key(&v)
+        (n > 0 && n <= self.max_reach)
+            || self.slots.contains_key(&v)
+            || self.calldata.contains_key(&v)
     }
 
     // ---- raw opcodes -------------------------------------------------------
@@ -377,6 +384,10 @@ impl Emitter {
         if n == 0 || n > self.max_reach {
             if let Some(&slot) = self.slots.get(&v) {
                 self.load(slot, v)?;
+                return Ok(v);
+            }
+            if let Some(&offset) = self.calldata.get(&v) {
+                self.load_calldata(offset, v);
                 return Ok(v);
             }
             if n == 0 {
@@ -700,6 +711,12 @@ impl Emitter {
         self.allocate(v)
     }
 
+    /// Declares v the calldata word at `offset`, as it is: dup loads it
+    /// from there (<off> CALLDATALOAD, 6 gas, as a slot) without a store.
+    pub fn declare_calldata(&mut self, v: Id, offset: usize) {
+        self.calldata.insert(v, offset);
+    }
+
     /// Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
     /// value then lives in memory only and dup loads it.
     pub fn spill(&mut self, v: Id) -> Result<()> {
@@ -725,6 +742,19 @@ impl Emitter {
         self.loads += 1;
         self.pushed(v);
         Ok(())
+    }
+
+    fn load_calldata(&mut self, offset: usize, v: Id) {
+        let fork = self.fork;
+        let c = u256(offset as u64);
+        self.opcode(
+            || push_text(c, &fork),
+            push_gas(c, &fork),
+            push_bytes(c, &fork),
+        );
+        self.opcode(|| "calldataload".to_string(), gas::CALLDATALOAD, 1);
+        self.loads += 1;
+        self.pushed(v);
     }
 
     // ---- arithmetic --------------------------------------------------------

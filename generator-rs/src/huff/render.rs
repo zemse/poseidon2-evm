@@ -6,7 +6,9 @@
 
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
 use super::fork::{DEFAULT_HARDFORK, Fork, SHANGHAI};
-use super::schedule::{Best, BuildOptions, BuildResult, Prologue, describe_options};
+use super::schedule::{
+    Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, Prologue, describe_options,
+};
 use crate::bail;
 use crate::error::Result;
 use crate::field::{PRIME, U256, hex, u256};
@@ -127,21 +129,27 @@ impl Code {
 }
 
 /// t calldata words from `base` reduced mod PRIME onto the stack, shadowed
-/// inputs also stored to their slot
-fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize) {
+/// inputs also stored to their slot; without `reduce` (a part after the
+/// first, whose words are the lazy values the part before leaves) the words
+/// as they are, any shadowed one loaded from calldata by the schedule
+fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize, reduce: bool) {
     code.op("SETUP()", gas::PUSH, 33);
     code.end("[PRIME]");
     for i in (0..t).rev() {
-        // PRIME sits under the words loaded so far, pushed again once out of
-        // reach (same gas, 33 bytes)
-        if t - i <= code.fork.reach {
-            code.dup(t - i);
-        } else {
-            code.op("[PRIME]", gas::PUSH, 33);
+        if reduce {
+            // PRIME sits under the words loaded so far, pushed again once
+            // out of reach (same gas, 33 bytes)
+            if t - i <= code.fork.reach {
+                code.dup(t - i);
+            } else {
+                code.op("[PRIME]", gas::PUSH, 33);
+            }
         }
         code.push(base + 32 * i);
         code.op("calldataload", 3, 1);
-        code.op("mod", gas::MOD, 1);
+        if reduce {
+            code.op("mod", gas::MOD, 1);
+        }
         if let Some(Some(slot)) = input_slots.get(i) {
             code.dup(1);
             code.push(*slot);
@@ -214,8 +222,9 @@ fn next_part_bytes(t: usize) -> usize {
 }
 
 /// Gas and bytes of a part's code around the permutation macro: the entry
-/// (calldata loads) and the tail (return or hand-over, the hand-over with the
-/// cold STATICCALL but without the callee).
+/// (calldata loads, reduced unless `lazy`) and the tail (return or
+/// hand-over, the hand-over with the cold STATICCALL but without the
+/// callee).
 #[derive(Debug, Clone, Copy)]
 pub struct Overhead {
     pub entry_gas: u64,
@@ -229,9 +238,10 @@ pub fn overhead(
     input_slots: &[Option<usize>],
     state_in_memory: bool,
     hands_over: bool,
+    lazy: bool,
 ) -> Overhead {
     let mut entry = Code::new(fork);
-    loads(&mut entry, t, input_slots, 0);
+    loads(&mut entry, t, input_slots, 0, !lazy);
     let mut tail = Code::new(fork);
     if hands_over {
         hand_over(&mut tail, t, 0);
@@ -258,7 +268,7 @@ pub fn entry_bytes(
     input_slots: &[Option<usize>],
     state_in_memory: bool,
 ) -> usize {
-    overhead(fork, t, input_slots, state_in_memory, false).bytes
+    overhead(fork, t, input_slots, state_in_memory, false, false).bytes
 }
 
 // ---- files -----------------------------------------------------------------
@@ -423,7 +433,7 @@ pub fn render_zero() -> String {
 pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> String {
     let t = params.t;
     let mut code = Code::new(*fork);
-    loads(&mut code, t, &result.input_slots, 0);
+    loads(&mut code, t, &result.input_slots, 0, true);
     code.blank();
     let in_memory = result.state_in_memory;
     code.op("POSEIDON2_PERMUTATION()", 0, 0);
@@ -486,7 +496,7 @@ pub fn hash_entry(fork: Fork, prologues: &[Prologue], rounds: (u64, usize)) -> R
         code.end("");
     };
     let branch = |code: &mut Code, p: &Prologue| {
-        loads(code, p.n, &[], 4);
+        loads(code, p.n, &[], 4, true);
         for line in &p.lines {
             code.text(line);
         }
@@ -619,8 +629,25 @@ pub fn render_part(
     } else {
         format!("rounds {} to {}", from - 1, to as i64 - 2)
     };
+    // a part after the first takes the lazy values the part before leaves
+    let takes = if from == 0 {
+        "with clean inputs".to_string()
+    } else {
+        format!(
+            "with inputs below {HANDOVER_BOUND_TEXT} (what part {} leaves)",
+            part - 1
+        )
+    };
+    let words = if from == 0 {
+        "reduced mod PRIME".to_string()
+    } else {
+        format!(
+            "as part {} leaves them, below {HANDOVER_BOUND_TEXT}",
+            part - 1
+        )
+    };
     let mut code = Code::new(*fork);
-    loads(&mut code, t, &result.input_slots, 0);
+    loads(&mut code, t, &result.input_slots, 0, from == 0);
     code.blank();
     code.op("POSEIDON2_PART()", 0, 0);
     code.end(&format!("state at memory [0, {})", hex_off(32 * t)));
@@ -676,15 +703,15 @@ pub fn render_part(
         format!("returns what part {} returns", part + 1)
     };
     let outputs = if last {
-        "clean outputs"
+        "clean outputs".to_string()
     } else {
-        "lazy values, the next entry reduces them"
+        format!("lazy values below {HANDOVER_BOUND_TEXT}, which the next part takes as they are")
     };
     format!(
         "{HEADER}
 {includes}
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}: part {part} of {count}, {steps}
-/// @dev takes [{inputs}, PRIME] with clean inputs, leaves the state in memory at [0, {end}) ({outputs}; stack: garbage)
+/// @dev takes [{inputs}, PRIME] {takes}, leaves the state in memory at [0, {end}) ({outputs}; stack: garbage)
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 {note}{stats}
 /// @dev schedule options: {options}
@@ -692,7 +719,7 @@ pub fn render_part(
 {lines}
 }}
 {tables}
-/// @notice Part {part} entry: calldata = {t} words (reduced mod PRIME), {ability}
+/// @notice Part {part} entry: calldata = {t} words ({words}), {ability}
 #define macro MAIN() = {{
 {code_lines}
 }}

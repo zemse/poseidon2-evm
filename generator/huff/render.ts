@@ -21,6 +21,7 @@ import {
 import { DEFAULT_HARDFORK, FORKS, type Fork } from "./fork.ts";
 import {
   describeOptions,
+  HANDOVER_BOUND_TEXT,
   type Best,
   type BuildOptions,
   type BuildResult,
@@ -117,23 +118,28 @@ class Code {
 }
 
 // t calldata words from `base` reduced mod PRIME onto the stack, shadowed
-// inputs also stored to their slot
+// inputs also stored to their slot; without `reduce` (a part after the
+// first, whose words are the lazy values the part before leaves) the words
+// as they are, any shadowed one loaded from calldata by the schedule
 function loads(
   code: Code,
   t: number,
   inputSlots: (number | undefined)[],
   base = 0,
+  reduce = true,
 ) {
   code.op("SETUP()", GAS.push, 33);
   code.end("[PRIME]");
   for (let i = t - 1; i >= 0; i--) {
-    // PRIME sits under the words loaded so far, pushed again once out of
-    // reach (same gas, 33 bytes)
-    if (t - i <= code.fork.reach) code.dup(t - i);
-    else code.op("[PRIME]", GAS.push, 33);
+    if (reduce) {
+      // PRIME sits under the words loaded so far, pushed again once out of
+      // reach (same gas, 33 bytes)
+      if (t - i <= code.fork.reach) code.dup(t - i);
+      else code.op("[PRIME]", GAS.push, 33);
+    }
     code.push(base + 32 * i);
     code.op("calldataload", 3, 1);
-    code.op("mod", GAS.mod, 1);
+    if (reduce) code.op("mod", GAS.mod, 1);
     const slot = inputSlots[i];
     if (slot !== undefined) {
       code.dup(1);
@@ -204,8 +210,8 @@ function nextPartBytes(t: number): number {
 }
 
 // Gas and bytes of a part's code around the permutation macro: the entry
-// (calldata loads) and the tail (return or hand-over, the hand-over with the
-// cold STATICCALL but without the callee).
+// (calldata loads, reduced unless `lazy`) and the tail (return or hand-over,
+// the hand-over with the cold STATICCALL but without the callee).
 export type Overhead = { entryGas: number; tailGas: number; bytes: number };
 
 export function overhead(
@@ -214,9 +220,10 @@ export function overhead(
   inputSlots: (number | undefined)[],
   stateInMemory: boolean,
   handsOver: boolean,
+  lazy = false,
 ): Overhead {
   const entry = new Code(fork);
-  loads(entry, t, inputSlots);
+  loads(entry, t, inputSlots, 0, !lazy);
   const tail = new Code(fork);
   if (handsOver) handOver(tail, t, 0);
   else ret(tail, t, stateInMemory);
@@ -542,8 +549,17 @@ export function renderPart(
     from === 0
       ? `the initial linear layer and rounds 0 to ${to - 2}`
       : `rounds ${from - 1} to ${to - 2}`;
+  // a part after the first takes the lazy values the part before leaves
+  const takes =
+    from === 0
+      ? "with clean inputs"
+      : `with inputs below ${HANDOVER_BOUND_TEXT} (what part ${part - 1} leaves)`;
+  const words =
+    from === 0
+      ? "reduced mod PRIME"
+      : `as part ${part - 1} leaves them, below ${HANDOVER_BOUND_TEXT}`;
   const code = new Code(fork);
-  loads(code, t, result.inputSlots);
+  loads(code, t, result.inputSlots, 0, from === 0);
   code.blank();
   code.op("POSEIDON2_PART()", 0, 0);
   code.end(`state at memory [0, ${hexOff(32 * t)})`);
@@ -589,7 +605,7 @@ ${ctor.lines.join("\n")}
   return `${HEADER}
 ${includes(fork, utilsPath)}
 /// @notice Poseidon2 permutation for BN254 with t = ${t}, Rf = ${roundsF}, Rp = ${roundsP}: part ${part} of ${count}, ${steps}
-/// @dev takes [${inputs}, PRIME] with clean inputs, leaves the state in memory at [0, ${hexOff(32 * t)}) (${last ? "clean outputs" : "lazy values, the next entry reduces them"}; stack: garbage)
+/// @dev takes [${inputs}, PRIME] ${takes}, leaves the state in memory at [0, ${hexOff(32 * t)}) (${last ? "clean outputs" : `lazy values below ${HANDOVER_BOUND_TEXT}, which the next part takes as they are`}; stack: garbage)
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 ${forkNote(fork)}${stats(result.emitter, result)}
 /// @dev schedule options: ${describeOptions(opts)}
@@ -597,7 +613,7 @@ ${forkNote(fork)}${stats(result.emitter, result)}
 ${result.lines.join("\n")}
 }
 ${tables(result)}
-/// @notice Part ${part} entry: calldata = ${t} words (reduced mod PRIME), ${ability}
+/// @notice Part ${part} entry: calldata = ${t} words (${words}), ${ability}
 #define macro MAIN() = {
 ${code.lines.join("\n")}
 }

@@ -59,6 +59,7 @@ export const GAS = {
   jumpdest: 1,
   // plus 3 per word copied
   codecopy: 3,
+  calldataload: 3,
 } as const;
 
 // Memory expansion gas of a frame that touches [0, bytes).
@@ -131,6 +132,9 @@ export class Emitter {
   // produced in and the next one, then the slot is reused
   private slots = new Map<Value, number>();
   private holder = new Map<number, Value>();
+  // calldata offsets of the inputs that sit in calldata as the stack holds
+  // them (a part after the first): loaded from there, never stored
+  private calldata = new Map<Value, number>();
   private pool: { offset: number; round: number }[] = [];
   private round = 0;
   slotBase = 0;
@@ -189,7 +193,9 @@ export class Emitter {
   // true when v sits within DUP reach or has a shadow copy to load
   reachable(v: Value): boolean {
     const n = this.find(v);
-    return (n > 0 && n <= this.maxReach) || this.slots.has(v);
+    return (
+      (n > 0 && n <= this.maxReach) || this.slots.has(v) || this.calldata.has(v)
+    );
   }
 
   // ---- raw opcodes ---------------------------------------------------------
@@ -232,6 +238,11 @@ export class Emitter {
       const slot = this.slots.get(v);
       if (slot !== undefined) {
         this.load(slot, v);
+        return v;
+      }
+      const offset = this.calldata.get(v);
+      if (offset !== undefined) {
+        this.loadCalldata(offset, v);
         return v;
       }
       if (n === 0) throw new Error(`${v.name} is not on the stack`);
@@ -491,6 +502,12 @@ export class Emitter {
     return this.allocate(v);
   }
 
+  // Declares v the calldata word at `offset`, as it is: dup loads it from
+  // there (<off> CALLDATALOAD, 6 gas, as a slot) without a store.
+  declareCalldata(v: Value, offset: number) {
+    this.calldata.set(v, offset);
+  }
+
   // Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
   // value then lives in memory only and dup loads it.
   spill(v: Value) {
@@ -512,6 +529,17 @@ export class Emitter {
       pushBytes(BigInt(offset), this.fork),
     );
     this.opcode("mload", GAS.mload, 1);
+    this.loads++;
+    this.pushed(v);
+  }
+
+  private loadCalldata(offset: number, v: Value) {
+    this.opcode(
+      pushText(BigInt(offset), this.fork),
+      pushGas(BigInt(offset), this.fork),
+      pushBytes(BigInt(offset), this.fork),
+    );
+    this.opcode("calldataload", GAS.calldataload, 1);
     this.loads++;
     this.pushed(v);
   }

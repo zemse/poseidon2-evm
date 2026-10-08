@@ -113,7 +113,14 @@ impl Width {
 
 /// gas of a call to an unsplit permutation's entry
 fn entry_gas(fork: &Fork, t: usize, result: &BuildResult) -> u64 {
-    let o = overhead(*fork, t, &result.input_slots, result.state_in_memory, false);
+    let o = overhead(
+        *fork,
+        t,
+        &result.input_slots,
+        result.state_in_memory,
+        false,
+        false,
+    );
     o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
 }
 

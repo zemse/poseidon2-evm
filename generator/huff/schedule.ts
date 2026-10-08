@@ -126,11 +126,30 @@ export const DEFAULT_OPTIONS: BuildOptions = {
 export type Range = { from: number; to: number };
 
 // What a build takes and what its caller reads: the bound of every input
-// (clean, PRIME - 1, by default) and the outputs the caller uses (all by
+// (clean, PRIME - 1, by default), whether the inputs sit in calldata at
+// [0, 32t) as the stack holds them (a part after the first, whose entry
+// loads them as they are: a shadowed input is then loaded from there instead
+// of a memory slot the entry fills) and the outputs the caller uses (all by
 // default). The t = 4 hash entry starts its rounds from the lazy values of
 // its round 0 and reads s0' alone, so its last linear layer computes only
 // that row (finalRoundRow0).
-export type Boundary = { bounds?: bigint[]; live?: number[] };
+export type Boundary = {
+  bounds?: bigint[];
+  calldata?: boolean;
+  live?: number[];
+};
+
+// A part hands its state over below 2p: an internal round leaves m_i + sum
+// with both reduced, and any output above the bound is reduced before it is
+// stored. The next part takes the words as they are, within that bound.
+export const HANDOVER_BOUND = 2n * PRIME - 1n;
+export const HANDOVER_BOUND_TEXT = "2p";
+
+// the boundary of part `from` of a split: lazy inputs from calldata
+export function partBoundary(t: number, from: number): Boundary {
+  if (from === 0) return {};
+  return { bounds: new Array(t).fill(HANDOVER_BOUND), calldata: true };
+}
 
 export function stepCount(params: Params): number {
   return 1 + params.roundsF + params.roundsP;
@@ -235,8 +254,7 @@ class Builder {
     // body scratch and the shadow slots
     this.diagBase = this.stateInMemory ? 32 * this.t : DIAG_MEMORY_BASE;
     this.rcBase =
-      this.diagBase +
-      (opts.diagInMemory ? 32 * (this.t - opts.diagPush32) : 0);
+      this.diagBase + (opts.diagInMemory ? 32 * (this.t - opts.diagPush32) : 0);
     this.period = bodyPeriod(params, fork);
     this.e.slotBase =
       this.rcBase + (opts.sharedBody ? 32 * (this.period + 2) : 0);
@@ -246,7 +264,10 @@ class Builder {
       const vals = inputs.map((inp) => inp[i]);
       const v = new Value(`s${i}`, boundary.bounds?.[i] ?? PRIME - 1n, vals);
       this.e.key(v, `in:${i}`);
-      if (shadow.has(`in:${i}`)) this.inputSlots[i] = this.e.declare(v);
+      if (shadow.has(`in:${i}`)) {
+        if (boundary.calldata) this.e.declareCalldata(v, 32 * i);
+        else this.inputSlots[i] = this.e.declare(v);
+      }
       this.state.push(v);
     }
     this.e.stack = [...this.state, this.e.P];
@@ -929,12 +950,16 @@ class Builder {
 
   // Writes the state to [0, 32t) for the next part or the caller. DUP and
   // MSTORE leave the stack as it was, so every element is fetched from the
-  // same layout (shadowed ones with MLOAD).
-  storeState() {
+  // same layout (shadowed ones with MLOAD). A hand-over reduces an element
+  // above the bound the next part takes.
+  storeState(handsOver: boolean) {
     const e = this.e;
     e.comment("State to memory");
     for (let i = 0; i < this.t; i++) {
       e.dup(this.state[i]);
+      if (handsOver && this.state[i].bound > HANDOVER_BOUND) {
+        this.state[i] = this.modTop(this.state[i]);
+      }
       e.mstore(32 * i);
       e.endLine();
     }
@@ -1082,8 +1107,8 @@ class Builder {
       throw new Error("the blocks are not connected");
     }
     const start = circuit.indexOf(3);
-    return [...circuit.slice(start), ...circuit.slice(0, start)].map(
-      (s) => at.get(s)!,
+    return [...circuit.slice(start), ...circuit.slice(0, start)].map((s) =>
+      at.get(s)!,
     );
   }
 
@@ -1314,7 +1339,10 @@ class Builder {
         `Rounds ${rounds[0]} to ${rounds[n - 1]} (internal): body call ${c}`,
       );
       const name = `RC${c}`;
-      e.table(name, rounds.map((r) => this.params.roundConstants[r][0]));
+      e.table(
+        name,
+        rounds.map((r) => this.params.roundConstants[r][0]),
+      );
       e.codecopy(name, n, this.rcBase);
       e.pushLabel(`ret${c}`);
       e.mstore(n < period ? retMid : retEnd);
@@ -1347,7 +1375,9 @@ class Builder {
       e.endLine();
       e.endBody();
       if (lastCall) {
-        e.comment("Shared body, entered by the calls above (the last falls in)");
+        e.comment(
+          "Shared body, entered by the calls above (the last falls in)",
+        );
         for (const lines of e.bodyLines) e.lines.push(...lines);
       }
       e.label(`ret${c}`);
@@ -1443,7 +1473,7 @@ class Builder {
       this.stepBytes.push(e.bytes);
     }
 
-    if (this.stateInMemory) this.storeState();
+    if (this.stateInMemory) this.storeState(to < stepCount(this.params));
     e.endLine();
     return this.state;
   }
@@ -1595,6 +1625,12 @@ export function buildPermutation(
         throw new Error(`output ${live[i]} is not clean`);
       }
     }
+  } else {
+    for (let i = 0; i < live.length; i++) {
+      if (outputs[i].bound > HANDOVER_BOUND) {
+        throw new Error(`output ${live[i]} is above the hand-over bound`);
+      }
+    }
   }
 
   // concrete check of the emitted stream against the reference permutation
@@ -1681,9 +1717,7 @@ export function buildBest(
                       // floats PRIME copies
                       const consume =
                         params.t >= 8 && !gcInternal && !floatPrimeInternal;
-                      for (const internalConsume of consume
-                        ? bools
-                        : [false]) {
+                      for (const internalConsume of consume ? bools : [false]) {
                         for (const primeStack of internalConsume
                           ? bools
                           : [false]) {

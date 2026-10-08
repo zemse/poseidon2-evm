@@ -5,7 +5,10 @@
 // gas: a greedy pass finds that number by extending each part as far as the
 // size allows, then the cuts are moved to balance the bytes so every part
 // keeps the same slack. Each part is built like a whole permutation (option
-// search, bound tracker, reference check of its own steps).
+// search, bound tracker, reference check of its own steps); a part after
+// the first takes its inputs as the part before leaves them, lazy below
+// the hand-over bound (partBoundary), so its entry neither reduces nor
+// stores them.
 
 import type { Params } from "../round-constants/round-constants.ts";
 import type { Fork } from "./fork.ts";
@@ -14,6 +17,7 @@ import {
   buildBest,
   buildPermutation,
   largest,
+  partBoundary,
   stepCount,
   DEFAULT_OPTIONS,
   type Best,
@@ -37,10 +41,14 @@ export function splitPermutation(
   // and the address word a part that hands over keeps behind its code
   const allSlots = new Array(t).fill(0xffff);
   const word = (to: number) => (to < steps ? 32 : 0);
-  const budget = (to: number) =>
+  // a part after the first takes its inputs lazy from calldata (no
+  // reduction, no slots)
+  const budget = ({ from, to }: Range) =>
     fork.codeSize -
-    overhead(fork, t, allSlots, true, to < steps).bytes -
+    overhead(fork, t, from === 0 ? allSlots : [], true, to < steps, from > 0)
+      .bytes -
     word(to);
+  const boundary = (range: Range) => partBoundary(t, range.from);
 
   // options for the size probes: the cheapest schedule of a short range,
   // which also decides whether the state needs shadowing
@@ -56,8 +64,15 @@ export function splitPermutation(
   };
   const builds = (range: Range): boolean => {
     try {
-      const r = buildPermutation(params, inputs, probeOpts, fork, range);
-      return r.maxDepth <= 1000 && r.bytes <= budget(range.to);
+      const r = buildPermutation(
+        params,
+        inputs,
+        probeOpts,
+        fork,
+        range,
+        boundary(range),
+      );
+      return r.maxDepth <= 1000 && r.bytes <= budget(range);
     } catch {
       return false;
     }
@@ -66,15 +81,24 @@ export function splitPermutation(
   // fewest parts: extend each as far as it fits
   const greedy: Range[] = [];
   const stepBytes: number[] = [];
-  for (let from = 0; from < steps; ) {
+  for (let from = 0; from < steps;) {
     const len = largest(steps - from, (n) =>
       n === 0 ? true : builds({ from, to: from + n }),
     );
     if (len === 0) {
-      throw new Error(`step ${from} alone exceeds the code size on ${fork.name}`);
+      throw new Error(
+        `step ${from} alone exceeds the code size on ${fork.name}`,
+      );
     }
     const range = { from, to: from + len };
-    const r = buildPermutation(params, inputs, probeOpts, fork, range);
+    const r = buildPermutation(
+      params,
+      inputs,
+      probeOpts,
+      fork,
+      range,
+      boundary(range),
+    );
     let prev = 0;
     for (const b of r.stepBytes) {
       stepBytes.push(b - prev);
@@ -118,7 +142,14 @@ export function splitPermutation(
   const build = (ranges: Range[]): Part[] | undefined => {
     const parts: Part[] = [];
     for (const range of ranges) {
-      const best = buildBest(params, inputs, budget(range.to), fork, range);
+      const best = buildBest(
+        params,
+        inputs,
+        budget(range),
+        fork,
+        range,
+        boundary(range),
+      );
       if (!best) return undefined;
       const { result } = best;
       const o = overhead(
@@ -127,6 +158,7 @@ export function splitPermutation(
         result.inputSlots,
         result.stateInMemory,
         range.to < steps,
+        range.from > 0,
       );
       const runtime = result.bytes + o.bytes;
       if (runtime + word(range.to) > fork.codeSize) {

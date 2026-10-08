@@ -4,14 +4,17 @@
 // number by extending each part as far as the size allows, then the cuts are
 // moved to balance the bytes so every part keeps the same slack. Each part
 // is built like a whole permutation (option search, bound tracker, reference
-// check of its own steps).
+// check of its own steps); a part after the first takes its inputs as the
+// part before leaves them, lazy below the hand-over bound (part_boundary),
+// so its entry neither reduces nor stores them.
 
 use rayon::prelude::*;
 
 use super::fork::Fork;
 use super::render::{Overhead, overhead};
 use super::schedule::{
-    Best, BuildOptions, DEFAULT_OPTIONS, Range, build_best, build_permutation, largest, step_count,
+    Best, BuildOptions, DEFAULT_OPTIONS, Range, build_best, build_best_with,
+    build_permutation_with, largest, part_boundary, step_count,
 };
 use crate::bail;
 use crate::error::Result;
@@ -34,9 +37,14 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
     // and the address word a part that hands over keeps behind its code
     let all_slots = vec![Some(0xffff); t];
     let word = |to: usize| if to < steps { 32 } else { 0 };
-    let budget = |to: usize| {
-        fork.code_size - overhead(fork, t, &all_slots, true, to < steps).bytes - word(to)
+    // a part after the first takes its inputs lazy from calldata (no
+    // reduction, no slots)
+    let budget = |range: Range| {
+        let Range { from, to } = range;
+        let slots: &[Option<usize>] = if from == 0 { &all_slots } else { &[] };
+        fork.code_size - overhead(fork, t, slots, true, to < steps, from > 0).bytes - word(to)
     };
+    let boundary = |range: Range| part_boundary(t, range.from);
 
     // options for the size probes: the cheapest schedule of a short range,
     // which also decides whether the state needs shadowing
@@ -59,8 +67,16 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
         ..DEFAULT_OPTIONS
     };
     let builds = |range: Range| -> bool {
-        match build_permutation(params, inputs, &probe_opts, fork, range, false) {
-            Ok(r) => r.max_depth <= 1000 && r.bytes <= budget(range.to),
+        match build_permutation_with(
+            params,
+            inputs,
+            &probe_opts,
+            fork,
+            range,
+            false,
+            &boundary(range),
+        ) {
+            Ok(r) => r.max_depth <= 1000 && r.bytes <= budget(range),
             Err(_) => false,
         }
     };
@@ -80,7 +96,15 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
             from,
             to: from + len,
         };
-        let r = build_permutation(params, inputs, &probe_opts, fork, range, false)?;
+        let r = build_permutation_with(
+            params,
+            inputs,
+            &probe_opts,
+            fork,
+            range,
+            false,
+            &boundary(range),
+        )?;
         let mut prev = 0;
         for b in r.step_bytes {
             step_bytes.push(b - prev);
@@ -128,7 +152,9 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
     let build = |ranges: Vec<Range>| -> Result<Option<Vec<Part>>> {
         let bests: Vec<Result<Option<Best>>> = ranges
             .par_iter()
-            .map(|&range| build_best(params, inputs, budget(range.to), fork, range))
+            .map(|&range| {
+                build_best_with(params, inputs, budget(range), fork, range, &boundary(range))
+            })
             .collect();
         let mut parts = Vec::new();
         for (range, best) in ranges.iter().zip(bests) {
@@ -142,6 +168,7 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
                 &result.input_slots,
                 result.state_in_memory,
                 range.to < steps,
+                range.from > 0,
             );
             let runtime = result.bytes + o.bytes;
             if runtime + word(range.to) > fork.code_size {

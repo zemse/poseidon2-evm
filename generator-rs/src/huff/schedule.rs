@@ -112,14 +112,38 @@ pub struct Range {
 }
 
 /// What a build takes and what its caller reads: the bound of every input
-/// (clean, PRIME - 1, by default) and the outputs the caller uses (all by
-/// default). The t = 4 hash entry starts its rounds from the lazy values of
-/// its round 0 and reads s0' alone, so its last linear layer computes only
-/// that row (final_round_row0).
+/// (clean, PRIME - 1, by default), whether the inputs sit in calldata at
+/// [0, 32t) as the stack holds them (a part after the first, whose entry
+/// loads them as they are: a shadowed input is then loaded from there
+/// instead of a memory slot the entry fills) and the outputs the caller
+/// uses (all by default). The t = 4 hash entry starts its rounds from the
+/// lazy values of its round 0 and reads s0' alone, so its last linear layer
+/// computes only that row (final_round_row0).
 #[derive(Debug, Clone, Default)]
 pub struct Boundary {
     pub bounds: Option<Vec<U256>>,
+    pub calldata: bool,
     pub live: Option<Vec<usize>>,
+}
+
+/// A part hands its state over below 2p: an internal round leaves m_i + sum
+/// with both reduced, and any output above the bound is reduced before it
+/// is stored. The next part takes the words as they are, within that bound.
+pub fn handover_bound() -> U256 {
+    PRIME * u256(2) - u256(1)
+}
+pub const HANDOVER_BOUND_TEXT: &str = "2p";
+
+/// the boundary of part `from` of a split: lazy inputs from calldata
+pub fn part_boundary(t: usize, from: usize) -> Boundary {
+    if from == 0 {
+        return Boundary::default();
+    }
+    Boundary {
+        bounds: Some(vec![handover_bound(); t]),
+        calldata: true,
+        live: None,
+    }
 }
 
 pub fn step_count(params: &Params) -> usize {
@@ -326,7 +350,11 @@ impl<'a> Builder<'a> {
             )?);
             e.key(v, Key::In(i));
             if e.shadows(Key::In(i)) {
-                *slot = Some(e.declare(v));
+                if boundary.calldata {
+                    e.declare_calldata(v, 32 * i);
+                } else {
+                    *slot = Some(e.declare(v));
+                }
             }
             state.push(v);
         }
@@ -1178,10 +1206,17 @@ impl<'a> Builder<'a> {
     }
 
     /// Writes the state to [0, 32t) for the next part or the caller.
-    fn store_state(&mut self) -> Result<()> {
+    /// Writes the state to [0, 32t) for the next part or the caller. DUP and
+    /// MSTORE leave the stack as it was, so every element is fetched from
+    /// the same layout (shadowed ones with MLOAD). A hand-over reduces an
+    /// element above the bound the next part takes.
+    fn store_state(&mut self, hands_over: bool) -> Result<()> {
         self.e.comment("State to memory");
         for i in 0..self.t {
             self.e.dup(self.state[i])?;
+            if hands_over && self.bound(self.state[i]) > handover_bound() {
+                self.state[i] = self.mod_top(self.state[i])?;
+            }
             self.e.mstore(32 * i)?;
             self.e.end_line();
         }
@@ -1786,7 +1821,7 @@ impl<'a> Builder<'a> {
         }
 
         if self.state_in_memory {
-            self.store_state()?;
+            self.store_state(self.range.to < step_count(self.params))?;
         }
         self.e.end_line();
         Ok(self.state.clone())
@@ -1881,6 +1916,7 @@ pub fn build_hash_rounds(
     }
     let boundary = Boundary {
         bounds: Some(bounds),
+        calldata: false,
         live: Some(vec![0]),
     };
     let range = Range {
@@ -1991,6 +2027,12 @@ fn build_checked(
         for (i, &out) in outputs.iter().enumerate() {
             if e.bound(out) >= PRIME {
                 bail!("output {} is not clean", live[i]);
+            }
+        }
+    } else {
+        for (i, &out) in outputs.iter().enumerate() {
+            if e.bound(out) > handover_bound() {
+                bail!("output {} is above the hand-over bound", live[i]);
             }
         }
     }
