@@ -59,6 +59,10 @@ export type BuildOptions = {
   // for its MULMOD, so no garbage is left and nothing is popped (t = 12
   // within DUP16, where the state would otherwise need SWAPn POP)
   internalConsume: boolean;
+  // with internalConsume, stack the PRIME copies of a round under m0 at
+  // once (DUPs and one SWAP) so that each swapped element lands on its own,
+  // instead of DUPing one and SWAPping it under every element
+  primeStack: boolean;
   // with gcInternal, leave the garbage of the first gcInternalFrom internal
   // rounds in place (no SWAPn POP) as far as the depth allows
   gcInternalFrom: number;
@@ -81,6 +85,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   internalReduceOutputs: false,
   floatPrimeInternal: false,
   internalConsume: false,
+  primeStack: false,
   gcInternalFrom: 0,
   diagPush32: 0,
   shadow: false,
@@ -1107,20 +1112,56 @@ class Builder {
       if (s < 3 || s > slots + 2) loads.push(i);
     }
     const toStack = loads.filter((i) => i > mem);
-    for (const [k, i] of this.consumeOrder(old, mem, nextInternal).entries()) {
-      const s = old[i];
-      e.swap(e.find(s) - 1);
-      e.pushPrime();
-      e.swap(1);
-      finish(i, s);
-      if (i <= mem) {
-        // the output went to memory: one that comes back to the stack
-        // takes its place on top
-        const j = toStack.shift();
-        if (j === undefined) throw new Error("no element to load on top");
-        load(j);
+    const order = this.consumeOrder(old, mem, nextInternal);
+    if (this.opts.primeStack) {
+      // the elements in memory first, then the PRIME copies of the first
+      // `stacked` swapped elements under m0: [m0, P, ..., P, sum, ...]. The
+      // k-th element sits under the copies left over its turn, so its swap
+      // must still reach it; the elements after the stacked ones get their
+      // copy swapped under them.
+      for (const j of loads) if (j <= mem) load(j);
+      const depths = order.map((i) => e.find(old[i]));
+      const fits = (n: number) =>
+        depths.slice(0, n).every((d, k) => d + n - k - 1 <= e.maxReach);
+      let stacked = order.length;
+      while (stacked > 0 && !fits(stacked)) stacked--;
+      if (stacked > 0) {
+        for (let k = 0; k < stacked; k++) e.pushPrime();
+        e.swap(stacked);
+        e.endLine();
       }
-      if (k === 0) for (const j of loads) if (j <= mem) load(j);
+      for (const [k, i] of order.entries()) {
+        const s = old[i];
+        e.swap(e.find(s) - 1);
+        if (k >= stacked) {
+          e.pushPrime();
+          e.swap(1);
+        }
+        finish(i, s);
+        if (i <= mem) {
+          // the output went to memory: one that comes back to the stack
+          // takes its place on top, with its own PRIME copy
+          const j = toStack.shift();
+          if (j === undefined) throw new Error("no element to load on top");
+          load(j);
+        }
+      }
+    } else {
+      for (const [k, i] of order.entries()) {
+        const s = old[i];
+        e.swap(e.find(s) - 1);
+        e.pushPrime();
+        e.swap(1);
+        finish(i, s);
+        if (i <= mem) {
+          // the output went to memory: one that comes back to the stack
+          // takes its place on top
+          const j = toStack.shift();
+          if (j === undefined) throw new Error("no element to load on top");
+          load(j);
+        }
+        if (k === 0) for (const j of loads) if (j <= mem) load(j);
+      }
     }
     if (toStack.length) throw new Error("elements left to load on top");
     e.swap(2);
@@ -1454,21 +1495,26 @@ export function buildBest(
                       for (const internalConsume of consume
                         ? bools
                         : [false]) {
-                        list.push({
-                          diagInMemory,
-                          gcExternal,
-                          gcM4,
-                          gcInternal,
-                          chainSwapMod,
-                          externalD,
-                          primeUnderExternal,
-                          internalReduceOutputs,
-                          floatPrimeInternal,
-                          internalConsume,
-                          gcInternalFrom: 0,
-                          diagPush32: 0,
-                          shadow,
-                        });
+                        for (const primeStack of internalConsume
+                          ? bools
+                          : [false]) {
+                          list.push({
+                            diagInMemory,
+                            gcExternal,
+                            gcM4,
+                            gcInternal,
+                            chainSwapMod,
+                            externalD,
+                            primeUnderExternal,
+                            internalReduceOutputs,
+                            floatPrimeInternal,
+                            internalConsume,
+                            primeStack,
+                            gcInternalFrom: 0,
+                            diagPush32: 0,
+                            shadow,
+                          });
+                        }
                       }
                     }
                   }

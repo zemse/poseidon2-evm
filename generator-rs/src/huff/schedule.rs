@@ -50,6 +50,10 @@ pub struct BuildOptions {
     pub float_prime_internal: bool,
     /// internal rounds consume the old state in place
     pub internal_consume: bool,
+    /// with internal_consume, stack the PRIME copies of a round under m0 at
+    /// once so each swapped element lands on its own instead of getting one
+    /// swapped under it
+    pub prime_stack: bool,
     /// with gc_internal, leave the garbage of the first gc_internal_from
     /// internal rounds in place as far as the depth allows
     pub gc_internal_from: usize,
@@ -72,6 +76,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     internal_reduce_outputs: false,
     float_prime_internal: false,
     internal_consume: false,
+    prime_stack: false,
     gc_internal_from: 0,
     diag_push32: 0,
     shadow: false,
@@ -113,6 +118,7 @@ pub fn describe_options(opts: &BuildOptions) -> String {
         ("internalReduceOutputs", opts.internal_reduce_outputs),
         ("floatPrimeInternal", opts.float_prime_internal),
         ("internalConsume", opts.internal_consume),
+        ("primeStack", opts.prime_stack),
     ];
     let mut enabled: Vec<String> = flags
         .iter()
@@ -1310,7 +1316,9 @@ impl<'a> Builder<'a> {
     /// Internal round that consumes the old state in place. Expects [s0, P]
     /// on top, the other elements right under them and a PRIME copy under
     /// the state. Beyond reach - 4 elements the first indices live in memory,
-    /// loaded for the chain and their MULMOD and stored again.
+    /// loaded for the chain and their MULMOD and stored again. Each element
+    /// swapped to the top gets a PRIME copy swapped under it, or with
+    /// prime_stack lands on one of the copies stacked under m0 beforehand.
     fn internal_round_consume(&mut self, round: usize, next_internal: bool) -> Result<()> {
         let t = self.t;
         let p = self.p();
@@ -1365,24 +1373,64 @@ impl<'a> Builder<'a> {
         }
         let mut to_stack: VecDeque<usize> = loads.iter().copied().filter(|&i| i > mem).collect();
         let order = self.consume_order(&old, mem, next_internal)?;
-        for (k, &i) in order.iter().enumerate() {
-            let s = old[i];
-            self.swap_up(s)?;
-            self.e.push_prime()?;
-            self.e.swap(1)?;
-            self.consume_finish(i, s, sum, mem, &mut out)?;
-            if i <= mem {
-                // the output went to memory: one that comes back to the stack
-                // takes its place on top
-                let Some(j) = to_stack.pop_front() else {
-                    bail!("no element to load on top");
-                };
-                self.consume_load(j, &old, sum, mem, &mut out)?;
+        if self.opts.prime_stack {
+            // the elements in memory first, then the PRIME copies of the
+            // first `stacked` swapped elements under m0: [m0, P, ..., P,
+            // sum, ...]. The k-th element sits under the copies left over
+            // its turn, so its swap must still reach it; the elements
+            // after the stacked ones get their copy swapped under them.
+            for &j in &loads {
+                if j <= mem {
+                    self.consume_load(j, &old, sum, mem, &mut out)?;
+                }
             }
-            if k == 0 {
-                for &j in &loads {
-                    if j <= mem {
-                        self.consume_load(j, &old, sum, mem, &mut out)?;
+            let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i])).collect();
+            let fits = |n: usize| (0..n).all(|k| depths[k] + n - k - 1 <= self.e.max_reach);
+            let stacked = (0..=order.len()).rev().find(|&n| fits(n)).unwrap_or(0);
+            if stacked > 0 {
+                for _ in 0..stacked {
+                    self.e.push_prime()?;
+                }
+                self.e.swap(stacked)?;
+                self.e.end_line();
+            }
+            for (k, &i) in order.iter().enumerate() {
+                let s = old[i];
+                self.swap_up(s)?;
+                if k >= stacked {
+                    self.e.push_prime()?;
+                    self.e.swap(1)?;
+                }
+                self.consume_finish(i, s, sum, mem, &mut out)?;
+                if i <= mem {
+                    // the output went to memory: one that comes back to the
+                    // stack takes its place on top, with its own PRIME copy
+                    let Some(j) = to_stack.pop_front() else {
+                        bail!("no element to load on top");
+                    };
+                    self.consume_load(j, &old, sum, mem, &mut out)?;
+                }
+            }
+        } else {
+            for (k, &i) in order.iter().enumerate() {
+                let s = old[i];
+                self.swap_up(s)?;
+                self.e.push_prime()?;
+                self.e.swap(1)?;
+                self.consume_finish(i, s, sum, mem, &mut out)?;
+                if i <= mem {
+                    // the output went to memory: one that comes back to the
+                    // stack takes its place on top
+                    let Some(j) = to_stack.pop_front() else {
+                        bail!("no element to load on top");
+                    };
+                    self.consume_load(j, &old, sum, mem, &mut out)?;
+                }
+                if k == 0 {
+                    for &j in &loads {
+                        if j <= mem {
+                            self.consume_load(j, &old, sum, mem, &mut out)?;
+                        }
                     }
                 }
             }
@@ -1803,21 +1851,24 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                         let consume =
                                             t >= 8 && !gc_internal && !float_prime_internal;
                                         for &internal_consume in pick(consume) {
-                                            list.push(BuildOptions {
-                                                diag_in_memory,
-                                                gc_external,
-                                                gc_m4,
-                                                gc_internal,
-                                                chain_swap_mod,
-                                                external_d,
-                                                prime_under_external,
-                                                internal_reduce_outputs,
-                                                float_prime_internal,
-                                                internal_consume,
-                                                gc_internal_from: 0,
-                                                diag_push32: 0,
-                                                shadow,
-                                            });
+                                            for &prime_stack in pick(internal_consume) {
+                                                list.push(BuildOptions {
+                                                    diag_in_memory,
+                                                    gc_external,
+                                                    gc_m4,
+                                                    gc_internal,
+                                                    chain_swap_mod,
+                                                    external_d,
+                                                    prime_under_external,
+                                                    internal_reduce_outputs,
+                                                    float_prime_internal,
+                                                    internal_consume,
+                                                    prime_stack,
+                                                    gc_internal_from: 0,
+                                                    diag_push32: 0,
+                                                    shadow,
+                                                });
+                                            }
                                         }
                                     }
                                 }
