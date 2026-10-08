@@ -58,5 +58,5 @@ fn osaka_split_t20() {
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 2);
     // forge, with every part cold
-    assert_eq!(reports[0].gas.measured, 74078);
+    assert_eq!(reports[0].gas.measured, 74055);
 }

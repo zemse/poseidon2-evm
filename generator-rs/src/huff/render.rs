@@ -5,7 +5,7 @@
 // next one with the state in memory and returns what it returns.
 
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
-use super::fork::{DEFAULT_HARDFORK, Fork, SHANGHAI};
+use super::fork::{DEFAULT_HARDFORK, Fork};
 use super::schedule::{
     Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, Prologue, describe_options,
 };
@@ -176,7 +176,9 @@ fn ret(code: &mut Code, t: usize, from_memory: bool) {
     code.end("");
 }
 
-/// STATICCALL the next part with the state at [0, 32t) and return its output
+/// STATICCALL the next part with the state at [0, 32t) and return its
+/// output: the call's arguments and the address (NEXT_PART, a PUSH32 the
+/// constructor patches), then HAND_OVER with the call itself
 fn hand_over(code: &mut Code, t: usize, part: usize) {
     code.text(&format!(
         "    // forward the state to part {} and return its output",
@@ -186,10 +188,21 @@ fn hand_over(code: &mut Code, t: usize, part: usize) {
     code.push(0);
     code.push(32 * t);
     code.push(0);
-    code.op("NEXT_PART()", next_part_gas(t), next_part_bytes(t));
+    code.op("NEXT_PART()", gas::PUSH, NEXT_PART_BYTES);
+    let tail = hand_over_tail(code.fork, t);
+    code.op("HAND_OVER()", tail.gas, tail.bytes);
+    code.end("[output]");
+}
+
+/// the PUSH32 of the next part's address, patched by the constructor
+const NEXT_PART_BYTES: usize = 33;
+
+/// the call to the address on top, the check of its return data and the
+/// return of it (HAND_OVER)
+fn hand_over_tail(fork: Fork, t: usize) -> Code {
+    let mut code = Code::new(fork);
     code.op("gas", 2, 1);
-    let cold = code.fork.cold_account;
-    code.op("staticcall", cold, 1);
+    code.op("staticcall", fork.cold_account, 1);
     code.end("[success]");
     code.op("returndatasize", 2, 1);
     code.push(32 * t);
@@ -199,7 +212,6 @@ fn hand_over(code: &mut Code, t: usize, part: usize) {
     code.op("jumpi", 10, 1);
     code.end("");
     // the revert branch: bytes only, a call that succeeds skips it
-    let fork = code.fork;
     let zero = push_text(U256::ZERO, &fork);
     code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
     code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
@@ -207,18 +219,8 @@ fn hand_over(code: &mut Code, t: usize, part: usize) {
     code.end("");
     code.op("ok:", 1, 1);
     code.end("");
-    ret(code, t, true);
-}
-
-/// 0x20 0x20 codesize sub <32t> codecopy <32t> mload
-fn next_part_gas(t: usize) -> u64 {
-    let off = u256(32 * t as u64);
-    3 + 3 + 2 + 3 + push_gas(off, &SHANGHAI) + 6 + push_gas(off, &SHANGHAI) + 3
-}
-
-fn next_part_bytes(t: usize) -> usize {
-    let off = u256(32 * t as u64);
-    2 + 2 + 1 + 1 + push_bytes(off, &SHANGHAI) + 1 + push_bytes(off, &SHANGHAI) + 1
+    ret(&mut code, t, true);
+    code
 }
 
 /// Gas and bytes of a part's code around the permutation macro: the entry
@@ -657,14 +659,12 @@ pub fn render_part(
     } else {
         hand_over(&mut code, t, part);
     }
+    // a 32-byte literal with its top byte set is a PUSH32 (a zero would be
+    // PUSH0, and huffc drops the zeros of a __VERBATIM)
     let mut next = Code::new(*fork);
-    next.op("0x20 0x20 codesize sub", 0, 0);
-    next.push(32 * t);
-    next.op("codecopy", 0, 0);
-    next.end(&format!("memory[{}] = address word", hex_off(32 * t)));
-    next.push(32 * t);
-    next.op("mload", 0, 0);
+    next.op(&format!("0x{}", "ff".repeat(32)), 0, 0);
     next.end("[next]");
+    let tail = hand_over_tail(*fork, t);
     let mut ctor = Code::new(*fork);
     ctor.op("__codesize(CONSTRUCTOR)", 0, 0);
     ctor.end("[c]");
@@ -674,6 +674,18 @@ pub fn render_part(
     ctor.push(0);
     ctor.op("codecopy", 0, 0);
     ctor.end("[len]");
+    ctor.op("0x20 swap1 sub", 0, 0);
+    ctor.end("[size]");
+    ctor.op("dup1 mload", 0, 0);
+    ctor.end("[next, size]");
+    ctor.op(
+        "__codesize(HAND_OVER) __codesize(MAIN) sub 0x20 swap1 sub",
+        0,
+        0,
+    );
+    ctor.end("[offset, next, size]");
+    ctor.op("mstore", 0, 0);
+    ctor.end("[size]");
     ctor.push(0);
     ctor.op("return", 0, 0);
     ctor.end("");
@@ -682,18 +694,25 @@ pub fn render_part(
     } else {
         format!(
             "
-/// @notice Address of part {next_part}: the word the deployer appends to the initcode, which CONSTRUCTOR keeps behind the runtime code
+/// @notice Address of part {next_part}: a PUSH32 that CONSTRUCTOR patches with the word the deployer appends to the initcode
 #define macro NEXT_PART() = {{
 {next_lines}
 }}
 
-/// @notice Deploys the runtime code together with the word appended to the initcode
+/// @notice STATICCALLs the address on top with the state at [0, {end}) and returns its output
+#define macro HAND_OVER() = {{
+{tail_lines}
+}}
+
+/// @notice Deploys the runtime code with the word appended to the initcode patched into NEXT_PART, whose immediate ends where HAND_OVER begins
 #define macro CONSTRUCTOR() = {{
 {ctor_lines}
 }}
 ",
             next_part = part + 1,
             next_lines = next.lines.join("\n"),
+            end = hex_off(32 * t),
+            tail_lines = tail.lines.join("\n"),
             ctor_lines = ctor.lines.join("\n"),
         )
     };

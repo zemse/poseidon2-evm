@@ -3,8 +3,10 @@
 // into parts (Part<i>.huff): each part is a contract that takes the state as
 // calldata, and every part but the last STATICCALLs the next one with the
 // state in memory and returns what it returns. The next part's address is
-// the 32-byte word the deployer appends to the initcode; CONSTRUCTOR keeps
-// it behind the runtime code, where NEXT_PART() reads it with CODECOPY.
+// the 32-byte word the deployer appends to the initcode; NEXT_PART() is a
+// PUSH32 of it, which CONSTRUCTOR patches into the runtime code before
+// deploying it (the immediate ends where HAND_OVER(), the rest of MAIN,
+// begins).
 
 import { hex, PRIME } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
@@ -166,7 +168,9 @@ function ret(code: Code, t: number, fromMemory: boolean) {
   code.end();
 }
 
-// STATICCALL the next part with the state at [0, 32t) and return its output
+// STATICCALL the next part with the state at [0, 32t) and return its
+// output: the call's arguments and the address (NEXT_PART, a PUSH32), then
+// HAND_OVER with the call itself
 function handOver(code: Code, t: number, part: number) {
   code.text(
     `    // forward the state to part ${part + 1} and return its output`,
@@ -175,9 +179,21 @@ function handOver(code: Code, t: number, part: number) {
   code.push(0);
   code.push(32 * t);
   code.push(0);
-  code.op("NEXT_PART()", nextPartGas(t), nextPartBytes(t));
+  code.op("NEXT_PART()", GAS.push, NEXT_PART_BYTES);
+  const tail = handOverTail(code.fork, t);
+  code.op("HAND_OVER()", tail.gas, tail.bytes);
+  code.end("[output]");
+}
+
+// the PUSH32 of the next part's address, patched by the constructor
+const NEXT_PART_BYTES = 33;
+
+// the call to the address on top, the check of its return data and the
+// return of it (HAND_OVER)
+function handOverTail(fork: Fork, t: number): Code {
+  const code = new Code(fork);
   code.op("gas", 2, 1);
-  code.op("staticcall", code.fork.coldAccount, 1);
+  code.op("staticcall", fork.coldAccount, 1);
   code.end("[success]");
   code.op("returndatasize", 2, 1);
   code.push(32 * t);
@@ -187,26 +203,14 @@ function handOver(code: Code, t: number, part: number) {
   code.op("jumpi", 10, 1);
   code.end();
   // the revert branch: bytes only, a call that succeeds skips it
-  code.op(pushText(0n, code.fork), 0, pushBytes(0n, code.fork));
-  code.op(pushText(0n, code.fork), 0, pushBytes(0n, code.fork));
+  code.op(pushText(0n, fork), 0, pushBytes(0n, fork));
+  code.op(pushText(0n, fork), 0, pushBytes(0n, fork));
   code.op("revert", 0, 1);
   code.end();
   code.op("ok:", 1, 1);
   code.end();
   ret(code, t, true);
-}
-
-// 0x20 0x20 codesize sub <32t> codecopy <32t> mload
-function nextPartGas(t: number): number {
-  const off = BigInt(32 * t);
-  const fork = FORKS.shanghai;
-  return 3 + 3 + 2 + 3 + pushGas(off, fork) + 6 + pushGas(off, fork) + 3;
-}
-
-function nextPartBytes(t: number): number {
-  const off = BigInt(32 * t);
-  const fork = FORKS.shanghai;
-  return 2 + 2 + 1 + 1 + pushBytes(off, fork) + 1 + pushBytes(off, fork) + 1;
+  return code;
 }
 
 // Gas and bytes of a part's code around the permutation macro: the entry
@@ -566,14 +570,12 @@ export function renderPart(
   code.blank();
   if (last) ret(code, t, true);
   else handOver(code, t, part);
+  // a 32-byte literal with its top byte set is a PUSH32 (a zero would be
+  // PUSH0, and huffc drops the zeros of a __VERBATIM)
   const next = new Code(fork);
-  next.op("0x20 0x20 codesize sub", 0, 0);
-  next.push(32 * t);
-  next.op("codecopy", 0, 0);
-  next.end(`memory[${hexOff(32 * t)}] = address word`);
-  next.push(32 * t);
-  next.op("mload", 0, 0);
+  next.op(`0x${"ff".repeat(32)}`, 0, 0);
   next.end("[next]");
+  const tail = handOverTail(fork, t);
   const ctor = new Code(fork);
   ctor.op("__codesize(CONSTRUCTOR)", 0, 0);
   ctor.end("[c]");
@@ -583,18 +585,31 @@ export function renderPart(
   ctor.push(0);
   ctor.op("codecopy", 0, 0);
   ctor.end("[len]");
+  ctor.op("0x20 swap1 sub", 0, 0);
+  ctor.end("[size]");
+  ctor.op("dup1 mload", 0, 0);
+  ctor.end("[next, size]");
+  ctor.op("__codesize(HAND_OVER) __codesize(MAIN) sub 0x20 swap1 sub", 0, 0);
+  ctor.end("[offset, next, size]");
+  ctor.op("mstore", 0, 0);
+  ctor.end("[size]");
   ctor.push(0);
   ctor.op("return", 0, 0);
   ctor.end();
   const chain = last
     ? ""
     : `
-/// @notice Address of part ${part + 1}: the word the deployer appends to the initcode, which CONSTRUCTOR keeps behind the runtime code
+/// @notice Address of part ${part + 1}: a PUSH32 that CONSTRUCTOR patches with the word the deployer appends to the initcode
 #define macro NEXT_PART() = {
 ${next.lines.join("\n")}
 }
 
-/// @notice Deploys the runtime code together with the word appended to the initcode
+/// @notice STATICCALLs the address on top with the state at [0, ${hexOff(32 * t)}) and returns its output
+#define macro HAND_OVER() = {
+${tail.lines.join("\n")}
+}
+
+/// @notice Deploys the runtime code with the word appended to the initcode patched into NEXT_PART, whose immediate ends where HAND_OVER begins
 #define macro CONSTRUCTOR() = {
 ${ctor.lines.join("\n")}
 }

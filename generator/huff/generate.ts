@@ -71,7 +71,7 @@ function entryGas(fork: Fork, t: number, result: BuildResult): number {
 // gas of a call to a part, with a cold hop to the next one
 function partGas(part: Part, t: number): number {
   const { result, overhead: o } = part;
-  const memory = memoryGas(Math.max(result.memory, 32 * t + 32));
+  const memory = memoryGas(Math.max(result.memory, 32 * t));
   return o.entryGas + result.gas + o.tailGas + memory;
 }
 
@@ -183,7 +183,7 @@ function generate(t: number, fork: Fork) {
     const { result, opts, overhead: o } = part;
     const { from, to } = result.range;
     const bytes = result.bytes + o.bytes;
-    const memory = memoryGas(Math.max(result.memory, 32 * t + 32));
+    const memory = memoryGas(Math.max(result.memory, 32 * t));
     const gas = partGas(part, t);
     total += gas;
     console.log(

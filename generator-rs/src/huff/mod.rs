@@ -127,7 +127,7 @@ fn entry_gas(fork: &Fork, t: usize, result: &BuildResult) -> u64 {
 /// gas of a call to a part, with a cold hop to the next one
 fn part_gas(part: &Part, t: usize) -> u64 {
     let (result, o) = (&part.best.result, &part.overhead);
-    o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t + 32))
+    o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
 }
 
 fn generate(t: usize, fork: &Fork) -> Result<Width> {
@@ -290,7 +290,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         let (result, opts, o) = (&part.best.result, &part.best.opts, &part.overhead);
         let Range { from, to } = result.range;
         let bytes = result.bytes + o.bytes;
-        let memory = memory_gas(result.memory.max(32 * t + 32));
+        let memory = memory_gas(result.memory.max(32 * t));
         let gas = part_gas(part, t);
         total += gas;
         gases.push(gas);

@@ -30,8 +30,9 @@ import {
 
 export type Part = Best & { overhead: Overhead };
 
-// the initcode is CONSTRUCTOR (11 bytes), the runtime and the address word
-const CONSTRUCTOR_BYTES = 11;
+// the initcode is CONSTRUCTOR (at most 29 bytes), the runtime and the
+// address word
+const CONSTRUCTOR_BYTES = 29;
 
 export function splitPermutation(
   params: Params,
@@ -40,17 +41,14 @@ export function splitPermutation(
 ): Part[] {
   const t = params.t;
   const steps = stepCount(params);
-  // entry and tail at their largest (every input shadowed, PUSH2 offsets),
-  // and the address word a part that hands over keeps behind its code
+  // entry and tail at their largest (every input shadowed, PUSH2 offsets)
   const allSlots = new Array(t).fill(0xffff);
-  const word = (to: number) => (to < steps ? 32 : 0);
   // a part after the first takes its inputs lazy from calldata (no
   // reduction, no slots)
   const budget = ({ from, to }: Range) =>
     fork.codeSize -
     overhead(fork, t, from === 0 ? allSlots : [], true, to < steps, from > 0)
-      .bytes -
-    word(to);
+      .bytes;
   const boundary = (range: Range) => partBoundary(t, range.from);
 
   // options for the size probes: the cheapest schedule of a short range,
@@ -183,7 +181,7 @@ export function splitPermutation(
         range.from > 0,
       );
       const runtime = result.bytes + o.bytes;
-      if (runtime + word(range.to) > fork.codeSize) {
+      if (runtime > fork.codeSize) {
         throw new Error(`part ${range.from}..${range.to}: ${runtime} bytes`);
       }
       if (CONSTRUCTOR_BYTES + runtime + 32 > fork.initcodeSize) {
