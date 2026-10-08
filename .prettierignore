@@ -4,3 +4,4 @@ lib/
 # Build artifacts
 out/
 cache/
+generator-rs/target/
