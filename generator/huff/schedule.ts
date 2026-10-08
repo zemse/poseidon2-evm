@@ -54,6 +54,11 @@ export type BuildOptions = {
   // internal rounds: leave a PRIME copy under the new state only when the
   // nearest copy would leave the reach, instead of every round
   floatPrimeInternal: boolean;
+  // internal rounds consume the old state in place: the sum chain DUPs
+  // every element in advance and each element is then SWAPped to the top
+  // for its MULMOD, so no garbage is left and nothing is popped (t = 12
+  // within DUP16, where the state would otherwise need SWAPn POP)
+  internalConsume: boolean;
   // with gcInternal, leave the garbage of the first gcInternalFrom internal
   // rounds in place (no SWAPn POP) as far as the depth allows
   gcInternalFrom: number;
@@ -75,6 +80,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   primeUnderExternal: true,
   internalReduceOutputs: false,
   floatPrimeInternal: false,
+  internalConsume: false,
   gcInternalFrom: 0,
   diagPush32: 0,
   shadow: false,
@@ -306,6 +312,61 @@ class Builder {
       }
     }
     return acc;
+  }
+
+  // Sum of values with every operand DUPed in advance, deepest value first
+  // (its DUP happens before the copies pile up), so the chain runs in
+  // place and leaves nothing behind. A reduction is an ADDMOD with a PRIME
+  // copy placed under its operand while `primes` allows (every copy costs a
+  // slot of reach), then a MOD of the accumulator (3 gas more, no slot);
+  // the reduction the cap forces at the end is a MOD as well.
+  chainSumInPlace(
+    values: Value[],
+    name: string,
+    cap: bigint,
+    primes: number,
+  ): Value {
+    const e = this.e;
+    const n = values.length;
+    if (n < 2) throw new Error("chainSumInPlace needs two values");
+    const order = this.byDepth(values)
+      .reverse()
+      .map((i) => values[i]);
+    // per step: "addmod" (PRIME under the operand), "mod" (before the ADD)
+    // or "add"
+    const steps: ("add" | "addmod" | "mod")[] = [];
+    let bound = order[0].bound;
+    for (let j = 1; j < n; j++) {
+      if (bound + order[j].bound <= UINT256_MAX) {
+        steps.push("add");
+        bound += order[j].bound;
+      } else if (steps.filter((s) => s === "addmod").length < primes) {
+        steps.push("addmod");
+        bound = PRIME - 1n;
+      } else {
+        steps.push("mod");
+        bound = PRIME - 1n + order[j].bound;
+      }
+    }
+    for (let j = n - 1; j >= 1; j--) {
+      if (steps[j - 1] === "addmod") e.pushPrime();
+      e.dup(order[j]);
+    }
+    e.dup(order[0]);
+    let acc = order[0];
+    for (let j = 1; j < n; j++) {
+      if (steps[j - 1] === "addmod") {
+        acc = e.compute(
+          "addmod",
+          [inplace(acc), inplace(order[j]), inplace(this.P)],
+          name,
+        );
+      } else {
+        if (steps[j - 1] === "mod") acc = this.modTop(acc);
+        acc = e.compute("add", [inplace(acc), inplace(order[j])], name);
+      }
+    }
+    return acc.bound > cap ? this.modTop(acc) : acc;
   }
 
   // v % PRIME for v on top: [PRIME] swap1 mod
@@ -715,6 +776,127 @@ class Builder {
     this.state = out;
   }
 
+  // Order in which the consuming round takes the elements of `old` but s0:
+  // the one under the sum first (m0 takes its slot and [output, sum, m0]
+  // stays on top), and since the output of each element takes the slot of
+  // the next one and the last output lands under [s0', P], the order
+  // decides the next layout: slot order for the rounds in between (the
+  // layout rotates by one slot), and for the last internal round an order
+  // that leaves every element in the slots of its block of the external
+  // layer (block 0 on top, as externalD needs). Each slot is an edge from
+  // the block of its range to the block of the element it holds, so that
+  // order is an Eulerian circuit of the blocks (in- and out-degree are the
+  // block size), found by Hierholzer's algorithm; it exists when the
+  // rotations before have connected the blocks.
+  consumeOrder(old: Value[], nextInternal: boolean): number[] {
+    const e = this.e;
+    const t = this.t;
+    // slot s holds index s - 2 in the block order
+    const at = new Map<number, number>();
+    for (let i = 1; i < t; i++) at.set(e.find(old[i]), i);
+    if (at.get(3) === undefined) throw new Error("no element under the sum");
+    const slots = [...at.keys()].sort((a, b) => a - b);
+    if (nextInternal) return slots.map((s) => at.get(s)!);
+    const block = (i: number) => i >> 2;
+    const out = new Map<number, number[]>();
+    for (const s of slots) {
+      const b = block(s - 2);
+      out.set(b, [...(out.get(b) ?? []), s]);
+    }
+    const circuit: number[] = [];
+    const stack: { node: number; via: number }[] = [{ node: 0, via: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      const s = out.get(top.node)?.pop();
+      if (s !== undefined) stack.push({ node: block(at.get(s)!), via: s });
+      else circuit.push(stack.pop()!.via);
+    }
+    circuit.pop();
+    circuit.reverse();
+    if (circuit.length !== t - 1) {
+      throw new Error("the blocks are not connected");
+    }
+    const start = circuit.indexOf(3);
+    return [...circuit.slice(start), ...circuit.slice(0, start)].map(
+      (s) => at.get(s)!,
+    );
+  }
+
+  // Internal round that consumes the old state in place. Expects [s0, P] on
+  // top, the other elements right under them and a PRIME copy under the
+  // state (installed by the first round, from the slot below). The sum
+  // chain lands on a PRIME copy so that s0^5, swapped on top of it, is
+  // consumed by its MULMOD, whose result takes the slot right under the
+  // sum. Every other element is swapped to the top (the previous output
+  // takes its slot), gets a PRIME copy swapped under it and is consumed by
+  // its MULMOD; the last ADD consumes the sum and m0 together.
+  internalRoundConsume(round: number, nextInternal: boolean) {
+    const e = this.e;
+    const t = this.t;
+    const s0 = this.state[0];
+    if (e.top(0) !== s0 || e.top(1) !== this.P) {
+      throw new Error("internal round expects [s0, P] on top");
+    }
+    const c = this.constant(this.params.roundConstants[round][0], "c");
+    if (!e.fitsAdd(s0, c)) throw new Error("s0 + c does not fit");
+    const y = e.compute("add", [c, inplace(s0)], "s0+c");
+    const x5 = this.sbox(y, "s0^5");
+    e.endLine();
+    // the external round before leaves an M4 temporary among the state;
+    // its slot takes s0^5, which is swapped back on top
+    for (const v of this.dead) this.gc(v);
+    this.dead = [];
+    if (e.top(0) !== x5) e.swap(e.find(x5) - 1);
+    if (e.stack[t] !== this.P) {
+      // the PRIME copy the rounds DUP from, in place of the slot under the
+      // state
+      e.pushPrime();
+      e.swap(t + 1);
+      e.pop();
+    }
+    e.endLine();
+
+    const old = [x5, ...this.state.slice(1)];
+    e.pushPrime();
+    // the chain DUPs t values over this copy, so its deepest DUP allows
+    // reach - t - 1 PRIME copies
+    const primes = e.maxReach - t - 1;
+    const sum = this.chainSumInPlace(old, "sum", PRIME - 1n, primes);
+    e.endLine();
+    // [sum, P, s0^5, ...]: s0^5 on top of the PRIME copy, m0 lands on the sum
+    e.swap(2);
+    const m0 = e.compute(
+      "mulmod",
+      [this.diag(0), inplace(x5), inplace(this.P)],
+      "m0",
+    );
+    e.endLine();
+
+    const out: Value[] = new Array(t);
+    for (const i of this.consumeOrder(old, nextInternal)) {
+      const s = old[i];
+      e.swap(e.find(s) - 1);
+      e.pushPrime();
+      e.swap(1);
+      const m = e.compute(
+        "mulmod",
+        [this.diag(i), inplace(s), inplace(this.P)],
+        `m${i}`,
+      );
+      out[i] = e.compute("add", [sum, inplace(m)], `s${i}'`);
+      e.endLine();
+    }
+    e.swap(2);
+    out[0] = e.compute("add", [inplace(e.top(0)), inplace(e.top(1))], "s0'");
+    if (nextInternal) {
+      // PRIME copy under the next round's s0 + c
+      e.pushPrime();
+      e.swap(1);
+    }
+    e.endLine();
+    this.state = out;
+  }
+
   // ---- whole permutation ----------------------------------------------------
 
   build(): Value[] {
@@ -769,7 +951,11 @@ class Builder {
           e.pushPrime();
           e.swap(1);
         }
-        this.internalRound(r, r < pEnd - 1 && next);
+        if (this.opts.internalConsume) {
+          this.internalRoundConsume(r, r < pEnd - 1 && next);
+        } else {
+          this.internalRound(r, r < pEnd - 1 && next);
+        }
       } else {
         e.comment(`Round ${r} (external)`);
         this.addConstantsAndSbox(r);
@@ -902,20 +1088,29 @@ export function buildBest(
                     ? bools
                     : [false]) {
                     for (const floatPrimeInternal of bools) {
-                      list.push({
-                        diagInMemory,
-                        gcExternal,
-                        gcM4,
-                        gcInternal,
-                        chainSwapMod,
-                        externalD,
-                        primeUnderExternal,
-                        internalReduceOutputs,
-                        floatPrimeInternal,
-                        gcInternalFrom: 0,
-                        diagPush32: 0,
-                        shadow,
-                      });
+                      // the consuming round neither collects garbage nor
+                      // floats PRIME copies
+                      const consume =
+                        params.t >= 8 && !gcInternal && !floatPrimeInternal;
+                      for (const internalConsume of consume
+                        ? bools
+                        : [false]) {
+                        list.push({
+                          diagInMemory,
+                          gcExternal,
+                          gcM4,
+                          gcInternal,
+                          chainSwapMod,
+                          externalD,
+                          primeUnderExternal,
+                          internalReduceOutputs,
+                          floatPrimeInternal,
+                          internalConsume,
+                          gcInternalFrom: 0,
+                          diagPush32: 0,
+                          shadow,
+                        });
+                      }
                     }
                   }
                 }
@@ -942,8 +1137,8 @@ export function buildBest(
       try {
         let result = buildPermutation(params, inputs, opts, fork, range);
         built++;
-        if (fork.reach > 16 && result.maxDepth <= 1000) {
-          if (opts.gcInternal) {
+        if (result.maxDepth <= 1000) {
+          if (opts.gcInternal && fork.reach > 16) {
             const gcInternalFrom = largest(params.roundsP, (n) => {
               const r = attempt({ ...opts, gcInternalFrom: n });
               return r !== undefined && r.maxDepth <= 1000;
