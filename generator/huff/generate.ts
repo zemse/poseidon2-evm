@@ -6,11 +6,12 @@
 // the stack schedule is simulated and checked against the BigInt reference
 // permutation before anything is written (schedule.ts). The hardfork
 // (fork.ts, default amsterdam) decides the opcodes the schedule may use and
-// the code size: t = 4 goes to src/bn254/huff/Permutation.huff, other widths
-// get their own directory with an entry contract and a Foundry test, and a
-// fork other than the default gets src/bn254/huff/<fork>/t<t>/ and
-// test/<fork>/. A permutation over the fork's code size is split into parts
-// (split.ts), Part0.huff being the contract to call.
+// the code size. Every width gets src/bn254/huff/t<t>/Permutation.huff,
+// and every width but t = 4 (whose hash entry t4/Poseidon2.huff is
+// hand-written) an entry contract and a Foundry test; a fork other than the
+// default gets src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation
+// over the fork's code size is split into parts (split.ts), Part0.huff being
+// the contract to call.
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { generateParams } from "../params.ts";
@@ -72,11 +73,12 @@ function generate(t: number, fork: Fork) {
     const { result, opts } = best;
     console.log(`${label}: ${describe(result, opts)}`);
     if (t === 4 && legacy) {
-      const path = "src/bn254/huff/Permutation.huff";
+      // t4/Poseidon2.huff is the hand-written hash_1 / hash_2 / hash_3 entry
+      const path = `${dir}/Permutation.huff`;
       writeForkFiles(fork);
       writeFileSync(
         path,
-        renderPermutation(params, result, opts, "./Utils.huff", fork),
+        renderPermutation(params, result, opts, utilsPath, fork),
       );
       console.log(`  wrote ${path}`);
       return;

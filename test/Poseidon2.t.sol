@@ -20,7 +20,7 @@ contract Poseidon2Test is Test {
     function setUp() public {
         poseidon2 = new Poseidon2_BN254();
         poseidon2Yul = IPoseidon2(address(new Poseidon2Yul_BN254()));
-        poseidon2Huff = IPoseidon2(HuffDeployer.deploy("bn254/huff/Poseidon2"));
+        poseidon2Huff = IPoseidon2(HuffDeployer.deploy("bn254/huff/t4/Poseidon2"));
         vm.label(address(poseidon2Huff), "Poseidon2Huff_BN254");
 
         // Deploy bytecode at library constant addresses for testing

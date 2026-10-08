@@ -46,13 +46,11 @@ export function huffName(fork: Fork, t: number, file: string): string {
   return `${dir}/t${t}/${file}`;
 }
 
-// includes of a permutation in the width directory (or next to Utils.huff
-// for the default t = 4)
+// includes of a permutation in the width directory
 function includes(fork: Fork, utilsPath: string): string {
-  const dir = utilsPath.startsWith("./") ? "./" : "../";
   let text = `#include "${utilsPath}"\n`;
-  if (fork.reach > 16) text += `#include "${dir}Eip8024.huff"\n`;
-  if (!fork.push0) text += `#include "${dir}Zero.huff"\n`;
+  if (fork.reach > 16) text += `#include "../Eip8024.huff"\n`;
+  if (!fork.push0) text += `#include "../Zero.huff"\n`;
   return text;
 }
 
