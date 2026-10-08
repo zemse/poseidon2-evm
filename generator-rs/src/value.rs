@@ -9,7 +9,7 @@
 
 use crate::bail;
 use crate::error::Result;
-use crate::field::{PRIME, U256};
+use crate::field::{self, PRIME, U256};
 
 #[derive(Debug, Clone)]
 pub struct Value {
@@ -115,7 +115,7 @@ pub fn apply_op(op: Op, args: &[&Value], name: String, vectors: usize) -> Result
             Value::new(
                 name,
                 PRIME - U256::from(1u64),
-                each(&|i| a.vals[i].add_mod(b.vals[i], PRIME)),
+                each(&|i| field::add(a.vals[i], b.vals[i])),
                 None,
             )
         }
@@ -126,7 +126,7 @@ pub fn apply_op(op: Op, args: &[&Value], name: String, vectors: usize) -> Result
             Value::new(
                 name,
                 PRIME - U256::from(1u64),
-                each(&|i| a.vals[i].mul_mod(b.vals[i], PRIME)),
+                each(&|i| field::mul(a.vals[i], b.vals[i])),
                 None,
             )
         }
@@ -137,7 +137,7 @@ pub fn apply_op(op: Op, args: &[&Value], name: String, vectors: usize) -> Result
             Value::new(
                 name,
                 PRIME - U256::from(1u64),
-                each(&|i| a.vals[i].reduce_mod(PRIME)),
+                each(&|i| field::reduce(a.vals[i])),
                 None,
             )
         }

@@ -7,6 +7,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use rayon::prelude::*;
+
 use crate::field::{self, PRIME, U256, U512, add, inv, mul, neg, reduce, sub, u256};
 
 const FIELD: u64 = 1;
@@ -339,6 +341,90 @@ fn poly_mod(a: &[U256], f: &[U256]) -> Poly {
     trim(r)
 }
 
+/// acc += x for a product x < p^2, reducing acc first when the sum would
+/// not fit
+fn add_wide(acc: &mut U512, x: U512) {
+    *acc = match acc.checked_add(x) {
+        Some(sum) => sum,
+        None => acc.reduce_mod(U512::from(PRIME)) + x,
+    };
+}
+
+fn reduce_wide(x: U512) -> U256 {
+    U256::from(x.reduce_mod(U512::from(PRIME)))
+}
+
+fn wide_mul(a: U256, b: U256) -> U512 {
+    a.widening_mul::<256, 4, 512, 8>(b)
+}
+
+/// A monic modulus f of degree n with x^n .. x^(2n - 2) reduced mod f, so
+/// that the product of two reduced polynomials is reduced with one modular
+/// reduction per coefficient. The remainder is unique, so this equals the
+/// TS long division.
+struct Modulus<'a> {
+    f: &'a [U256],
+    n: usize,
+    /// table[k] = x^(n + k) mod f, n coefficients
+    table: Vec<Vec<U256>>,
+}
+
+impl<'a> Modulus<'a> {
+    fn new(f: &'a [U256]) -> Modulus<'a> {
+        let n = f.len() - 1;
+        let mut table: Vec<Vec<U256>> = Vec::with_capacity(n);
+        let mut power = vec![U256::ZERO; n + 1];
+        power[n] = u256(1);
+        for _ in 0..n.saturating_sub(1) {
+            let mut reduced = poly_mod(&power, f);
+            reduced.resize(n, U256::ZERO);
+            // x times it, for the next power
+            power = std::iter::once(U256::ZERO)
+                .chain(reduced.iter().copied())
+                .collect();
+            table.push(reduced);
+        }
+        Modulus { f, n, table }
+    }
+
+    fn mul(&self, a: &[U256], b: &[U256]) -> Poly {
+        if a.is_empty() || b.is_empty() {
+            return Vec::new();
+        }
+        let len = a.len() + b.len() - 1;
+        let n = self.n;
+        if len > 2 * n - 1 {
+            return poly_mul_mod(a, b, self.f);
+        }
+        let mut acc = vec![U512::ZERO; len];
+        for (i, ai) in a.iter().enumerate() {
+            if ai.is_zero() {
+                continue;
+            }
+            for (j, bj) in b.iter().enumerate() {
+                add_wide(&mut acc[i + j], wide_mul(*ai, *bj));
+            }
+        }
+        if len <= n {
+            return trim(acc.into_iter().map(reduce_wide).collect());
+        }
+        let high: Vec<U256> = acc[n..].iter().map(|c| reduce_wide(*c)).collect();
+        let mut out: Vec<U512> = acc[..n]
+            .iter()
+            .map(|c| U512::from(reduce_wide(*c)))
+            .collect();
+        for (k, ck) in high.iter().enumerate() {
+            if ck.is_zero() {
+                continue;
+            }
+            for (o, tj) in out.iter_mut().zip(&self.table[k]) {
+                add_wide(o, wide_mul(*ck, *tj));
+            }
+        }
+        trim(out.into_iter().map(reduce_wide).collect())
+    }
+}
+
 fn poly_mul_mod(a: &[U256], b: &[U256], f: &[U256]) -> Poly {
     if a.is_empty() || b.is_empty() {
         return Vec::new();
@@ -376,10 +462,10 @@ fn poly_gcd(a: &[U256], b: &[U256]) -> Poly {
 }
 
 /// g(h) mod f by Horner
-fn poly_compose(g: &[U256], h: &[U256], f: &[U256]) -> Poly {
+fn poly_compose(g: &[U256], h: &[U256], f: &Modulus) -> Poly {
     let mut acc: Poly = Vec::new();
     for gi in g.iter().rev() {
-        acc = poly_mul_mod(&acc, h, f);
+        acc = f.mul(&acc, h);
         if !gi.is_zero() {
             if acc.is_empty() {
                 acc = trim(vec![*gi]);
@@ -420,19 +506,20 @@ pub fn is_irreducible(f: &[U256]) -> bool {
     if n == 1 {
         return true;
     }
+    let modulus = Modulus::new(f);
     let x: Poly = vec![U256::ZERO, u256(1)];
     // h1 = x^p mod f by square and multiply
     let mut h1: Poly = vec![u256(1)];
     for k in (0..PRIME.bit_len()).rev() {
-        h1 = poly_mul_mod(&h1, &h1, f);
+        h1 = modulus.mul(&h1, &h1);
         if PRIME.bit(k) {
-            h1 = poly_mul_mod(&h1, &x, f);
+            h1 = modulus.mul(&h1, &x);
         }
     }
     // hk = x^(p^k) mod f via Frobenius composition
     let mut h: Vec<Poly> = vec![x.clone(), h1.clone()];
     for k in 2..=n {
-        let next = poly_compose(&h[k - 1], &h1, f);
+        let next = poly_compose(&h[k - 1], &h1, &modulus);
         h.push(next);
     }
     if !poly_sub(&h[n], &x).is_empty() {
@@ -449,16 +536,16 @@ pub fn is_irreducible(f: &[U256]) -> bool {
 
 /// check_minpoly_condition: for i in 1..2t, minpoly(M^i) has degree t and is
 /// irreducible. Both together are equivalent to charpoly(M^i) irreducible.
+/// The powers are tested in parallel; the answer is the same as the TS
+/// loop that stops at the first failure.
 pub fn check_minpoly_condition(m: &Matrix) -> bool {
     let t = m.len();
-    let mut mi = m.clone();
-    for _ in 1..=2 * t {
-        if !is_irreducible(&charpoly(&mi)) {
-            return false;
-        }
-        mi = mat_mul(m, &mi);
+    let mut powers = vec![m.clone()];
+    for _ in 1..2 * t {
+        let next = mat_mul(m, powers.last().expect("a power"));
+        powers.push(next);
     }
-    true
+    powers.par_iter().all(|mi| is_irreducible(&charpoly(mi)))
 }
 
 pub fn generate_internal_diag_minus_one(grain: &mut Grain, t: usize) -> Vec<U256> {

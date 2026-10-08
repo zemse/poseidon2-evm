@@ -1309,6 +1309,28 @@ pub fn build_permutation(
     range: Range,
     text: bool,
 ) -> Result<BuildResult> {
+    let expected = expected_outputs(params, inputs, range);
+    build_checked(params, inputs, &expected, opts, fork, range, text)
+}
+
+/// The reference state after the range, per input.
+fn expected_outputs(params: &Params, inputs: &[Vec<U256>], range: Range) -> Vec<Vec<U256>> {
+    inputs
+        .iter()
+        .map(|input| permutation_steps(params, input, range.from, range.to))
+        .collect()
+}
+
+/// build_permutation against reference outputs computed once per range.
+fn build_checked(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    expected: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+) -> Result<BuildResult> {
     let mut shadow = HashSet::new();
     if opts.shadow {
         let mut probe = Builder::new(params, inputs, *opts, fork, range, shadow, true, false)?;
@@ -1345,11 +1367,10 @@ pub fn build_permutation(
     // concrete check of the emitted stream against the reference permutation
     // (a part that hands over leaves lazy values, the next entry reduces
     // them)
-    for (k, input) in inputs.iter().enumerate() {
-        let want = permutation_steps(params, input, range.from, range.to);
+    for (k, want) in expected.iter().enumerate() {
         for (i, &out) in outputs.iter().enumerate() {
             let v = e.value(out).vals[k];
-            let got = if is_final { v } else { v.reduce_mod(PRIME) };
+            let got = if is_final { v } else { crate::field::reduce(v) };
             if got != want[i] {
                 bail!("vector {k} output {i} mismatch");
             }
@@ -1466,7 +1487,9 @@ pub fn build_best(
     fork: Fork,
     range: Range,
 ) -> Result<Option<Best>> {
-    let build = |opts: &BuildOptions| build_permutation(params, inputs, opts, fork, range, false);
+    let expected = expected_outputs(params, inputs, range);
+    let build =
+        |opts: &BuildOptions| build_checked(params, inputs, &expected, opts, fork, range, false);
     let attempt = |opts: &BuildOptions| build(opts).ok();
     let evaluate = |opts: &BuildOptions| -> Outcome {
         let mut opts = *opts;
@@ -1564,7 +1587,7 @@ pub fn build_best(
     }
     match best {
         Some((opts, gas)) => {
-            let result = build_permutation(params, inputs, &opts, fork, range, true)?;
+            let result = build_checked(params, inputs, &expected, &opts, fork, range, true)?;
             assert_eq!(
                 result.gas, gas,
                 "the rebuilt winner costs what the search measured"

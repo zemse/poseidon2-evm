@@ -59,13 +59,12 @@ fn run(cli: Cli) -> Result<()> {
             let fork = fork(&hardfork)?;
             let w = widths(w)?;
             // the parameter derivation must reproduce the known values
-            assert_known()?;
-            huff::run(root, &fork, &w)
+            // before anything is written
+            huff::run(root, &fork, &w, assert_known)
         }
         Command::Yul { widths: w } => {
             let w = widths(w)?;
-            assert_known()?;
-            yul::run(root, &w)
+            yul::run(root, &w, assert_known)
         }
     }
 }

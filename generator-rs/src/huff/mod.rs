@@ -234,11 +234,19 @@ fn apply(root: &Path, fork: &Fork, actions: Vec<Action>) -> Result<()> {
     Ok(())
 }
 
-/// Builds every width (in parallel) and writes its files under `root` in
-/// the order of `widths`; stops at the first width that fails, after the
-/// widths before it are written.
-pub fn run(root: &Path, fork: &Fork, widths: &[usize]) -> Result<()> {
-    let built: Vec<Result<Vec<Action>>> = widths.par_iter().map(|&t| generate(t, fork)).collect();
+/// Builds every width (in parallel, next to `check`) and writes its files
+/// under `root` in the order of `widths` once `check` passed; stops at the
+/// first width that fails, after the widths before it are written.
+pub fn run(
+    root: &Path,
+    fork: &Fork,
+    widths: &[usize],
+    check: impl FnOnce() -> Result<()> + Send,
+) -> Result<()> {
+    let (checked, built): (Result<()>, Vec<Result<Vec<Action>>>) = rayon::join(check, || {
+        widths.par_iter().map(|&t| generate(t, fork)).collect()
+    });
+    checked?;
     for actions in built {
         apply(root, fork, actions?)?;
     }

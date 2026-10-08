@@ -118,10 +118,13 @@ fn generate(t: usize) -> Result<Output> {
     })
 }
 
-/// Builds every width (in parallel) and writes its files under `root` in
-/// the order of `widths`; stops at the first width that fails.
-pub fn run(root: &Path, widths: &[usize]) -> Result<()> {
-    let built: Vec<Result<Output>> = widths.par_iter().map(|&t| generate(t)).collect();
+/// Builds every width (in parallel, next to `check`) and writes its files
+/// under `root` in the order of `widths` once `check` passed; stops at the
+/// first width that fails.
+pub fn run(root: &Path, widths: &[usize], check: impl FnOnce() -> Result<()> + Send) -> Result<()> {
+    let (checked, built): (Result<()>, Vec<Result<Output>>) =
+        rayon::join(check, || widths.par_iter().map(|&t| generate(t)).collect());
+    checked?;
     for output in built {
         let output = output?;
         if let Some(dir) = output.mkdir {
