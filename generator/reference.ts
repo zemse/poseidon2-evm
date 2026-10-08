@@ -66,29 +66,39 @@ export function matmulInternal(state: bigint[], diagMinusOne: bigint[]): void {
 }
 
 export function permutation(params: Params, input: bigint[]): bigint[] {
+  const steps = 1 + params.roundsF + params.roundsP;
+  return permutationSteps(params, input, 0, steps);
+}
+
+// Steps [from, to) of the permutation: step 0 is the initial linear layer,
+// step r + 1 is round r. The Huff generator checks each part of a split
+// permutation against this.
+export function permutationSteps(
+  params: Params,
+  input: bigint[],
+  from: number,
+  to: number,
+): bigint[] {
   const { t, roundsF, roundsP, roundConstants, internalDiagMinusOne } = params;
   if (input.length !== t) throw new Error(`expected ${t} inputs`);
   const state = input.map(mod);
-
-  matmulExternal(state);
-
   const rfHalf = roundsF / 2;
-  for (let r = 0; r < rfHalf; r++) {
-    for (let i = 0; i < t; i++)
-      state[i] = sbox(add(state[i], roundConstants[r][i]));
-    matmulExternal(state);
-  }
-
   const pEnd = rfHalf + roundsP;
-  for (let r = rfHalf; r < pEnd; r++) {
-    state[0] = sbox(add(state[0], roundConstants[r][0]));
-    matmulInternal(state, internalDiagMinusOne);
-  }
 
-  for (let r = pEnd; r < roundsF + roundsP; r++) {
-    for (let i = 0; i < t; i++)
-      state[i] = sbox(add(state[i], roundConstants[r][i]));
-    matmulExternal(state);
+  for (let step = from; step < to; step++) {
+    if (step === 0) {
+      matmulExternal(state);
+      continue;
+    }
+    const r = step - 1;
+    if (r >= rfHalf && r < pEnd) {
+      state[0] = sbox(add(state[0], roundConstants[r][0]));
+      matmulInternal(state, internalDiagMinusOne);
+    } else {
+      for (let i = 0; i < t; i++)
+        state[i] = sbox(add(state[i], roundConstants[r][i]));
+      matmulExternal(state);
+    }
   }
 
   return state;
