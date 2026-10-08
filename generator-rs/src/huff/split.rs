@@ -1,7 +1,8 @@
 // Cuts a permutation that does not fit the fork's code size into parts at
 // step boundaries (huff/split.ts). Every hop costs the same whatever the
 // cut, so the fewest parts cost the least gas: a greedy pass finds that
-// number by extending each part as far as the size allows, then the cuts are
+// number by extending each part as far as the size allows (with the shared
+// body of the internal rounds where that holds more), then the cuts are
 // moved to balance the bytes so every part keeps the same slack. Each part
 // is built like a whole permutation (option search, bound tracker, reference
 // check of its own steps); a part after the first takes its inputs as the
@@ -66,19 +67,33 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
         diag_in_memory: probe.opts.diag_in_memory,
         ..DEFAULT_OPTIONS
     };
-    let builds = |range: Range| -> bool {
-        match build_permutation_with(
-            params,
-            inputs,
-            &probe_opts,
-            fork,
-            range,
-            false,
-            &boundary(range),
-        ) {
+    // the shared body of the steady internal rounds lets a part hold far
+    // more of them: the probe also tries that schedule (as the option
+    // search will), with the steady rounds it needs inline
+    let body_opts = BuildOptions {
+        internal_consume: true,
+        prime_stack: true,
+        shared_body: true,
+        ..probe_opts
+    };
+    let fits = |opts: &BuildOptions, range: Range| -> bool {
+        match build_permutation_with(params, inputs, opts, fork, range, false, &boundary(range)) {
             Ok(r) => r.max_depth <= 1000 && r.bytes <= budget(range),
             Err(_) => false,
         }
+    };
+    let builds = |range: Range| -> bool {
+        fits(&probe_opts, range)
+            || (t >= 8
+                && (0..3).any(|body_inline| {
+                    fits(
+                        &BuildOptions {
+                            body_inline,
+                            ..body_opts
+                        },
+                        range,
+                    )
+                }))
     };
 
     // fewest parts: extend each as far as it fits

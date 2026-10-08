@@ -3,8 +3,9 @@
 // hop costs the same whatever the cut (the hand-over in the caller, a cold
 // STATICCALL and the entry of the callee), so the fewest parts cost the least
 // gas: a greedy pass finds that number by extending each part as far as the
-// size allows, then the cuts are moved to balance the bytes so every part
-// keeps the same slack. Each part is built like a whole permutation (option
+// size allows (with the shared body of the internal rounds where that holds
+// more), then the cuts are moved to balance the bytes so every part keeps
+// the same slack. Each part is built like a whole permutation (option
 // search, bound tracker, reference check of its own steps); a part after
 // the first takes its inputs as the part before leaves them, lazy below
 // the hand-over bound (partBoundary), so its entry neither reduces nor
@@ -62,12 +63,21 @@ export function splitPermutation(
     shadow: probe.opts.shadow,
     diagInMemory: probe.opts.diagInMemory,
   };
-  const builds = (range: Range): boolean => {
+  // the shared body of the steady internal rounds lets a part hold far
+  // more of them: the probe also tries that schedule (as the option search
+  // will), with the steady rounds it needs inline
+  const bodyOpts: BuildOptions = {
+    ...probeOpts,
+    internalConsume: true,
+    primeStack: true,
+    sharedBody: true,
+  };
+  const fits = (opts: BuildOptions, range: Range): boolean => {
     try {
       const r = buildPermutation(
         params,
         inputs,
-        probeOpts,
+        opts,
         fork,
         range,
         boundary(range),
@@ -77,6 +87,10 @@ export function splitPermutation(
       return false;
     }
   };
+  const builds = (range: Range): boolean =>
+    fits(probeOpts, range) ||
+    (t >= 8 &&
+      [0, 1, 2].some((bodyInline) => fits({ ...bodyOpts, bodyInline }, range)));
 
   // fewest parts: extend each as far as it fits
   const greedy: Range[] = [];
