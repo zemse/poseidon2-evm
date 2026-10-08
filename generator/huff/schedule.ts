@@ -46,6 +46,14 @@ export type BuildOptions = {
   // leave a PRIME copy under the outputs of an external layer when another
   // external round follows, so its elements DUP it instead of pushing it
   primeUnderExternal: boolean;
+  // internal rounds: keep the sum lazy and reduce every output but s0 with
+  // ADDMOD, instead of reducing the sum and letting the outputs grow until
+  // a doubling needs MULMOD (t <= 3, where the diag is 1 / 2 and nothing
+  // else reduces the elements)
+  internalReduceOutputs: boolean;
+  // internal rounds: leave a PRIME copy under the new state only when the
+  // nearest copy would leave the reach, instead of every round
+  floatPrimeInternal: boolean;
   // with gcInternal, leave the garbage of the first gcInternalFrom internal
   // rounds in place (no SWAPn POP) as far as the depth allows
   gcInternalFrom: number;
@@ -65,6 +73,8 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   chainSwapMod: false,
   externalD: false,
   primeUnderExternal: true,
+  internalReduceOutputs: false,
+  floatPrimeInternal: false,
   gcInternalFrom: 0,
   diagPush32: 0,
   shadow: false,
@@ -639,7 +649,11 @@ class Builder {
     this.dead = [];
 
     const old = [x5, ...this.state.slice(1)];
-    const sum = this.chainSum(old, "sum", PRIME - 1n);
+    // the sum is reduced, or with internalReduceOutputs lazy as far as the
+    // next round's s0 + c still fits
+    const lazy = this.opts.internalReduceOutputs;
+    const cap = lazy ? UINT256_MAX - x5.bound - (PRIME - 1n) : PRIME - 1n;
+    const sum = this.chainSum(old, "sum", cap);
     e.endLine();
 
     const out: Value[] = new Array(t);
@@ -656,29 +670,34 @@ class Builder {
         // PRIME copy that ends up under the new state, within reach of the
         // next round; placed one element late so the deepest DUP fits. When
         // the outputs replace the old slots in place the previous round's
-        // copy already sits under the new state
-        if (!collect || e.findPrime() === 0) e.pushPrime();
+        // copy already sits under the new state, and with floatPrimeInternal
+        // the copies come from deeper until the nearest leaves the reach
+        if (!collect || e.findPrime() === 0) {
+          if (this.opts.floatPrimeInternal) this.floatPrime();
+          else e.pushPrime();
+        }
       }
       if (i === 0 && nextInternal) {
         // PRIME copy under the next round's s0 + c
         e.pushPrime();
       }
+      const reduce = lazy && i > 0;
       if (d === 1n) {
-        out[i] = this.pairAdd(s, sum, `s${i}'`, false);
+        out[i] = this.pairAdd(s, sum, `s${i}'`, reduce);
       } else if (d === 2n) {
         if (e.fitsAdd(s, s)) {
           out[i] = this.addTo(
             () => e.compute("add", [s, s], `2s${i}`),
             sum,
             `s${i}'`,
-            sum.bound + 2n * s.bound > UINT256_MAX,
+            reduce || sum.bound + 2n * s.bound > UINT256_MAX,
           );
         } else {
           out[i] = this.addTo(
             () => e.compute("mulmod", [s, this.constant(2n), this.P], `2s${i}`),
             sum,
             `s${i}'`,
-            !e.fitsAdd(sum, this.P),
+            reduce || !e.fitsAdd(sum, this.P),
           );
         }
       } else {
@@ -686,7 +705,7 @@ class Builder {
           () => e.compute("mulmod", [s, this.diag(i), this.P], `m${i}`),
           sum,
           `s${i}'`,
-          !e.fitsAdd(sum, this.P),
+          reduce || !e.fitsAdd(sum, this.P),
         );
       }
       if (collect && i > 0) this.gc(s);
@@ -879,18 +898,26 @@ export function buildBest(
             for (const chainSwapMod of bools) {
               for (const externalD of params.t >= 8 ? bools : [false]) {
                 for (const primeUnderExternal of bools) {
-                  list.push({
-                    diagInMemory,
-                    gcExternal,
-                    gcM4,
-                    gcInternal,
-                    chainSwapMod,
-                    externalD,
-                    primeUnderExternal,
-                    gcInternalFrom: 0,
-                    diagPush32: 0,
-                    shadow,
-                  });
+                  for (const internalReduceOutputs of params.t <= 3
+                    ? bools
+                    : [false]) {
+                    for (const floatPrimeInternal of bools) {
+                      list.push({
+                        diagInMemory,
+                        gcExternal,
+                        gcM4,
+                        gcInternal,
+                        chainSwapMod,
+                        externalD,
+                        primeUnderExternal,
+                        internalReduceOutputs,
+                        floatPrimeInternal,
+                        gcInternalFrom: 0,
+                        diagPush32: 0,
+                        shadow,
+                      });
+                    }
+                  }
                 }
               }
             }
