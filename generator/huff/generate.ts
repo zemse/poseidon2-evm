@@ -29,6 +29,7 @@ import {
   entryBytes,
   huffDir,
   memoryGas,
+  renderDeployParts,
   renderEip8024,
   renderEntry,
   renderForgeTest,
@@ -85,6 +86,7 @@ function generate(t: number, fork: Fork) {
     }
     mkdirSync(dir, { recursive: true });
     writeForkFiles(fork);
+    if (existsSync(`${dir}/DeployParts.sol`)) rmSync(`${dir}/DeployParts.sol`);
     writeFileSync(
       `${dir}/Permutation.huff`,
       renderPermutation(params, result, opts, utilsPath, fork),
@@ -124,6 +126,7 @@ function generate(t: number, fork: Fork) {
       renderPart(params, result, opts, utilsPath, fork, i, parts.length),
     );
   });
+  writeFileSync(`${dir}/DeployParts.sol`, renderDeployParts());
   // parts of an earlier, longer split
   for (let i = parts.length; existsSync(`${dir}/Part${i}.huff`); i++) {
     rmSync(`${dir}/Part${i}.huff`);

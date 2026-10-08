@@ -300,6 +300,33 @@ ${macros.join("\n")}
 
 // PUSH1 0x00 for the forks before Shanghai: huffc turns every zero literal
 // into PUSH0 (EIP-3855), which they do not have.
+// next to the Part<i>.huff files of a split width
+export function renderDeployParts(): string {
+  return `// SPDX-License-Identifier: MIT
+${HEADER}pragma solidity ^0.8.13;
+
+/// @notice Deploys the parts of a split Huff permutation (generator/huff/split.ts)
+/// @dev Parts go up last to first: each initcode but the last gets the address
+/// of the part after it appended as a 32-byte word, which that part's
+/// constructor keeps behind its runtime code. The address returned is part 0,
+/// the contract that takes the t input words and returns the t output words.
+library DeployParts {
+    function deploy(bytes[] memory initcodes) internal returns (address first) {
+        address next;
+        for (uint256 i = initcodes.length; i > 0; i--) {
+            bytes memory code =
+                i == initcodes.length ? initcodes[i - 1] : bytes.concat(initcodes[i - 1], abi.encode(next));
+            assembly {
+                next := create(0, add(code, 0x20), mload(code))
+            }
+            require(next != address(0), "part deployment failed");
+        }
+        return next;
+    }
+}
+`;
+}
+
 export function renderZero(): string {
   return `${HEADER}
 /// @notice A zero as PUSH1 0x00 (3 gas, 2 bytes) for the forks without EIP-3855 PUSH0, which huffc emits for any zero literal
@@ -448,7 +475,7 @@ export function renderForgeTest(
       : `        perm = ${config}.deploy("${path}");`;
   } else {
     note += `/// @dev The permutation is split into ${parts} contracts, deployed last to first by DeployParts\n`;
-    imports = `import {DeployParts} from "../${fork.name === DEFAULT_HARDFORK ? "" : "../"}src/bn254/huff/DeployParts.sol";\n`;
+    imports = `import {DeployParts} from "../${fork.name === DEFAULT_HARDFORK ? "" : "../"}${huffDir(fork)}/t${t}/DeployParts.sol";\n`;
     const codes = Array.from(
       { length: parts },
       (_, i) =>
