@@ -14,6 +14,7 @@
 // the contract to call.
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { assertKnown } from "../assert-known.ts";
 import { generateParams } from "../params.ts";
 import { permutation } from "../reference.ts";
 import { testInputs } from "../vectors.ts";
@@ -158,6 +159,8 @@ for (let i = 0; i < args.length; i++) {
     widths.push(Number(args[i]));
   }
 }
+// the parameter derivation must reproduce the known t = 3 / t = 4 values
+assertKnown();
 for (const t of widths.length ? widths : [4]) {
   if (!Number.isInteger(t) || t < 2) throw new Error(`invalid t: ${t}`);
   generate(t, fork);

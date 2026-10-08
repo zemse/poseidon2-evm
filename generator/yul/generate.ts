@@ -11,6 +11,7 @@
 // test.
 
 import { mkdirSync, writeFileSync } from "fs";
+import { assertKnown } from "../assert-known.ts";
 import { generateParams } from "../params.ts";
 import { permutation } from "../reference.ts";
 import { testInputs } from "../vectors.ts";
@@ -94,6 +95,8 @@ function generate(t: number) {
   }
 }
 
+// the parameter derivation must reproduce the known t = 3 / t = 4 values
+assertKnown();
 const widths = process.argv.slice(2).map(Number);
 for (const t of widths.length ? widths : [4]) {
   if (!Number.isInteger(t) || t < 2) throw new Error(`invalid t: ${t}`);
