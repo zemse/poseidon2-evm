@@ -5,12 +5,32 @@
 // only when the sum provably fits in uint256, plus one concrete evaluation per
 // test vector so the emitted stream is checked against the reference before
 // any file is written. The emitter also records gas, maximum depth, maximum
-// DUP index and bytecode size, and refuses any DUP or SWAP deeper than 16.
+// DUP index and bytecode size, and refuses any DUP or SWAP deeper than the
+// target allows: 16 with the legacy opcodes, 235 on Amsterdam where EIP-8024
+// adds DUPN / SWAPN (3 gas, 2 bytes). huffc has no mnemonic for those, so
+// they are emitted as DUPn() / SWAPn() macros wrapping __VERBATIM.
 
 import { PRIME, UINT256_MAX, hex } from "../field.ts";
 import { ARITY, Value, applyOp, type Op } from "../value.ts";
 
 export { Value, type Op };
+
+export type Target = "legacy" | "amsterdam";
+
+export const MAX_REACH: Record<Target, number> = {
+  legacy: 16,
+  amsterdam: 235,
+};
+
+// Text of a DUP / SWAP of slot n (1-based from the top): the opcode mnemonic
+// up to 16, the EIP-8024 macro of Eip8024.huff (render.ts) above that.
+export function dupText(n: number): string {
+  return n <= 16 ? `dup${n}` : `DUP${n}()`;
+}
+
+export function swapText(n: number): string {
+  return n <= 16 ? `swap${n}` : `SWAP${n}()`;
+}
 
 export const GAS = {
   push0: 2,
@@ -39,7 +59,6 @@ export function make(f: () => void): Operand {
   return { make: f };
 }
 
-export const MAX_REACH = 16;
 export const MAX_DEPTH = 1024;
 
 export class Emitter {
@@ -53,11 +72,13 @@ export class Emitter {
   pops = 0;
   private pending: string[] = [];
   private readonly vectors: number;
+  readonly maxReach: number;
   // the one PRIME value, so every copy on the stack shares identity
   readonly P: Value;
 
-  constructor(vectors: number) {
+  constructor(vectors: number, target: Target = "legacy") {
     this.vectors = vectors;
+    this.maxReach = MAX_REACH[target];
     this.P = new Value("P", PRIME, new Array(vectors).fill(PRIME), PRIME);
   }
 
@@ -77,7 +98,7 @@ export class Emitter {
   }
 
   findPrime(): number {
-    for (let i = 0; i < this.stack.length && i < MAX_REACH; i++) {
+    for (let i = 0; i < this.stack.length && i < this.maxReach; i++) {
       if (this.stack[i].isPrime) return i + 1;
     }
     return 0;
@@ -104,19 +125,19 @@ export class Emitter {
   dup(v: Value): Value {
     const n = this.find(v);
     if (n === 0) throw new Error(`${v.name} is not on the stack`);
-    if (n > MAX_REACH) {
+    if (n > this.maxReach) {
       throw new Error(`${v.name} is out of reach (dup${n})`);
     }
-    this.opcode(`dup${n}`, GAS.dup, 1);
+    this.opcode(dupText(n), GAS.dup, n <= 16 ? 1 : 2);
     if (n > this.maxDup) this.maxDup = n;
     this.pushed(v);
     return v;
   }
 
   swap(n: number) {
-    if (n < 1 || n > MAX_REACH) throw new Error(`swap${n} out of range`);
+    if (n < 1 || n > this.maxReach) throw new Error(`swap${n} out of range`);
     if (this.stack.length <= n) throw new Error("swap below stack bottom");
-    this.opcode(`swap${n}`, GAS.swap, 1);
+    this.opcode(swapText(n), GAS.swap, n <= 16 ? 1 : 2);
     this.swaps++;
     const tmp = this.stack[0];
     this.stack[0] = this.stack[n];

@@ -12,6 +12,8 @@
     "fmt": "prettier --write '**/*.{ts,js,json,md}' && forge fmt",
     "generate:yul": "node generator/yul/generate.ts 2 3 4 8 12 && forge fmt",
     "generate:huff": "node generator/huff/generate.ts 2 3 4 8 12 && forge fmt",
+    "generate:huff:amsterdam": "node generator/huff/generate.ts --amsterdam 16 20 24 28 && forge fmt",
+    "test:amsterdam": "FOUNDRY_PROFILE=amsterdam forge test",
     "generate:gas-report": "./gas-report.sh",
     "check:compat": "./compat-check.sh"
   },

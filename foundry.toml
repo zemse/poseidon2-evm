@@ -8,6 +8,15 @@ solc_version = "0.8.30"
 evm_version = "cancun"
 optimizer = true
 optimizer_runs = 1000000
+# the t >= 16 huff permutations need EIP-8024 DUPN / SWAPN
+skip = ["test/amsterdam/*"]
+
+# FOUNDRY_PROFILE=amsterdam forge test: the test EVM runs Amsterdam (solc
+# still compiles for osaka, the newest version it knows)
+[profile.amsterdam]
+evm_version = "amsterdam"
+skip = []
+match_path = "test/amsterdam/*"
 
 [lint]
 exclude_lints = ["mixed-case-function", "mixed-case-variable", "screaming-snake-case-const"]

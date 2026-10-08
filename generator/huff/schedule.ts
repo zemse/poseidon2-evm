@@ -10,9 +10,17 @@
 // For larger t the options below trade a few gas for stack reach and depth:
 // dead slots can be reclaimed with SWAPn POP (5 gas), the M4 operand order
 // can favour deep inputs, and the internal sum can reduce with MOD instead
-// of pre-placed ADDMOD operands.
+// of pre-placed ADDMOD operands. The reach itself comes from the target
+// (emitter.ts): 16 with the legacy opcodes, 235 with EIP-8024 on Amsterdam.
 
-import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
+import {
+  Emitter,
+  Value,
+  inplace,
+  make,
+  type Operand,
+  type Target,
+} from "./emitter.ts";
 import { PRIME, UINT256_MAX } from "../field.ts";
 import type { Params } from "../params.ts";
 import { permutation } from "../reference.ts";
@@ -36,6 +44,12 @@ export type BuildOptions = {
   // leave a PRIME copy under the outputs of an external layer when another
   // external round follows, so its elements DUP it instead of pushing it
   primeUnderExternal: boolean;
+  // with gcInternal, leave the garbage of the first gcInternalFrom internal
+  // rounds in place (no SWAPn POP) as far as the depth allows
+  gcInternalFrom: number;
+  // with diagInMemory, keep the last diagPush32 diag constants as PUSH32
+  // (3 gas instead of 6 per use) as far as the code size allows
+  diagPush32: number;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -46,7 +60,17 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   chainSwapMod: false,
   externalD: false,
   primeUnderExternal: true,
+  gcInternalFrom: 0,
+  diagPush32: 0,
 };
+
+// The enabled options, numbers with their value: "gcInternal, diagPush32=6"
+export function describeOptions(opts: BuildOptions): string {
+  const enabled = Object.entries(opts)
+    .filter(([, v]) => v)
+    .map(([k, v]) => (typeof v === "number" ? `${k}=${v}` : k));
+  return enabled.length ? enabled.join(", ") : "none";
+}
 
 export type BuildResult = {
   emitter: Emitter;
@@ -72,11 +96,16 @@ class Builder {
   // collected at the start of the next internal round when gcInternal is on
   dead: Value[] = [];
 
-  constructor(params: Params, inputs: bigint[][], opts: BuildOptions) {
+  constructor(
+    params: Params,
+    inputs: bigint[][],
+    opts: BuildOptions,
+    target: Target,
+  ) {
     this.params = params;
     this.t = params.t;
     this.opts = opts;
-    this.e = new Emitter(inputs.length);
+    this.e = new Emitter(inputs.length, target);
     // takes: [s0, s1, ..., s(t-1), PRIME]
     this.state = [];
     for (let i = 0; i < this.t; i++) {
@@ -95,9 +124,14 @@ class Builder {
     return new Value(name ?? "0x" + c.toString(16), c, [], c);
   }
 
+  // true when diag constant i is loaded from memory rather than pushed
+  diagStored(i: number): boolean {
+    return this.opts.diagInMemory && i < this.t - this.opts.diagPush32;
+  }
+
   diag(i: number): Operand {
     const d = this.params.internalDiagMinusOne[i];
-    if (!this.opts.diagInMemory) return this.constant(d, `d${i}`);
+    if (!this.diagStored(i)) return this.constant(d, `d${i}`);
     return make(() => this.e.mload(d, DIAG_MEMORY_BASE + 32 * i, `d${i}`));
   }
 
@@ -248,7 +282,7 @@ class Builder {
   // Keeps a PRIME copy near the top so later copies stay within reach.
   floatPrime() {
     const n = this.e.findPrime();
-    if (n === 0 || n > 8) this.e.pushPrime();
+    if (n === 0 || n > this.e.maxReach / 2) this.e.pushPrime();
   }
 
   // ---- external rounds ------------------------------------------------------
@@ -261,7 +295,7 @@ class Builder {
     if (this.opts.gcExternal) {
       for (const v of this.dead) {
         const pos = e.find(v);
-        if (pos >= 2 && pos <= 17) this.gc(v);
+        if (pos >= 2 && pos <= e.maxReach + 1) this.gc(v);
       }
       this.dead = [];
     }
@@ -319,7 +353,7 @@ class Builder {
     const e = this.e;
     const four = this.constant(4n);
     // the standard order DUPs v3 again under four temporaries
-    const deep = Math.max(...v.map((x) => e.find(x))) + 4 > 16;
+    const deep = Math.max(...v.map((x) => e.find(x))) + 4 > e.maxReach;
     let t0: Value;
     let t1: Value;
     let t2: Value;
@@ -529,11 +563,14 @@ class Builder {
     const y = e.compute("add", [c, inplace(s0)], "s0+c");
     const x5 = this.sbox(y, "s0^5");
     e.endLine();
-    if (this.opts.gcInternal) {
+    const collect =
+      this.opts.gcInternal &&
+      round - this.params.roundsF / 2 >= this.opts.gcInternalFrom;
+    if (collect) {
       // the previous round's garbage sits above the state; x5 may move
       for (const v of this.dead) {
         const pos = e.find(v);
-        if (pos >= 2 && pos <= 17) this.gc(v);
+        if (pos >= 2 && pos <= e.maxReach + 1) this.gc(v);
       }
       e.endLine();
     }
@@ -553,10 +590,10 @@ class Builder {
         // PRIME copy that ends up under the new state, within reach of the
         // next round; placed one element late so the deepest DUP fits
         e.pushPrime();
-        if (this.opts.gcInternal) {
+        if (collect) {
           // the previous round's copy is the only other PRIME left above
           // the state and would pile up round after round
-          for (let pos = 2; pos <= 17 && pos <= e.depth; pos++) {
+          for (let pos = 2; pos <= e.maxReach + 1 && pos <= e.depth; pos++) {
             if (e.top(pos - 1) === this.P) {
               this.gcAt(pos);
               break;
@@ -594,7 +631,7 @@ class Builder {
           !e.fitsAdd(sum, this.P),
         );
       }
-      if (this.opts.gcInternal && i > 0) this.gc(s);
+      if (collect && i > 0) this.gc(s);
       e.endLine();
     }
     this.dead.push(sum, x5);
@@ -610,11 +647,11 @@ class Builder {
     const pEnd = rfHalf + roundsP;
     const total = roundsF + roundsP;
 
-    if (this.opts.diagInMemory) {
+    if (this.diagStored(0)) {
       e.comment(
         "Internal diag constants, loaded with MLOAD in the internal rounds",
       );
-      for (let i = 0; i < this.t; i++) {
+      for (let i = 0; this.diagStored(i); i++) {
         e.mstoreConst(
           this.params.internalDiagMinusOne[i],
           DIAG_MEMORY_BASE + 32 * i,
@@ -657,8 +694,9 @@ export function buildPermutation(
   params: Params,
   inputs: bigint[][],
   opts: BuildOptions = DEFAULT_OPTIONS,
+  target: Target = "legacy",
 ): BuildResult {
-  const b = new Builder(params, inputs, opts);
+  const b = new Builder(params, inputs, opts, target);
   const outputs = b.build();
   const e = b.e;
 
@@ -696,12 +734,29 @@ export function buildPermutation(
   };
 }
 
+// Largest n in [0, hi] accepted by ok, which must be monotone (true up to
+// some n, false after) and true for 0.
+function largest(hi: number, ok: (n: number) => boolean): number {
+  let lo = 0;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (ok(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 // Tries the option combinations that make sense for t and returns the
-// cheapest build that stays within reach, depth and code size.
+// cheapest build that stays within reach, depth and code size. On Amsterdam
+// each combination also defers gcInternal as long as the depth allows and
+// keeps as many diag constants PUSH32 as the code size allows (the depth
+// grows with gcInternalFrom and the size with diagPush32, so a binary search
+// finds each limit).
 export function buildBest(
   params: Params,
   inputs: bigint[][],
   maxBytes: number,
+  target: Target = "legacy",
 ): { result: BuildResult; opts: BuildOptions; failures: string[] } {
   const bools = [false, true];
   const candidates: BuildOptions[] = [];
@@ -720,6 +775,8 @@ export function buildBest(
                   chainSwapMod,
                   externalD,
                   primeUnderExternal,
+                  gcInternalFrom: 0,
+                  diagPush32: 0,
                 });
               }
             }
@@ -728,11 +785,36 @@ export function buildBest(
       }
     }
   }
+  const attempt = (opts: BuildOptions): BuildResult | undefined => {
+    try {
+      return buildPermutation(params, inputs, opts, target);
+    } catch {
+      return undefined;
+    }
+  };
   let best: { result: BuildResult; opts: BuildOptions } | undefined;
   const failures: string[] = [];
-  for (const opts of candidates) {
+  for (let opts of candidates) {
     try {
-      const result = buildPermutation(params, inputs, opts);
+      let result = buildPermutation(params, inputs, opts, target);
+      if (target === "amsterdam" && result.maxDepth <= 1000) {
+        if (opts.gcInternal) {
+          const gcInternalFrom = largest(params.roundsP, (n) => {
+            const r = attempt({ ...opts, gcInternalFrom: n });
+            return r !== undefined && r.maxDepth <= 1000;
+          });
+          opts = { ...opts, gcInternalFrom };
+          result = buildPermutation(params, inputs, opts, target);
+        }
+        if (opts.diagInMemory && result.bytes <= maxBytes) {
+          const diagPush32 = largest(params.t, (n) => {
+            const r = attempt({ ...opts, diagPush32: n });
+            return r !== undefined && r.bytes <= maxBytes;
+          });
+          opts = { ...opts, diagPush32 };
+          result = buildPermutation(params, inputs, opts, target);
+        }
+      }
       if (result.maxDepth > 1000) {
         failures.push(`${JSON.stringify(opts)}: depth ${result.maxDepth}`);
         continue;
@@ -754,9 +836,9 @@ export function buildBest(
     }
     const summary = [...reasons].map(([r, n]) => `${n}x ${r}`).join("\n  ");
     throw new Error(
-      `no stack-only schedule works for t = ${params.t} ` +
+      `no stack-only schedule works for t = ${params.t} on ${target} ` +
         `(${candidates.length} option combinations tried, ` +
-        `stack-only supports t <= 12):\n  ${summary}`,
+        `legacy opcodes support t <= 12):\n  ${summary}`,
     );
   }
   return { ...best, failures };
