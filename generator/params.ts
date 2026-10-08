@@ -2,6 +2,9 @@
 // reference script poseidon2_rust_params.sage (FIELD = 1, SBOX = 0, n = 254).
 // Everything the script computes with Python floats is computed with doubles
 // here so that the round-number search makes exactly the same choices.
+// Ported rather than run so that the generators, CI and contributors need
+// only node (no SageMath install) and every width derives its parameters at
+// generation time; assert-known.ts checks the port against published outputs.
 
 import { PRIME, add, mul, inv, mod } from "./field.ts";
 
