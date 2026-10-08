@@ -78,14 +78,7 @@ impl Sources {
         if let Some(text) = self.files.get(path) {
             return Some(text.clone());
         }
-        if let Ok(text) = std::fs::read_to_string(self.root.join(path)) {
-            return Some(text);
-        }
-        // Utils.huff includes ../../lib/huffmate/..., which huffc accepts and
-        // huff-neo resolves next to the file (src/lib/...): read lib/ from
-        // the repository root
-        let lib = path.find("/lib/")?;
-        std::fs::read_to_string(self.root.join(&path[lib + 1..])).ok()
+        std::fs::read_to_string(self.root.join(path)).ok()
     }
 }
 

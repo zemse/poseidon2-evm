@@ -15,8 +15,8 @@ clap = { version = "4.6", features = ["derive"] }
 rayon = "1.12"
 ruint = "1.20"
 # compile and run the generated Huff (verify)
-huff-neo-core = { git = "https://github.com/cakevm/huff-neo", rev = "c7a43ffa8a342e4bfb6ea5e7e8d082ddb79fb441" }
-huff-neo-utils = { git = "https://github.com/cakevm/huff-neo", rev = "c7a43ffa8a342e4bfb6ea5e7e8d082ddb79fb441" }
+huff-neo-core = { git = "https://github.com/zemse/huff-neo", rev = "d4682e4eb6c40b49655e471364d9872df3ce3228" }
+huff-neo-utils = { git = "https://github.com/zemse/huff-neo", rev = "d4682e4eb6c40b49655e471364d9872df3ce3228" }
 revm = { version = "=43.0.3", default-features = false, features = ["std"] }
 
 [profile.release]
