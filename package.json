@@ -14,6 +14,7 @@
     "generate:huff": "node generator/huff/generate.ts 2 3 4 8 12 16 20 24 28 && forge fmt",
     "generate:yul:rs": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- yul 2 3 4 8 12 && forge fmt",
     "generate:huff:rs": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- huff 2 3 4 8 12 16 20 24 28 && forge fmt",
+    "verify:huff": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- verify 2 3 4 8 12 16 20 24 28",
     "check:parity": "./generator-rs/parity.sh",
     "generate:gas-report": "./gas-report.sh",
     "check:compat": "./compat-check.sh"
