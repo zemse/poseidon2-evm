@@ -1,6 +1,7 @@
 // poseidon2-gen: the Huff and Yul generators of generator/huff/generate.ts
 // and generator/yul/generate.ts, writing the same files relative to the
-// working directory (the repository root).
+// working directory (the repository root), and `verify`, which compiles and
+// runs the generated Huff (huff/verify.rs).
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -9,6 +10,7 @@ use clap::{Parser, Subcommand};
 use poseidon2_gen::assert_known::assert_known;
 use poseidon2_gen::error::Result;
 use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, fork};
+use poseidon2_gen::huff::verify::verify;
 use poseidon2_gen::{bail, huff, yul};
 
 #[derive(Parser)]
@@ -25,6 +27,19 @@ struct Cli {
 enum Command {
     /// Huff permutation for each state width (default: 4)
     Huff {
+        /// hardfork whose opcodes and code size the output targets
+        #[arg(long, default_value = DEFAULT_HARDFORK)]
+        hardfork: String,
+        /// then compile the output with huff-neo and run it in revm, as
+        /// `verify` does
+        #[arg(long)]
+        verify: bool,
+        widths: Vec<usize>,
+    },
+    /// Builds the Huff like `huff` without writing it, compiles it with
+    /// huff-neo and runs it in revm: outputs against the reference, gas
+    /// against the model (default: 4)
+    Verify {
         /// hardfork whose opcodes and code size the output targets
         #[arg(long, default_value = DEFAULT_HARDFORK)]
         hardfork: String,
@@ -54,13 +69,28 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Huff {
             hardfork,
+            verify: check,
             widths: w,
         } => {
             let fork = fork(&hardfork)?;
             let w = widths(w)?;
             // the parameter derivation must reproduce the known values
             // before anything is written
-            huff::run(root, &fork, &w, assert_known)
+            let built = huff::run(root, &fork, &w, true, assert_known)?;
+            if check {
+                verify(root, &fork, &built)?;
+            }
+            Ok(())
+        }
+        Command::Verify {
+            hardfork,
+            widths: w,
+        } => {
+            let fork = fork(&hardfork)?;
+            let w = widths(w)?;
+            let built = huff::run(root, &fork, &w, false, assert_known)?;
+            verify(root, &fork, &built)?;
+            Ok(())
         }
         Command::Yul { widths: w } => {
             let w = widths(w)?;

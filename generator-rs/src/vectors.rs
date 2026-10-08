@@ -23,12 +23,17 @@ impl Prng {
     }
 
     pub fn next_word(&mut self) -> U256 {
+        reduce(self.next_u256())
+    }
+
+    /// a full 256-bit word, not reduced
+    pub fn next_u256(&mut self) -> U256 {
         // the first word drawn is the most significant
         let a = self.next64();
         let b = self.next64();
         let c = self.next64();
         let d = self.next64();
-        reduce(U256::from_limbs([d, c, b, a]))
+        U256::from_limbs([d, c, b, a])
     }
 }
 

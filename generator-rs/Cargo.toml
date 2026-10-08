@@ -14,6 +14,10 @@ path = "src/main.rs"
 clap = { version = "4.6", features = ["derive"] }
 rayon = "1.12"
 ruint = "1.20"
+# compile and run the generated Huff (verify)
+huff-neo-core = { git = "https://github.com/cakevm/huff-neo", rev = "c7a43ffa8a342e4bfb6ea5e7e8d082ddb79fb441" }
+huff-neo-utils = { git = "https://github.com/cakevm/huff-neo", rev = "c7a43ffa8a342e4bfb6ea5e7e8d082ddb79fb441" }
+revm = { version = "=43.0.3", default-features = false, features = ["std"] }
 
 [profile.release]
 debug = false

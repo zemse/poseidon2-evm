@@ -77,7 +77,10 @@ fn huff_matches_checked_in() {
     let out = scratch("huff");
     fs::create_dir_all(out.join("src/bn254/huff/t4")).unwrap();
     fs::create_dir_all(out.join("test")).unwrap();
-    huff::run(&out, &fork("amsterdam").unwrap(), &[2, 3, 4], || Ok(())).expect("huff 2 3 4");
+    huff::run(&out, &fork("amsterdam").unwrap(), &[2, 3, 4], true, || {
+        Ok(())
+    })
+    .expect("huff 2 3 4");
     let mut files = vec![
         "src/bn254/huff/Eip8024.huff".to_string(),
         "src/bn254/huff/t4/Permutation.huff".to_string(),

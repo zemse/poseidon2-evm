@@ -8,12 +8,15 @@
 //
 // The widths are built in parallel; their files are written and their lines
 // logged in order once each is done, as the TS does one width at a time.
+// Each width also names the contract to call and the gas the model expects
+// for the call, which verify.rs measures.
 
 pub mod emitter;
 pub mod fork;
 pub mod render;
 pub mod schedule;
 pub mod split;
+pub mod verify;
 
 use std::fs;
 use std::path::Path;
@@ -26,14 +29,18 @@ use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
-    Vector, entry_bytes, huff_dir, memory_gas, render_deploy_parts, render_eip8024, render_entry,
-    render_forge_test, render_part, render_permutation, render_zero, test_dir,
+    Vector, entry_bytes, huff_dir, memory_gas, overhead, render_deploy_parts, render_eip8024,
+    render_entry, render_forge_test, render_part, render_permutation, render_zero, test_dir,
 };
 use schedule::{BuildOptions, BuildResult, Range, build_best, describe_options, step_count};
 use split::split_permutation;
 
 /// entry contract (calldata loads, stores, return) plus Utils.huff constants
 const ENTRY_OVERHEAD: usize = 12 * 12 + 64;
+
+/// SETUP, ABSORB_CALLDATA and RETURN_ONE of the hand-written t4/Poseidon2.huff
+/// (memory expansion included)
+pub const HASH_ENTRY_GAS: u64 = 78;
 
 fn describe(result: &BuildResult, opts: &BuildOptions) -> String {
     let shadow = if result.stores + result.loads > 0 {
@@ -62,10 +69,54 @@ enum Action {
     Remove(String),
     /// remove Part<from>.huff, Part<from + 1>.huff, ... while they exist
     RemoveParts(String, usize),
-    ForkFiles,
 }
 
-fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
+/// The contract a width is called through and the gas the model counts for
+/// the call: entry, permutation, tail and memory expansion, as forge reports
+/// the call.
+#[derive(Debug, Clone)]
+pub enum Target {
+    /// Poseidon2.huff: t words in, t words out
+    Entry { path: String, gas: u64 },
+    /// Part0.huff .. Part<n-1>.huff, each part's gas with a cold hop to the
+    /// next one but without the next one's own gas (nor the revert branch)
+    Parts { paths: Vec<String>, gas: Vec<u64> },
+    /// the hand-written hash_1 / hash_2 / hash_3 of t4/Poseidon2.huff, and an
+    /// entry around the same permutation (`source`, never written) for the
+    /// permutation alone
+    Hash {
+        path: String,
+        gas: u64,
+        entry: String,
+        source: String,
+        entry_gas: u64,
+    },
+}
+
+/// One built width: its filesystem steps and its target.
+pub struct Width {
+    pub t: usize,
+    actions: Vec<Action>,
+    pub target: Target,
+}
+
+impl Width {
+    /// the files the width writes, path and text
+    pub fn files(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.actions.iter().filter_map(|a| match a {
+            Action::Write(path, text) => Some((path.as_str(), text.as_str())),
+            _ => None,
+        })
+    }
+}
+
+/// gas of a call to an unsplit permutation's entry
+fn entry_gas(fork: &Fork, t: usize, result: &BuildResult) -> u64 {
+    let o = overhead(*fork, t, &result.input_slots, result.state_in_memory, false);
+    o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
+}
+
+fn generate(t: usize, fork: &Fork) -> Result<Width> {
     let params = generate_params(t);
     let inputs = test_inputs(t);
     let legacy = fork.name == DEFAULT_HARDFORK;
@@ -106,16 +157,23 @@ fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
             // t4/Poseidon2.huff is the hand-written hash_1 / hash_2 / hash_3
             // entry
             let path = format!("{dir}/Permutation.huff");
-            actions.push(Action::ForkFiles);
+            fork_files(&mut actions, fork);
             actions.push(Action::Write(
                 path.clone(),
                 render_permutation(&params, result, opts, utils_path, fork),
             ));
             actions.push(Action::Log(format!("  wrote {path}")));
-            return Ok(actions);
+            let target = Target::Hash {
+                path: format!("{dir}/Poseidon2.huff"),
+                gas: HASH_ENTRY_GAS + result.gas,
+                entry: format!("{dir}/Entry.huff"),
+                source: render_entry(&params, fork, result),
+                entry_gas: entry_gas(fork, t, result),
+            };
+            return Ok(Width { t, actions, target });
         }
         actions.push(Action::MkdirAll(dir.clone()));
-        actions.push(Action::ForkFiles);
+        fork_files(&mut actions, fork);
         actions.push(Action::Remove(format!("{dir}/DeployParts.sol")));
         actions.push(Action::Write(
             format!("{dir}/Permutation.huff"),
@@ -135,7 +193,11 @@ fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
         actions.push(Action::Log(format!(
             "  wrote {dir}/Permutation.huff, {dir}/Poseidon2.huff, {test_path} ({bytes} runtime bytes)"
         )));
-        return Ok(actions);
+        let target = Target::Entry {
+            path: format!("{dir}/Poseidon2.huff"),
+            gas: entry_gas(fork, t, result),
+        };
+        return Ok(Width { t, actions, target });
     }
 
     // over the code size: split at step boundaries
@@ -146,8 +208,9 @@ fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
         fork.code_size
     )));
     actions.push(Action::MkdirAll(dir.clone()));
-    actions.push(Action::ForkFiles);
+    fork_files(&mut actions, fork);
     let mut total = 0;
+    let mut part_gas = Vec::new();
     for (i, part) in parts.iter().enumerate() {
         let (result, opts, o) = (&part.best.result, &part.best.opts, &part.overhead);
         let Range { from, to } = result.range;
@@ -155,6 +218,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
         let memory = memory_gas(result.memory.max(32 * t + 32));
         let gas = o.entry_gas + result.gas + o.tail_gas + memory;
         total += gas;
+        part_gas.push(gas - o.revert_gas);
         actions.push(Action::Log(format!(
             "  part {i}: steps {from}..{}, {bytes} bytes, {gas} gas (entry {}, tail {}, memory {memory}): {}",
             to as i64 - 1,
@@ -185,27 +249,33 @@ fn generate(t: usize, fork: &Fork) -> Result<Vec<Action>> {
         fork.warm_account,
         parts.len() - 1
     )));
-    Ok(actions)
+    let target = Target::Parts {
+        paths: (0..parts.len())
+            .map(|i| format!("{dir}/Part{i}.huff"))
+            .collect(),
+        gas: part_gas,
+    };
+    Ok(Width { t, actions, target })
 }
 
 /// the opcode macros a fork needs next to its width directories
-fn write_fork_files(root: &Path, fork: &Fork) -> Result<()> {
+fn fork_files(actions: &mut Vec<Action>, fork: &Fork) {
     if fork.reach > 16 {
-        fs::write(
-            root.join(format!("{}/Eip8024.huff", huff_dir(fork))),
+        actions.push(Action::Write(
+            format!("{}/Eip8024.huff", huff_dir(fork)),
             render_eip8024(fork.reach),
-        )?;
+        ));
     }
     if !fork.push0 {
-        fs::write(
-            root.join(format!("{}/Zero.huff", huff_dir(fork))),
+        actions.push(Action::Write(
+            format!("{}/Zero.huff", huff_dir(fork)),
             render_zero(),
-        )?;
+        ));
     }
-    Ok(())
 }
 
-fn apply(root: &Path, fork: &Fork, actions: Vec<Action>) -> Result<()> {
+/// Logs the lines of a width and applies its filesystem steps.
+fn apply(root: &Path, actions: &[Action]) -> Result<()> {
     for action in actions {
         match action {
             Action::Log(line) => println!("{line}"),
@@ -218,7 +288,7 @@ fn apply(root: &Path, fork: &Fork, actions: Vec<Action>) -> Result<()> {
                 }
             }
             Action::RemoveParts(dir, from) => {
-                let mut i = from;
+                let mut i = *from;
                 loop {
                     let path = root.join(format!("{dir}/Part{i}.huff"));
                     if !path.exists() {
@@ -228,27 +298,33 @@ fn apply(root: &Path, fork: &Fork, actions: Vec<Action>) -> Result<()> {
                     i += 1;
                 }
             }
-            Action::ForkFiles => write_fork_files(root, fork)?,
         }
     }
     Ok(())
 }
 
-/// Builds every width (in parallel, next to `check`) and writes its files
-/// under `root` in the order of `widths` once `check` passed; stops at the
-/// first width that fails, after the widths before it are written.
+/// Builds every width (in parallel, next to `check`) and, with `write`, logs
+/// its lines and writes its files under `root` in the order of `widths` once
+/// `check` passed; stops at the first width that fails, after the widths
+/// before it are written. Returns the widths for verify.rs.
 pub fn run(
     root: &Path,
     fork: &Fork,
     widths: &[usize],
+    write: bool,
     check: impl FnOnce() -> Result<()> + Send,
-) -> Result<()> {
-    let (checked, built): (Result<()>, Vec<Result<Vec<Action>>>) = rayon::join(check, || {
+) -> Result<Vec<Width>> {
+    let (checked, built): (Result<()>, Vec<Result<Width>>) = rayon::join(check, || {
         widths.par_iter().map(|&t| generate(t, fork)).collect()
     });
     checked?;
-    for actions in built {
-        apply(root, fork, actions?)?;
+    let mut done = Vec::new();
+    for width in built {
+        let width = width?;
+        if write {
+            apply(root, &width.actions)?;
+        }
+        done.push(width);
     }
-    Ok(())
+    Ok(done)
 }

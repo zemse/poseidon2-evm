@@ -214,6 +214,9 @@ fn next_part_bytes(t: usize) -> usize {
 pub struct Overhead {
     pub entry_gas: u64,
     pub tail_gas: u64,
+    /// of tail_gas, the zeros of the hand-over's revert, which a call that
+    /// succeeds skips (the TS counts them as well, so the logs keep them)
+    pub revert_gas: u64,
     pub bytes: usize,
 }
 
@@ -235,6 +238,11 @@ pub fn overhead(
     Overhead {
         entry_gas: entry.gas,
         tail_gas: tail.gas,
+        revert_gas: if hands_over {
+            2 * push_gas(U256::ZERO, &fork)
+        } else {
+            0
+        },
         bytes: entry.bytes + tail.bytes,
     }
 }
