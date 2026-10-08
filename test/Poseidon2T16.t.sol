@@ -6,14 +6,13 @@ import {Test} from "forge-std/Test.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
 /// @notice Vectors come from the BigInt reference permutation in generator/reference.ts
-/// @dev The permutation uses EIP-8024 DUPN / SWAPN: run with FOUNDRY_PROFILE=amsterdam
 contract Poseidon2T16Test is Test {
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 
     address private perm;
 
     function setUp() public {
-        perm = HuffDeployer.deploy("bn254/huff/amsterdam/t16/Poseidon2");
+        perm = HuffDeployer.deploy("bn254/huff/t16/Poseidon2");
     }
 
     function _permute(uint256[16] memory input) internal view returns (uint256[16] memory out) {

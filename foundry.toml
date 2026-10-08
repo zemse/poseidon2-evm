@@ -5,33 +5,11 @@ libs = ["lib"]
 gas_reports = ["Poseidon2", "Poseidon2Yul", "Poseidon2Huff"]
 ffi = true
 solc_version = "0.8.30"
-evm_version = "cancun"
+# the huff permutations use EIP-8024 DUPN / SWAPN, so the test EVM runs
+# Amsterdam (solc still compiles for osaka, the newest version it knows)
+evm_version = "amsterdam"
 optimizer = true
 optimizer_runs = 1000000
-# the huff output for other hardforks has its own profile below
-skip = ["test/amsterdam/*", "test/osaka/*", "test/paris/*"]
-
-# FOUNDRY_PROFILE=amsterdam forge test: the test EVM runs Amsterdam (solc
-# still compiles for osaka, the newest version it knows); the t >= 16 huff
-# permutations there need EIP-8024 DUPN / SWAPN
-[profile.amsterdam]
-evm_version = "amsterdam"
-skip = []
-match_path = "test/amsterdam/*"
-
-# FOUNDRY_PROFILE=osaka forge test: the split huff permutations (several
-# contracts under the EIP-170 code size, no DUPN / SWAPN)
-[profile.osaka]
-evm_version = "osaka"
-skip = []
-match_path = "test/osaka/*"
-
-# FOUNDRY_PROFILE=paris forge test: the huff output without PUSH0 (the test
-# EVM runs Paris, where PUSH0 is an invalid opcode)
-[profile.paris]
-evm_version = "paris"
-skip = []
-match_path = "test/paris/*"
 
 [lint]
 exclude_lints = ["mixed-case-function", "mixed-case-variable", "screaming-snake-case-const"]

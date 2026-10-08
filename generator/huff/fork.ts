@@ -52,8 +52,8 @@ export const FORKS: Record<Hardfork, Fork> = {
   },
 };
 
-// the fork the t = 2, 3, 4, 8, 12 output in src/bn254/huff/ targets
-export const DEFAULT_HARDFORK: Hardfork = "shanghai";
+// the fork the output in src/bn254/huff/ targets
+export const DEFAULT_HARDFORK: Hardfork = "amsterdam";
 
 export function fork(name: string): Fork {
   if (!(name in FORKS)) {

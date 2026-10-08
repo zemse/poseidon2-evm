@@ -5,7 +5,7 @@
 // Parameters are derived like the HorizenLabs sage script (../params.ts),
 // the stack schedule is simulated and checked against the BigInt reference
 // permutation before anything is written (schedule.ts). The hardfork
-// (fork.ts, default shanghai) decides the opcodes the schedule may use and
+// (fork.ts, default amsterdam) decides the opcodes the schedule may use and
 // the code size: t = 4 goes to src/bn254/huff/Permutation.huff, other widths
 // get their own directory with an entry contract and a Foundry test, and a
 // fork other than the default gets src/bn254/huff/<fork>/t<t>/ and
@@ -56,7 +56,7 @@ function generate(t: number, fork: Fork) {
   const params = generateParams(t);
   const inputs = testInputs(t);
   const legacy = fork.name === DEFAULT_HARDFORK;
-  const overhead = legacy ? ENTRY_OVERHEAD : entryBytes(fork, t);
+  const overhead = legacy && t === 4 ? ENTRY_OVERHEAD : entryBytes(fork, t);
   const dir = `${huffDir(fork)}/t${t}`;
   const utilsPath = legacy ? "../Utils.huff" : "../../Utils.huff";
   const vectors: Vector[] = inputs.map((input) => ({
@@ -73,6 +73,7 @@ function generate(t: number, fork: Fork) {
     console.log(`${label}: ${describe(result, opts)}`);
     if (t === 4 && legacy) {
       const path = "src/bn254/huff/Permutation.huff";
+      writeForkFiles(fork);
       writeFileSync(
         path,
         renderPermutation(params, result, opts, "./Utils.huff", fork),

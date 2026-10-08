@@ -4,23 +4,15 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
-import {DeployParts} from "../../src/bn254/huff/DeployParts.sol";
 
 /// @notice Vectors come from the BigInt reference permutation in generator/reference.ts
-/// @dev The permutation targets osaka: run with FOUNDRY_PROFILE=osaka
-/// @dev The permutation is split into 4 contracts, deployed last to first by DeployParts
 contract Poseidon2T28Test is Test {
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 
     address private perm;
 
     function setUp() public {
-        bytes[] memory initcodes = new bytes[](4);
-        initcodes[0] = HuffDeployer.config().creation_code("bn254/huff/osaka/t28/Part0");
-        initcodes[1] = HuffDeployer.config().creation_code("bn254/huff/osaka/t28/Part1");
-        initcodes[2] = HuffDeployer.config().creation_code("bn254/huff/osaka/t28/Part2");
-        initcodes[3] = HuffDeployer.config().creation_code("bn254/huff/osaka/t28/Part3");
-        perm = DeployParts.deploy(initcodes);
+        perm = HuffDeployer.deploy("bn254/huff/t28/Poseidon2");
     }
 
     function _permute(uint256[28] memory input) internal view returns (uint256[28] memory out) {

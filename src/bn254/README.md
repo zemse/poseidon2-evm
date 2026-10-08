@@ -23,13 +23,13 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 | --------------- | ------- | ------- | ------- |
 | Pure Solidity   | 217,702 | 218,222 | 218,801 |
 | Yul (contract)  | 15,127  | 15,127  | 15,127  |
-| Huff (contract) | 12,558  | 12,558  | 12,558  |
+| Huff (contract) | 12,537  | 12,537  | 12,537  |
 
 ## Recommendation
 
 Using the Yul library is recommended for most use cases. It provides the best gas efficiency when inlined into your contracts.
 
-For external calls to deployed contracts, the Huff implementation provides the lowest gas cost.
+For external calls to deployed contracts, the Huff implementation provides the lowest gas cost. The Huff source targets Amsterdam (it uses the EIP-8024 `DUPN` / `SWAPN` opcodes) and does not run on earlier forks; the contracts deployed from v2 and earlier (`deployed-artifacts/`) are pre-Amsterdam builds.
 
 ## Notes on Optimizations
 
@@ -53,7 +53,7 @@ The EVM has a stack limit of 1024. Hence, compilers are designed to avoid runnin
 
 However, it is cheaper to not rearrange elements on the stack and instead `DUP`licate them in the order we want. This works when we are working with fewer than 16 variables (including temporary) because we have `DUP1` to `DUP16`.
 
-This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 dead values on the stack and each internal round 6, so the stack height reaches 456 for t = 4. For t = 12 the generator reclaims dead slots with `SWAP` + `POP` because the 1024 limit would otherwise be hit.
+This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 dead values on the stack and each internal round 6, so the stack height reaches 449 for t = 4. On Amsterdam `DUPN` / `SWAPN` reach slot 235, so the dead values can stay deeper than 16; from t = 12 the generator reclaims dead slots with `SWAP` + `POP` because the 1024 limit would otherwise be hit.
 
 ### Huff Generator
 
@@ -64,21 +64,25 @@ This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 de
 - `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs. The hardfork (`huff/fork.ts`, `--hardfork <name>`) sets the reach: `DUP16` / `SWAP16` for the legacy opcodes, slot 235 with the EIP-8024 `DUPN` / `SWAPN` of Amsterdam (3 gas and 2 bytes each, so the one-byte opcodes are still preferred up to 16). A value the reach cannot `DUP` can be shadowed: stored to a memory slot when produced and loaded from there instead (see Osaka below).
 - `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits. `huff/split.ts` cuts a permutation over the fork's code size into parts at round boundaries.
 
-Generated permutations for t other than 4 live in `huff/t<t>/` with an entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`; the output for a fork other than the default lives in `huff/<fork>/t<t>/` and `test/<fork>/`.
+Generated permutations for t other than 4 live in `huff/t<t>/` with an entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`. All of them target Amsterdam (below), and `forge test` runs on an Amsterdam EVM (`evm_version = "amsterdam"` in `foundry.toml`); CI checks that the output fails on Osaka.
 
-| t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes |
-| --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- |
-| 2   | 8   | 56  | 6,463           | 6,515    | 276             | 13      | 4,032         |
-| 3   | 8   | 56  | 8,049           | 8,124    | 351             | 15      | 4,743         |
-| 4   | 8   | 56  | 12,480          | 12,558   | 456             | 16      | 13,192        |
-| 8   | 8   | 57  | 25,719          | 25,909   | 889             | 16      | 14,394        |
-| 12  | 8   | 57  | 43,912          | 44,194   | 274             | 16      | 23,646        |
+| t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                               |
+| --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------- |
+| 2   | 8   | 56  | 6,454           | 6,506    | 273             | 27      | 4,039         | stack                                                   |
+| 3   | 8   | 56  | 8,037           | 8,112    | 347             | 38      | 4,758         | stack                                                   |
+| 4   | 8   | 56  | 12,459          | 12,537   | 449             | 63      | 13,240        | stack                                                   |
+| 8   | 8   | 57  | 24,319          | 24,509   | 883             | 145     | 25,024        | stack, diag as PUSH32                                   |
+| 12  | 8   | 57  | 36,085          | 36,367   | 993             | 147     | 36,961        | stack, diag as PUSH32, gcInternal from round 52         |
+| 16  | 8   | 57  | 48,347          | 48,721   | 999             | 123     | 50,133        | stack, diag as PUSH32, gcInternal from round 44         |
+| 20  | 8   | 57  | 61,107          | 61,573   | 995             | 147     | 63,737        | stack, diag as PUSH32, gcInternal from round 34         |
+| 24  | 8   | 57  | 74,636          | 75,195   | 989             | 171     | 64,816        | stack, 7 diag in memory, 17 PUSH32, gcInternal from 27  |
+| 28  | 8   | 59  | 91,120          | 91,771   | 994             | 63      | 65,414        | stack, 16 diag in memory, 12 PUSH32, gcInternal from 22 |
 
-Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule with the legacy opcodes: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator shadows the deep values in memory, and since the code then exceeds the 24,576 byte limit it splits the permutation into several contracts (Osaka below); Amsterdam reaches the whole state with `DUPN` / `SWAPN`. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the code size limit.
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 28 is 122 bytes under the 65,536 byte limit. With the legacy opcodes (before Amsterdam) the same widths cost 6,515, 8,124, 12,558, 25,909 and 44,194 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
 
 #### Hardforks
 
-`--hardfork <name>` picks a row of `huff/fork.ts`; the emitted code uses exactly the features of that fork and the generator refuses a schedule over its limits. Nothing emitted depends on Cancun (no `MCOPY`), Prague or Osaka, so their output is the Shanghai output; the default is shanghai, the fork the t = 2, 3, 4, 8, 12 output in `huff/` targets.
+`--hardfork <name>` picks a row of `huff/fork.ts`; the emitted code uses exactly the features of that fork and the generator refuses a schedule over its limits. The default, and the only fork whose output is in the repository, is amsterdam. Nothing emitted depends on Cancun (no `MCOPY`), Prague or Osaka, so their output is the Shanghai output.
 
 | fork      | zero                        | DUP / SWAP reach           | code size (EIP-170 / EIP-7954) | initcode (EIP-3860 / EIP-7954) | STATICCALL account access (EIP-2929) |
 | --------- | --------------------------- | -------------------------- | ------------------------------ | ------------------------------ | ------------------------------------ |
@@ -89,39 +93,21 @@ Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the oth
 | osaka     | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                |
 | amsterdam | `PUSH0`                     | 235 (`DUPN` / `SWAPN`)     | 65,536                         | 131,072                        | 2,600 cold / 100 warm                |
 
-huffc turns every zero literal into `PUSH0`, so before Shanghai the generator writes `ZERO()` (`huff/paris/Zero.huff`, `__VERBATIM(0x6000)`) and the test deploys with `with_evm_version("paris")` so the huffc bootstrap has no `PUSH0` either. `npm run generate:huff:paris` builds t = 3 that way (8,127 gas per call, 3 more than the Shanghai output, 4,747 bytes); `FOUNDRY_PROFILE=paris forge test` runs it on a Paris EVM, where the default output fails on `PUSH0` (CI checks that, and that the Amsterdam output fails on Osaka).
+A fork other than amsterdam writes `huff/<fork>/t<t>/` and `test/<fork>/`; its tests need a foundry profile with that `evm_version`. huffc turns every zero literal into `PUSH0`, so before Shanghai the generator writes `ZERO()` (`huff/<fork>/Zero.huff`, `__VERBATIM(0x6000)`) and the test deploys with `with_evm_version`.
 
 #### Amsterdam (EIP-8024)
 
-`node generator/huff/generate.ts --hardfork amsterdam 16 20 24 28` (`npm run generate:huff:amsterdam`) builds the wider permutations with the EIP-8024 `DUPN` / `SWAPN` opcodes, which reach stack slot 235, and the EIP-7954 code size limit of 65,536 bytes. huffc and huff-neo have no mnemonic for them, so `huff/amsterdam/Eip8024.huff` defines `DUP17()` .. `DUP235()` and `SWAP17()` .. `SWAP235()` as `__VERBATIM` bytes (immediate x encodes n = (x + 145) % 256). The whole state stays on the stack; two options use the reach: `gcInternalFrom` leaves the garbage of the first internal rounds in place while the 1024 depth allows (saves the `SWAPn POP` of 5 gas per slot), `diagPush32` keeps as many diag constants as `PUSH32` as the code size allows when the others are in memory (3 gas instead of 6 per use). The generator finds both limits by binary search. The output lives in `huff/amsterdam/t<t>/` with tests in `test/amsterdam/`; these contracts execute on Amsterdam and later only, and `FOUNDRY_PROFILE=amsterdam forge test` (`npm run test:amsterdam`) runs the tests on that EVM (the default profile skips `test/amsterdam`).
+`DUPN` / `SWAPN` reach stack slot 235 and EIP-7954 raises the code size limit to 65,536 bytes. huffc and huff-neo have no mnemonic for them, so `huff/Eip8024.huff` defines `DUP17()` .. `DUP235()` and `SWAP17()` .. `SWAP235()` as `__VERBATIM` bytes (immediate x encodes n = (x + 145) % 256). The whole state stays on the stack; two options use the reach: `gcInternalFrom` leaves the garbage of the first internal rounds in place while the 1024 depth allows (saves the `SWAPn POP` of 5 gas per slot), `diagPush32` keeps as many diag constants as `PUSH32` as the code size allows when the others are in memory (3 gas instead of 6 per use). The generator finds both limits by binary search.
 
-| t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                               |
-| --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------- |
-| 16  | 8   | 57  | 48,347          | 48,721   | 999             | 123     | 50,133        | stack, diag as PUSH32, gcInternal from round 44         |
-| 20  | 8   | 57  | 61,107          | 61,573   | 995             | 147     | 63,737        | stack, diag as PUSH32, gcInternal from round 34         |
-| 24  | 8   | 57  | 74,636          | 75,195   | 989             | 171     | 64,816        | stack, 7 diag in memory, 17 PUSH32, gcInternal from 27  |
-| 28  | 8   | 59  | 91,120          | 91,771   | 994             | 63      | 65,414        | stack, 16 diag in memory, 12 PUSH32, gcInternal from 22 |
+#### Legacy opcodes (not shipped)
 
-For comparison the unrolled Yul wrapper of the same widths costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 28 is 122 bytes under the limit. t = 20 fits with every diag constant as `PUSH32`; from t = 24 the code size, not the stack, decides how many are loaded from memory.
+For a fork before Amsterdam two things give from t = 16: the state does not fit the `DUP16` reach, and the code does not fit the 24,576 byte limit.
 
-#### Osaka (split permutations)
+- Reach: with the `shadow` schedule option a value the reach cannot `DUP` is stored to a memory slot when it is produced (`DUP1 <off> MSTORE`, 9 gas) and loaded from there (`<off> MLOAD`, 6 gas) whenever it is out of reach. Neither changes the stack, so a permissive pass first records which values need it and the real pass with the same schedule shadows exactly those (slots are reused two rounds later; the simulation refuses a load from a reused slot). The option is only tried when no stack-only schedule works.
+- Code size: `huff/split.ts` cuts the permutation at step boundaries (the initial linear layer, then one step per round) into `Part<i>.huff` contracts, as few as fit, each built and checked like a whole permutation (bound tracker, reference check of its own rounds with `permutationSteps`, size check with its entry and tail).
+- Linking: part i ends with the state in memory at `[0, 32t)` and `STATICCALL`s part i + 1 with it as calldata, the output lands in the same region and is returned (`returndatasize` must equal 32t). The address of the next part is the 32-byte word the deployer appends to the initcode: the generated `CONSTRUCTOR` keeps it behind the runtime code and `NEXT_PART()` reads it with `CODECOPY` (26 gas). `huff/DeployParts.sol` deploys a chain last to first.
 
-`node generator/huff/generate.ts --hardfork osaka 16 20 24 28` (`npm run generate:huff:osaka`) builds the same widths for the legacy opcodes, where two things give: the state does not fit the `DUP16` reach, and the code does not fit the 24,576 byte limit.
-
-- Reach: with the `shadow` schedule option a value the reach cannot `DUP` is stored to a memory slot when it is produced (`DUP1 <off> MSTORE`, 9 gas) and loaded from there (`<off> MLOAD`, 6 gas) whenever it is out of reach. Neither changes the stack, so a permissive pass first records which values need it and the real pass with the same schedule shadows exactly those (slots are reused two rounds later; the simulation refuses a load from a reused slot). In-place rounds then replace the shallow elements first, so the `SWAP` + `POP` of every old slot stays within reach and only the deepest few values per round are shadowed. The option is only tried when no stack-only schedule works, so t <= 12 keeps its output.
-- Code size: `huff/split.ts` cuts the permutation at step boundaries (the initial linear layer, then one step per round) into `Part<i>.huff` contracts. Every hop costs the same whatever the cut, so the fewest parts cost the least gas: a greedy pass extends each part as far as the probe schedule fits, the cuts are balanced by bytes, and the generator retries with one part fewer while the per-part option search still fits. Each part is built and checked like a whole permutation (bound tracker, reference check of its own rounds with `permutationSteps`, size check with its entry and tail).
-- Linking: part i ends with the state in memory at `[0, 32t)` and `STATICCALL`s part i + 1 with it as calldata, the output lands in the same region and is returned (`returndatasize` must equal 32t). Part i + 1 reduces the words mod PRIME on entry like part 0, so the hand-off carries lazy values. The address of the next part is the 32-byte word the deployer appends to the initcode: the generated `CONSTRUCTOR` keeps it behind the runtime code and `NEXT_PART()` reads it with `CODECOPY` (26 gas), so the artifact is fixed and any deployer links it. `huff/DeployParts.sol` deploys a chain last to first (`DeployParts.deploy(bytes[] initcodes)`), and the generated tests build the initcodes with `HuffDeployer.config().creation_code` and deploy through it.
-
-A hop costs the `MSTORE`s of the state in the caller (t x 9 gas, or an `MLOAD` instead of the `DUP` for shadowed values), the `STATICCALL` with its EIP-2929 account access (2,600 cold, 100 if the part was already touched in the transaction) plus 72 gas of pushes, address read and result check, and the callee's entry (`CALLDATALOAD` + `MOD` per word, 14 gas, 9 more for a word the part shadows, plus the memory expansion). The gas below is measured by forge on one call with every part cold; the generator prints the same numbers from its model within 10 gas.
-
-| t   | Rf  | Rp  | call gas | parts | bytes per part                 | steps per part   | Amsterdam | Yul     |
-| --- | --- | --- | -------- | ----- | ------------------------------ | ---------------- | --------- | ------- |
-| 16  | 8   | 57  | 65,975   | 2     | 18,764, 17,261                 | 34, 32           | 48,721    | 78,287  |
-| 20  | 8   | 57  | 83,892   | 2     | 24,466, 24,471                 | 32, 34           | 61,573    | 101,842 |
-| 24  | 8   | 57  | 103,941  | 3     | 24,517, 20,909, 22,752         | 22, 24, 20       | 75,195    | 125,985 |
-| 28  | 8   | 59  | 127,733  | 4     | 23,243, 21,766, 21,767, 22,127 | 13, 23, 23, 9    | 91,771    | 154,826 |
-
-The output runs on any fork from Shanghai on (it uses `PUSH0`, nothing newer); it lives in `huff/osaka/t<t>/` with tests in `test/osaka/`, and `FOUNDRY_PROFILE=osaka forge test` (`npm run test:osaka`) runs them on that EVM. The difference to Amsterdam is the shadow traffic, the garbage collection the reach forces, and 2,600 per hop.
+Measured on Osaka with every part cold, t = 16, 20, 24, 28 cost 65,975 (2 parts), 83,892 (2), 103,941 (3) and 127,733 gas (4 parts); a hop costs about 2,700 gas cold (2,600 of it the EIP-2929 account access, 100 when warm).
 
 The constants and permutation outputs for every generated t match other implementations of the same HorizenLabs instance (gnark-crypto, TACEO, Polygon pil2). See [generator/README.md](../../generator/README.md#evidence-that-the-output-matches-other-implementations) for the links.
 

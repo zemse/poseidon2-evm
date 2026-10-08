@@ -49,9 +49,10 @@ export function huffName(fork: Fork, t: number, file: string): string {
 // includes of a permutation in the width directory (or next to Utils.huff
 // for the default t = 4)
 function includes(fork: Fork, utilsPath: string): string {
+  const dir = utilsPath.startsWith("./") ? "./" : "../";
   let text = `#include "${utilsPath}"\n`;
-  if (fork.reach > 16) text += `#include "../Eip8024.huff"\n`;
-  if (!fork.push0) text += `#include "../Zero.huff"\n`;
+  if (fork.reach > 16) text += `#include "${dir}Eip8024.huff"\n`;
+  if (!fork.push0) text += `#include "${dir}Zero.huff"\n`;
   return text;
 }
 
@@ -433,9 +434,11 @@ export function renderForgeTest(
     ? "HuffDeployer.config()"
     : `HuffDeployer.config().with_evm_version("${fork.name}")`;
   let note = "";
-  if (fork.reach > 16) {
+  if (fork.name === DEFAULT_HARDFORK) {
+    note = "";
+  } else if (fork.reach > 16) {
     note = `/// @dev The permutation uses EIP-8024 DUPN / SWAPN: run with FOUNDRY_PROFILE=${fork.name}\n`;
-  } else if (fork.name !== DEFAULT_HARDFORK) {
+  } else {
     note = `/// @dev The permutation targets ${fork.name}: run with FOUNDRY_PROFILE=${fork.name}\n`;
   }
   let imports = "";

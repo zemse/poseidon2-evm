@@ -41,10 +41,7 @@ jobs:
         run: |
           npm run generate:yul
           npm run generate:huff
-          npm run generate:huff:amsterdam
-          npm run generate:huff:osaka
-          npm run generate:huff:paris
-          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff && npm run generate:huff:amsterdam && npm run generate:huff:osaka && npm run generate:huff:paris' and commit the changes." && exit 1)
+          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff' and commit the changes." && exit 1)
 
       - name: Run Forge build
         run: |
@@ -61,26 +58,12 @@ jobs:
           forge test -vvv
         id: test
 
-      - name: Run the Amsterdam (EIP-8024) Forge tests
+      - name: Check the EIP-8024 gate (the huff output fails before Amsterdam)
         run: |
-          FOUNDRY_PROFILE=amsterdam forge test -vvv
-        id: test-amsterdam
-
-      - name: Run the Osaka (split permutation) and Paris (no PUSH0) Forge tests
-        run: |
-          FOUNDRY_PROFILE=osaka forge test -vvv
-          FOUNDRY_PROFILE=paris forge test -vvv
-        id: test-forks
-
-      - name: Check the hardfork gates (the default output fails on Paris, the Amsterdam output on Osaka)
-        run: |
-          if FOUNDRY_PROFILE=paris forge test --match-path test/Poseidon2T3.t.sol; then
-            echo "the PUSH0 output ran on Paris" && exit 1
-          fi
-          if FOUNDRY_PROFILE=amsterdam forge test --hardfork osaka --match-path test/amsterdam/Poseidon2T16.t.sol; then
+          if forge test --hardfork osaka --match-path test/Poseidon2T16.t.sol; then
             echo "the EIP-8024 output ran on Osaka" && exit 1
           fi
-        id: gates
+        id: gate
 
       - name: Check gas snapshots
         run: |
