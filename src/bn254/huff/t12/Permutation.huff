@@ -8,7 +8,7 @@
 /// @dev takes [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, PRIME] with clean inputs, returns [s0', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN (Eip8024.huff): runs on Amsterdam and later only
-/// @dev 36085 gas, max stack depth 993, max dup 147, 36821 bytes
+/// @dev 36045 gas, max stack depth 993, max dup 147, 36806 bytes
 /// @dev schedule options: gcInternal, externalD, gcInternalFrom=52
 #define macro POSEIDON2_PERMUTATION() = {
     // Initial linear layer
@@ -1135,7 +1135,7 @@
     swap13 pop swap13 pop                    // [s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', s0^5, ...]
     dup10 dup13 dup2 dup5 dup2 dup10 dup2 dup14 DUP19() DUP18() add addmod dup15 add dup13 add addmod dup8 add dup9 add addmod dup4 add dup16 add addmod // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup15 0x1ed6abd05c8d678fa14c0c77d90f02fa1f8af249915fa6518f5f8d5e5c649fb2 mulmod dup2 add swap14 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
-    dup11 swap11 pop dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
+    dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup11 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54 mulmod dup2 add swap10 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup10 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4 mulmod dup2 add swap9 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup9 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b mulmod dup2 add swap8 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
@@ -1152,7 +1152,7 @@
     swap1 pop swap12 pop                     // [s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', s0^5, ...]
     dup10 dup13 dup2 dup5 dup2 dup10 dup2 dup14 DUP19() DUP18() add addmod dup15 add dup13 add addmod dup8 add dup9 add addmod dup4 add dup16 add addmod // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup15 0x1ed6abd05c8d678fa14c0c77d90f02fa1f8af249915fa6518f5f8d5e5c649fb2 mulmod dup2 add swap14 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
-    dup11 swap11 pop dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
+    dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup11 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54 mulmod dup2 add swap10 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup10 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4 mulmod dup2 add swap9 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup9 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b mulmod dup2 add swap8 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
@@ -1169,7 +1169,7 @@
     swap1 pop swap12 pop                     // [s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', s0^5, ...]
     dup10 dup13 dup2 dup5 dup2 dup10 dup2 dup14 DUP19() DUP18() add addmod dup15 add dup13 add addmod dup8 add dup9 add addmod dup4 add dup16 add addmod // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup15 0x1ed6abd05c8d678fa14c0c77d90f02fa1f8af249915fa6518f5f8d5e5c649fb2 mulmod dup2 add swap14 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
-    dup11 swap11 pop dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
+    dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup11 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54 mulmod dup2 add swap10 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup10 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4 mulmod dup2 add swap9 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup9 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b mulmod dup2 add swap8 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
@@ -1186,7 +1186,7 @@
     swap1 pop swap12 pop                     // [s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', s0^5, ...]
     dup10 dup13 dup2 dup5 dup2 dup10 dup2 dup14 DUP19() DUP18() add addmod dup15 add dup13 add addmod dup8 add dup9 add addmod dup4 add dup16 add addmod // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup15 0x1ed6abd05c8d678fa14c0c77d90f02fa1f8af249915fa6518f5f8d5e5c649fb2 mulmod dup2 add swap14 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
-    dup11 swap11 pop dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
+    dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup11 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54 mulmod dup2 add swap10 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup10 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4 mulmod dup2 add swap9 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup9 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b mulmod dup2 add swap8 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
@@ -1203,7 +1203,7 @@
     swap1 pop swap12 pop                     // [s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', s0^5, ...]
     dup10 dup13 dup2 dup5 dup2 dup10 dup2 dup14 DUP19() DUP18() add addmod dup15 add dup13 add addmod dup8 add dup9 add addmod dup4 add dup16 add addmod // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup15 0x1ed6abd05c8d678fa14c0c77d90f02fa1f8af249915fa6518f5f8d5e5c649fb2 mulmod dup2 add swap14 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
-    dup11 swap11 pop dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
+    dup11 dup13 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37 mulmod dup2 add swap12 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup11 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54 mulmod dup2 add swap10 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup10 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4 mulmod dup2 add swap9 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]
     dup11 dup9 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b mulmod dup2 add swap8 pop // [sum, s2', s3', s5', s4', s6', s7', s9', s8', s10', P, s11', ...]

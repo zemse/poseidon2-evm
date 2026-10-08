@@ -654,18 +654,10 @@ class Builder {
       const d = this.params.internalDiagMinusOne[i];
       if (n === Math.min(1, t - 2)) {
         // PRIME copy that ends up under the new state, within reach of the
-        // next round; placed one element late so the deepest DUP fits
-        e.pushPrime();
-        if (collect) {
-          // the previous round's copy is the only other PRIME left above
-          // the state and would pile up round after round
-          for (let pos = 2; pos <= e.maxReach + 1 && pos <= e.depth; pos++) {
-            if (e.top(pos - 1) === this.P) {
-              this.gcAt(pos);
-              break;
-            }
-          }
-        }
+        // next round; placed one element late so the deepest DUP fits. When
+        // the outputs replace the old slots in place the previous round's
+        // copy already sits under the new state
+        if (!collect || e.findPrime() === 0) e.pushPrime();
       }
       if (i === 0 && nextInternal) {
         // PRIME copy under the next round's s0 + c
