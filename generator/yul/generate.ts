@@ -33,7 +33,13 @@ import {
 // against).
 function layoutFor(t: number): Layout {
   if (t <= 4) {
-    return { stackElements: t, diagInMemory: 0, m4Temps: 4, internalLet: true };
+    return {
+      stackElements: t,
+      diagInMemory: 0,
+      m4Temps: 4,
+      internalLet: true,
+      internalReduceOutputs: t === 2,
+    };
   }
   if (t === 8) {
     return {
@@ -41,6 +47,7 @@ function layoutFor(t: number): Layout {
       diagInMemory: 2,
       m4Temps: 4,
       internalLet: false,
+      internalReduceOutputs: false,
     };
   }
   if (t === 12) {
@@ -49,9 +56,16 @@ function layoutFor(t: number): Layout {
       diagInMemory: 10,
       m4Temps: 2,
       internalLet: false,
+      internalReduceOutputs: false,
     };
   }
-  return { stackElements: 11, diagInMemory: t, m4Temps: 2, internalLet: false };
+  return {
+    stackElements: 11,
+    diagInMemory: t,
+    m4Temps: 2,
+    internalLet: false,
+    internalReduceOutputs: false,
+  };
 }
 
 function generate(t: number) {

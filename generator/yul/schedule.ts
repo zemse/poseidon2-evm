@@ -5,7 +5,8 @@
 // is ADD or ADDMOD, and a doubling ADD or MULMOD, is decided per operation
 // from the exact bounds the Program tracks. Reductions are forced only where
 // they buy laziness later: the M4 temporaries t2 / t3, the internal round sum
-// and the column sums of the t = 4k linear layer.
+// (or, for t = 2, the internal round's state1) and the column sums of the
+// t = 4k linear layer.
 //
 // The legacy solc pipeline compiles inline assembly almost literally, with
 // or without the optimizer, so the text is shaped for it: results are
@@ -35,6 +36,11 @@ export type Layout = {
   // keep the internal round's x^5 in a `let` that lives through the round
   // instead of writing it back to state0 first; costs one slot of reach
   internalLet: boolean;
+  // internal rounds: keep the sum lazy and reduce every output but state0
+  // with addmod, instead of reducing the sum and letting the outputs grow
+  // until a doubling needs mulmod (t = 2, where that is one reduction per
+  // round either way and the doubling stays a shift)
+  internalReduceOutputs: boolean;
 };
 
 export type Mode =
@@ -352,18 +358,22 @@ class Builder {
   }
 
   // s0 = (s0 + c)^5, then s_i = d_i s_i + sum with the sum reduced so that
-  // every output stays within 2p. Without internalLet x^5 goes through
-  // state0 so that the S-box temporaries are popped before the sum is built
-  // (one slot of reach for the deepest locals).
+  // every output stays within 2p, or with internalReduceOutputs the sum lazy
+  // as far as the next round's s0 + c fits and every other output reduced.
+  // Without internalLet x^5 goes through state0 so that the S-box
+  // temporaries are popped before the sum is built (one slot of reach for
+  // the deepest locals).
   internalRound(round: number) {
     const p = this.p;
     const t = this.t;
     const c = this.params.roundConstants[round][0];
+    const lazy = this.layout.internalReduceOutputs;
     const outputs = (x5: Value) => {
       const old = [x5, ...this.state.slice(1)];
-      const sum = this.chainSum(old, "sum", PRIME - 1n);
+      const cap = lazy ? UINT256_MAX - x5.bound - (PRIME - 1n) : PRIME - 1n;
+      const sum = this.chainSum(old, "sum", cap);
       for (let i = 0; i < t; i++) {
-        this.set(i, this.add(sum, this.scaled(old[i], i)));
+        this.set(i, this.add(sum, this.scaled(old[i], i), lazy && i > 0));
       }
     };
     if (!this.layout.internalLet) {
