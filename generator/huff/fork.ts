@@ -7,12 +7,7 @@
 // Shanghai's.
 
 export type Hardfork =
-  | "paris"
-  | "shanghai"
-  | "cancun"
-  | "prague"
-  | "osaka"
-  | "amsterdam";
+  "paris" | "shanghai" | "cancun" | "prague" | "osaka" | "amsterdam";
 
 export type Fork = {
   name: Hardfork;

@@ -11,7 +11,8 @@
 // the hash_1 / hash_2 / hash_3 entry t4/Poseidon2.huff instead (its own
 // round 0 per arity and the rounds after it shared, tested by
 // test/Poseidon2.t.sol); a fork other than the default gets
-// src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation over the
+// src/bn254/huff/<fork>/t<t>/ and test/<fork>/ (t = 4 a generated test of
+// the hash entry against the reference sponge). A permutation over the
 // fork's code size is split into parts (split.ts), Part0.huff being the
 // contract to call.
 
@@ -40,6 +41,7 @@ import {
   renderEntry,
   renderForgeTest,
   renderHashEntry,
+  renderHashTest,
   renderPart,
   renderPermutation,
   renderZero,
@@ -77,9 +79,10 @@ function generate(t: number, fork: Fork) {
   if (best) {
     const { result, opts } = best;
     console.log(`${label}: ${describe(result, opts)}`);
-    if (t === 4 && legacy) {
+    if (t === 4) {
       // t4/Poseidon2.huff is the hash_1 / hash_2 / hash_3 entry: round 0
       // per arity, then the rounds after it shared, returning s0' alone
+      mkdirSync(dir, { recursive: true });
       writeForkFiles(fork);
       writeFileSync(
         `${dir}/Permutation.huff`,
@@ -100,10 +103,16 @@ function generate(t: number, fork: Fork) {
         `${dir}/Poseidon2.huff`,
         renderHashEntry(params, fork, rounds, prologues, utilsPath),
       );
+      // the default fork's test is the hand-written test/Poseidon2.t.sol
+      let wrote = `${dir}/Permutation.huff, ${dir}/Poseidon2.huff`;
+      if (!legacy) {
+        mkdirSync(tests, { recursive: true });
+        writeFileSync(testPath, renderHashTest(params, inputs, fork));
+        wrote += `, ${testPath}`;
+      }
       const gas = entry.gas.map((g, i) => `hash_${i + 1} ${g}`).join(", ");
       console.log(
-        `  wrote ${dir}/Permutation.huff, ${dir}/Poseidon2.huff ` +
-          `(${gas} gas, ${entry.bytes} runtime bytes)`,
+        `  wrote ${wrote} (${gas} gas, ${entry.bytes} runtime bytes)`,
       );
       return;
     }

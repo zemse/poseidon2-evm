@@ -4,7 +4,8 @@
 // Foundry test; t = 4 gets the hash_1 / hash_2 / hash_3 entry
 // t4/Poseidon2.huff instead (its own round 0 per arity and the rounds after
 // it shared, tested by test/Poseidon2.t.sol). A fork other than the default
-// gets src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation over the
+// gets src/bn254/huff/<fork>/t<t>/ and test/<fork>/ (t = 4 a generated test
+// of the hash entry against the reference sponge). A permutation over the
 // fork's code size is split into parts (split.rs), Part0.huff being the
 // contract to call.
 //
@@ -33,8 +34,8 @@ use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
     Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead, render_deploy_parts,
-    render_eip8024, render_entry, render_forge_test, render_hash_entry, render_part,
-    render_permutation, render_zero, test_dir,
+    render_eip8024, render_entry, render_forge_test, render_hash_entry, render_hash_test,
+    render_part, render_permutation, render_zero, test_dir,
 };
 use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
@@ -149,9 +150,10 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     if let Some(best) = build_best(&params, &inputs, fork.code_size - overhead, *fork, range)? {
         let (result, opts) = (&best.result, &best.opts);
         actions.push(Action::Log(format!("{label}: {}", describe(result, opts))));
-        if t == 4 && legacy {
+        if t == 4 {
             // t4/Poseidon2.huff is the hash_1 / hash_2 / hash_3 entry: round 0
             // per arity, then the rounds after it shared, returning s0' alone
+            actions.push(Action::MkdirAll(dir.clone()));
             fork_files(&mut actions, fork);
             actions.push(Action::Write(
                 format!("{dir}/Permutation.huff"),
@@ -175,6 +177,16 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
                 format!("{dir}/Poseidon2.huff"),
                 render_hash_entry(&params, fork, &rounds, &prologues, utils_path)?,
             ));
+            // the default fork's test is the hand-written test/Poseidon2.t.sol
+            let mut wrote = format!("{dir}/Permutation.huff, {dir}/Poseidon2.huff");
+            if !legacy {
+                actions.push(Action::MkdirAll(tests.clone()));
+                actions.push(Action::Write(
+                    test_path.clone(),
+                    render_hash_test(&params, &inputs, fork),
+                ));
+                wrote += &format!(", {test_path}");
+            }
             let gas: Vec<String> = entry
                 .gas
                 .iter()
@@ -182,7 +194,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
                 .map(|(i, g)| format!("hash_{} {g}", i + 1))
                 .collect();
             actions.push(Action::Log(format!(
-                "  wrote {dir}/Permutation.huff, {dir}/Poseidon2.huff ({} gas, {} runtime bytes)",
+                "  wrote {wrote} ({} gas, {} runtime bytes)",
                 gas.join(", "),
                 entry.bytes
             )));
