@@ -12,6 +12,13 @@
 // of reach. A permissive pass first records which values need it and a
 // second pass with the same schedule shadows exactly those.
 //
+// Code the schedule reaches by JUMP more than once (the shared body of the
+// internal rounds, schedule.rs) is simulated at every call: the first call
+// records its lines and opcodes and pays its bytes, every later call replays
+// the same schedule for the gas, the stack, the bounds and the concrete
+// values without bytes or lines, and must emit the same opcodes segment by
+// segment.
+//
 // Values live in an arena and are compared by index, as the TS compares
 // objects by identity.
 
@@ -52,6 +59,26 @@ pub mod gas {
     pub const MOD: u64 = 5;
     pub const MLOAD: u64 = 3;
     pub const MSTORE: u64 = 3;
+    pub const JUMP: u64 = 8;
+    pub const JUMPDEST: u64 = 1;
+    /// plus 3 per word copied
+    pub const CODECOPY: u64 = 3;
+}
+
+/// A code table of 32-byte words next to the macro (the round constants of
+/// a body call), CODECOPYed to memory at its call site.
+#[derive(Debug, Clone)]
+pub struct Table {
+    pub name: String,
+    pub words: Vec<U256>,
+}
+
+/// off outside a body; the first call records, the others replay
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyMode {
+    Off,
+    Record,
+    Replay,
 }
 
 fn op_gas(op: Op) -> u64 {
@@ -100,13 +127,21 @@ pub enum Key {
 
 /// An operand of `compute`: a value to DUP (or push, for a constant not on
 /// the stack), a value already at its final position (consumed in place), a
-/// fresh constant, or a constant loaded from memory at its turn.
+/// fresh constant, a constant loaded from memory at its turn, or a value
+/// loaded from memory at its turn with a given bound (a round constant the
+/// shared body reads, see `mload_value`).
 #[derive(Debug, Clone)]
 pub enum Operand {
     Val(Id),
     Inplace(Id),
     Const(U256, String),
     Mload(U256, usize, String),
+    Load {
+        offset: usize,
+        name: String,
+        bound: U256,
+        vals: Vec<U256>,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -154,6 +189,13 @@ pub struct Emitter {
     pub slot_base: usize,
     pub stores: usize,
     pub loads: usize,
+
+    // shared body: the recorded lines and opcodes, a segment per body round
+    body_mode: BodyMode,
+    pub body_lines: Vec<Vec<String>>,
+    body_ops: Vec<Vec<String>>,
+    replay_ops: Vec<Vec<String>>,
+    pub tables: Vec<Table>,
 }
 
 impl Emitter {
@@ -193,6 +235,11 @@ impl Emitter {
             slot_base: 0,
             stores: 0,
             loads: 0,
+            body_mode: BodyMode::Off,
+            body_lines: Vec::new(),
+            body_ops: Vec::new(),
+            replay_ops: Vec::new(),
+            tables: Vec::new(),
         };
         e.p = e.alloc(Value {
             name: "P".to_string(),
@@ -275,11 +322,45 @@ impl Emitter {
     // ---- raw opcodes -------------------------------------------------------
 
     fn opcode(&mut self, text: impl FnOnce() -> String, gas: u64, bytes: usize) {
-        if self.text {
-            self.pending.push(text());
-        }
         self.gas += gas;
-        self.bytes += bytes;
+        match self.body_mode {
+            BodyMode::Replay => {
+                let text = text();
+                self.replay_ops.last_mut().expect("segment").push(text);
+            }
+            BodyMode::Record => {
+                let text = text();
+                if self.text {
+                    self.pending.push(text.clone());
+                }
+                self.bytes += bytes;
+                self.body_ops.last_mut().expect("segment").push(text);
+            }
+            BodyMode::Off => {
+                if self.text {
+                    self.pending.push(text());
+                }
+                self.bytes += bytes;
+            }
+        }
+    }
+
+    /// An opcode outside the arithmetic (labels, jumps, CODECOPY).
+    pub fn raw(&mut self, text: &str, gas: u64, bytes: usize) {
+        self.opcode(|| text.to_string(), gas, bytes);
+    }
+
+    /// A value the stack holds that the arithmetic never sees (a code
+    /// offset).
+    fn push_opaque(&mut self, name: &str) -> Id {
+        let v = self.alloc(Value {
+            name: name.to_string(),
+            bound: u256(0xffff),
+            vals: vec![U256::ZERO; self.vectors],
+            constant: None,
+        });
+        self.pushed(v);
+        v
     }
 
     // The 1024 limit is left to the schedule search (a build over it is
@@ -401,6 +482,24 @@ impl Emitter {
         Ok(v)
     }
 
+    /// Load a value stored at a memory offset by code outside the simulation
+    /// (a round constant a body call CODECOPYed): the bound is given, so that
+    /// the body never depends on the value of one call.
+    pub fn mload_value(
+        &mut self,
+        offset: usize,
+        name: &str,
+        bound: U256,
+        vals: Vec<U256>,
+    ) -> Result<Id> {
+        self.push(u256(offset as u64), None)?;
+        self.stack.pop();
+        self.opcode(|| "mload".to_string(), gas::MLOAD, 1);
+        let v = self.alloc(Value::new(name.to_string(), bound, vals, None)?);
+        self.pushed(v);
+        Ok(v)
+    }
+
     /// Put a copy of PRIME on top: dup the nearest copy within reach, else
     /// push.
     pub fn push_prime(&mut self) -> Result<Id> {
@@ -410,6 +509,132 @@ impl Emitter {
             return self.dup(v);
         }
         self.push(PRIME, None)
+    }
+
+    // ---- control flow ------------------------------------------------------
+
+    /// `name:` (a JUMPDEST)
+    pub fn label(&mut self, name: &str) {
+        self.opcode(|| format!("{name}:"), gas::JUMPDEST, 1);
+    }
+
+    /// the offset of a label (a PUSH2)
+    pub fn push_label(&mut self, name: &str) -> Id {
+        self.opcode(|| name.to_string(), gas::PUSH, 3);
+        self.push_opaque(name)
+    }
+
+    /// JUMP to the offset on top
+    pub fn jump(&mut self) {
+        self.opcode(|| "jump".to_string(), gas::JUMP, 1);
+        self.stack.pop();
+    }
+
+    /// JUMP to the offset stored at a memory offset: <off> MLOAD JUMP
+    pub fn jump_via(&mut self, offset: usize) -> Result<()> {
+        self.push(u256(offset as u64), None)?;
+        self.stack.pop();
+        self.opcode(|| "mload".to_string(), gas::MLOAD, 1);
+        self.push_opaque("ret");
+        self.jump();
+        Ok(())
+    }
+
+    /// A code table of the words, appended after the macro (render.rs); its
+    /// bytes count once, at its definition.
+    pub fn table(&mut self, name: &str, words: Vec<U256>) {
+        self.bytes += 32 * words.len();
+        self.tables.push(Table {
+            name: name.to_string(),
+            words,
+        });
+    }
+
+    /// CODECOPY a table of `words` words to memory at `offset`
+    pub fn codecopy(&mut self, name: &str, words: usize, offset: usize) -> Result<()> {
+        self.push(u256(32 * words as u64), None)?;
+        self.opcode(|| format!("__tablestart({name})"), gas::PUSH, 3);
+        self.push_opaque(name);
+        self.push(u256(offset as u64), None)?;
+        self.opcode(
+            || "codecopy".to_string(),
+            gas::CODECOPY + 3 * words as u64,
+            1,
+        );
+        let len = self.stack.len();
+        self.stack.truncate(len.saturating_sub(3));
+        if offset + 32 * words > self.memory {
+            self.memory = offset + 32 * words;
+        }
+        Ok(())
+    }
+
+    // ---- shared body -------------------------------------------------------
+
+    /// The first call of a body records, every later one replays: the lines
+    /// and opcodes go to the current segment (see `segment`), bytes count
+    /// only when recording. The pending opcodes must be flushed.
+    pub fn begin_body(&mut self, record: bool) -> Result<()> {
+        if !self.pending.is_empty() || self.body_mode != BodyMode::Off {
+            bail!("beginBody within a line or a body");
+        }
+        if record {
+            self.body_mode = BodyMode::Record;
+            self.body_lines.clear();
+            self.body_ops.clear();
+        } else {
+            self.body_mode = BodyMode::Replay;
+            self.replay_ops.clear();
+        }
+        self.segment();
+        Ok(())
+    }
+
+    /// A new segment (one per body round, and one for the exit): a replayed
+    /// segment must repeat the opcodes of the recorded one.
+    pub fn segment(&mut self) {
+        self.end_line();
+        if self.body_mode == BodyMode::Record {
+            self.body_lines.push(Vec::new());
+            self.body_ops.push(Vec::new());
+        } else {
+            self.replay_ops.push(Vec::new());
+        }
+    }
+
+    /// Ends the body: a replay is checked against the recording, every
+    /// segment in full but the last, which a call that leaves the body early
+    /// cuts short at its exit.
+    pub fn end_body(&mut self) -> Result<()> {
+        self.end_line();
+        if self.body_mode == BodyMode::Replay {
+            let n = self.replay_ops.len();
+            for (i, ops) in self.replay_ops.iter().enumerate() {
+                let want: &[String] = self.body_ops.get(i).map_or(&[], Vec::as_slice);
+                let same = if i == n - 1 {
+                    ops.len() <= want.len()
+                } else {
+                    ops.len() == want.len()
+                } && ops.iter().zip(want).all(|(a, b)| a == b);
+                if !same {
+                    let j = ops
+                        .iter()
+                        .enumerate()
+                        .position(|(k, op)| want.get(k) != Some(op))
+                        .unwrap_or(ops.len());
+                    fn at(list: &[String], j: usize) -> &str {
+                        list.get(j).map_or("end", String::as_str)
+                    }
+                    bail!(
+                        "body segment {i} differs between calls at opcode {j}: {} recorded, {} replayed",
+                        at(want, j),
+                        at(ops, j)
+                    );
+                }
+            }
+        }
+        self.body_mode = BodyMode::Off;
+        Ok(())
     }
 
     // ---- shadow copies -----------------------------------------------------
@@ -551,6 +776,14 @@ impl Emitter {
                 Operand::Mload(c, offset, name) => {
                     self.mload(*c, *offset, name)?;
                 }
+                Operand::Load {
+                    offset,
+                    name,
+                    bound,
+                    vals,
+                } => {
+                    self.mload_value(*offset, name, *bound, vals.clone())?;
+                }
                 Operand::Const(c, name) => {
                     if *c == PRIME {
                         self.push_prime()?;
@@ -624,17 +857,26 @@ impl Emitter {
         let ops = self.pending.join(" ");
         let line = format!("{indent}{ops:<40} // [{}]", shown.join(", "));
         self.pending.clear();
-        self.lines.push(line);
+        self.line(line);
     }
 
     pub fn comment(&mut self, text: &str) {
         self.end_line();
-        if self.text {
-            self.lines.push(if text.is_empty() {
+        if self.text && self.body_mode != BodyMode::Replay {
+            self.line(if text.is_empty() {
                 String::new()
             } else {
                 format!("    // {text}")
             });
+        }
+    }
+
+    /// to the output, or to the body's current segment while recording
+    fn line(&mut self, text: String) {
+        if self.body_mode == BodyMode::Record {
+            self.body_lines.last_mut().expect("segment").push(text);
+        } else {
+            self.lines.push(text);
         }
     }
 }

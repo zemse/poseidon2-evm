@@ -10,6 +10,7 @@ import { hex, PRIME } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
 import {
   dupText,
+  memoryGas,
   pushBytes,
   pushGas,
   pushText,
@@ -222,11 +223,7 @@ export function overhead(
   };
 }
 
-// Memory expansion gas of a frame that touches [0, bytes).
-export function memoryGas(bytes: number): number {
-  const words = Math.ceil(bytes / 32);
-  return 3 * words + Math.floor((words * words) / 512);
-}
+export { memoryGas };
 
 // Runtime bytes of the entry contract around a permutation (loads, return).
 export function entryBytes(
@@ -265,7 +262,22 @@ ${forkNote(fork)}${stats(result.emitter, result)}
 #define macro POSEIDON2_PERMUTATION() = {
 ${result.lines.join("\n")}
 }
-`;
+${tables(result)}`;
+}
+
+// the round constants of the shared body's calls as code tables, which
+// huffc appends to the runtime code behind the macro
+function tables(result: BuildResult): string {
+  return result.tables
+    .map(
+      ({ name, words }, i) => `
+/// @notice Round constants of call ${i} of the shared body, CODECOPYed to memory at the call
+#define table ${name} {
+${words.map((w) => `    ${hex(w)}`).join("\n")}
+}
+`,
+    )
+    .join("");
 }
 
 function stats(e: Emitter, result: BuildResult): string {
@@ -580,7 +592,7 @@ ${forkNote(fork)}${stats(result.emitter, result)}
 #define macro POSEIDON2_PART() = {
 ${result.lines.join("\n")}
 }
-
+${tables(result)}
 /// @notice Part ${part} entry: calldata = ${t} words (reduced mod PRIME), ${ability}
 #define macro MAIN() = {
 ${code.lines.join("\n")}

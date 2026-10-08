@@ -43,11 +43,20 @@ fn amsterdam_t2_t4() {
     assert_eq!(hashes.map(|g| g.measured), [12176, 12198, 12271]);
 }
 
+/// t = 16 fits one contract with the shared body of the internal rounds
 #[test]
-fn osaka_split_t16() {
+fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
+    within(&reports[0]);
+    assert_eq!(reports[0].bytes.len(), 1);
+    assert_eq!(reports[0].gas.measured, 56361);
+}
+
+#[test]
+fn osaka_split_t20() {
+    let reports = run("osaka", &[20]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 2);
     // forge, with every part cold
-    assert_eq!(reports[0].gas.measured, 59088);
+    assert_eq!(reports[0].gas.measured, 74778);
 }

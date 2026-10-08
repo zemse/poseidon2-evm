@@ -20,8 +20,27 @@
 // STATICCALL to the next one (render.ts). With the shadow option, values the
 // reach cannot DUP are kept as memory copies (emitter.ts), which is what lets
 // t >= 16 run with the legacy opcodes.
+//
+// The consuming internal rounds rotate the stack layout by one slot per
+// round, so after `period` rounds (the elements the stack holds) the layout
+// is back where it started and the bounds are a fixed point after the first
+// round. With sharedBody the steady internal rounds (all but the first and
+// the last of the range) are therefore emitted once as a body of one period
+// that every call reaches by JUMP with its return label in memory and its
+// round constants CODECOPYed from a code table to a memory scratch; a last
+// call of fewer rounds leaves the body at a mid exit. The body's diag
+// constants are PUSH32 as it exists once, which is what the code size
+// otherwise forces into memory or into a split.
 
-import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
+import {
+  Emitter,
+  Value,
+  inplace,
+  make,
+  memoryGas,
+  type Operand,
+  type Table,
+} from "./emitter.ts";
 import { PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
 import { permutationSteps, spongeState } from "../shared/reference.ts";
@@ -75,6 +94,12 @@ export type BuildOptions = {
   // shadow the values the reach cannot DUP in memory and hand the outputs
   // over in memory instead of on the stack (garbage out of reach stays)
   shadow: boolean;
+  // with internalConsume, run the steady internal rounds through one body
+  // of a period reached by JUMP (see above)
+  sharedBody: boolean;
+  // with sharedBody, keep the first bodyInline steady rounds inline as far
+  // as the code size allows
+  bodyInline: number;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -93,6 +118,8 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   gcM4From: 0,
   diagPush32: 0,
   shadow: false,
+  sharedBody: false,
+  bodyInline: 0,
 };
 
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
@@ -135,9 +162,30 @@ export type BuildResult = {
   // code bytes at the end of each step of the range
   stepBytes: number[];
   memory: number;
+  // the round constants of the shared body's calls
+  tables: Table[];
 };
 
 export const DIAG_MEMORY_BASE = 0;
+
+// The internal rounds of the range but its first and last, whose code
+// differs (the entry's PRIME copy, the final round's layout): the ones the
+// shared body may run, from round `first`.
+export function steadyRounds(
+  params: Params,
+  range: Range,
+): { first: number; steady: number } {
+  const rfHalf = params.roundsF / 2;
+  const first = Math.max(range.from - 1, rfHalf) + 1;
+  const last = Math.min(range.to - 2, rfHalf + params.roundsP - 1) - 1;
+  return { first, steady: Math.max(last - first + 1, 0) };
+}
+
+// elements the consuming round holds on the stack: the rounds the layout
+// takes to rotate back, the length of the shared body
+export function bodyPeriod(params: Params, fork: Fork): number {
+  return Math.min(params.t - 1, fork.reach - 4);
+}
 
 class Builder {
   readonly e: Emitter;
@@ -145,10 +193,15 @@ class Builder {
   readonly params: Params;
   readonly opts: BuildOptions;
   readonly range: Range;
+  readonly vectors: number;
   // the state leaves on the stack in order (default) or in memory at
   // [0, 32t): always with shadow, and for any part that hands over
   readonly stateInMemory: boolean;
   readonly diagBase: number;
+  // the shared body's scratch: the round constants of a call, then the
+  // return offsets of its mid exit and of its end
+  readonly rcBase: number;
+  readonly period: number;
   readonly inputSlots: (number | undefined)[] = [];
   readonly stepBytes: number[] = [];
   state: Value[];
@@ -175,14 +228,18 @@ class Builder {
     this.opts = opts;
     this.range = range;
     this.live = boundary.live;
+    this.vectors = inputs.length;
     this.stateInMemory = opts.shadow || range.to < stepCount(params);
     this.e = new Emitter(inputs.length, fork, shadow, permissive);
-    // the hand-off region [0, 32t) comes first, then the diag table and the
-    // shadow slots
+    // the hand-off region [0, 32t) comes first, then the diag table, the
+    // body scratch and the shadow slots
     this.diagBase = this.stateInMemory ? 32 * this.t : DIAG_MEMORY_BASE;
-    this.e.slotBase =
+    this.rcBase =
       this.diagBase +
       (opts.diagInMemory ? 32 * (this.t - opts.diagPush32) : 0);
+    this.period = bodyPeriod(params, fork);
+    this.e.slotBase =
+      this.rcBase + (opts.sharedBody ? 32 * (this.period + 2) : 0);
     // takes: [s0, s1, ..., s(t-1), PRIME]
     this.state = [];
     for (let i = 0; i < this.t; i++) {
@@ -1049,7 +1106,11 @@ class Builder {
   // each following an element whose output moves to memory so that
   // [output, sum, m0] stays on top, and the round ends by installing the
   // PRIME copy under the region.
-  internalRoundConsume(round: number, nextInternal: boolean) {
+  //
+  // In the shared body the round constant is MLOADed from slot `rc` of the
+  // scratch, with the bound of any field element so that the body never
+  // depends on the constant of one call.
+  internalRoundConsume(round: number, nextInternal: boolean, rc?: number) {
     const e = this.e;
     const t = this.t;
     const s0 = this.state[0];
@@ -1058,8 +1119,19 @@ class Builder {
     }
     const slots = Math.min(t - 1, e.maxReach - 4);
     const mem = t - 1 - slots;
-    const c = this.constant(this.params.roundConstants[round][0], "c");
-    if (!e.fitsAdd(s0, c)) throw new Error("s0 + c does not fit");
+    const c0 = this.params.roundConstants[round][0];
+    let c: Operand;
+    if (rc === undefined) {
+      c = this.constant(c0, "c");
+      if (!e.fitsAdd(s0, c)) throw new Error("s0 + c does not fit");
+    } else {
+      if (s0.bound + (PRIME - 1n) > UINT256_MAX) {
+        throw new Error("s0 + c does not fit");
+      }
+      const offset = this.rcBase + 32 * rc;
+      const vals = new Array(this.vectors).fill(c0);
+      c = make(() => e.mloadValue(offset, "c", PRIME - 1n, vals));
+    }
     const y = e.compute("add", [c, inplace(s0)], "s0+c");
     const x5 = this.sbox(y, "s0^5");
     e.endLine();
@@ -1190,6 +1262,99 @@ class Builder {
     this.state = out;
   }
 
+  // The steady internal rounds of the range that run through the shared
+  // body, as the rounds of each call: full calls of a period, then the
+  // remainder as a last call that leaves at the mid exit. Undefined when the
+  // body would run once at most.
+  bodyCalls(): number[][] | undefined {
+    const { first, steady } = steadyRounds(this.params, this.range);
+    if (this.opts.bodyInline > steady) {
+      throw new Error("bodyInline exceeds the steady rounds");
+    }
+    const start = first + this.opts.bodyInline;
+    const rest = steady - this.opts.bodyInline;
+    const full = Math.floor(rest / this.period);
+    if (full === 0) return undefined;
+    const calls: number[][] = [];
+    for (let c = 0; c < full; c++) {
+      const r = start + c * this.period;
+      calls.push(Array.from({ length: this.period }, (_, k) => r + k));
+    }
+    const rem = rest % this.period;
+    if (rem > 0) {
+      const r = start + full * this.period;
+      calls.push(Array.from({ length: rem }, (_, k) => r + k));
+    }
+    return calls;
+  }
+
+  // Emits the calls of the shared body. A call CODECOPYs its round
+  // constants from its code table to the scratch, stores its return label
+  // and JUMPs to the body, which the last call falls into instead; the
+  // body's text goes out there. The emitter simulates the body at every
+  // call, recording it at the first (emitter.ts). A remainder call stores
+  // its return label at the mid exit's slot, which the full calls had set
+  // to the label right after the exit.
+  emitBodyCalls(calls: number[][]) {
+    const e = this.e;
+    const period = this.period;
+    const retMid = this.rcBase + 32 * period;
+    const retEnd = retMid + 32;
+    const rem = calls[calls.length - 1].length % period;
+    e.comment("Shared body of the steady internal rounds (see the calls)");
+    if (rem > 0) {
+      e.pushLabel("body_mid");
+      e.mstore(retMid);
+      e.endLine();
+    }
+    for (const [c, rounds] of calls.entries()) {
+      const n = rounds.length;
+      const lastCall = c === calls.length - 1;
+      e.comment(
+        `Rounds ${rounds[0]} to ${rounds[n - 1]} (internal): body call ${c}`,
+      );
+      const name = `RC${c}`;
+      e.table(name, rounds.map((r) => this.params.roundConstants[r][0]));
+      e.codecopy(name, n, this.rcBase);
+      e.pushLabel(`ret${c}`);
+      e.mstore(n < period ? retMid : retEnd);
+      if (!lastCall) {
+        e.pushLabel("body");
+        e.jump();
+      }
+      e.endLine();
+
+      e.beginBody(c === 0);
+      e.label("body");
+      e.endLine();
+      for (const [k, r] of rounds.entries()) {
+        if (k > 0) e.segment();
+        if (k === rem && k > 0) {
+          // the mid exit: a remainder call returns, a full one goes on
+          e.jumpVia(retMid);
+          e.endLine();
+          e.label("body_mid");
+          e.endLine();
+        }
+        e.nextRound();
+        e.comment(`Round ${r} (internal)`);
+        this.internalRoundConsume(r, true, k);
+        e.comment("");
+        this.stepBytes.push(e.bytes);
+      }
+      e.segment();
+      e.jumpVia(n < period ? retMid : retEnd);
+      e.endLine();
+      e.endBody();
+      if (lastCall) {
+        e.comment("Shared body, entered by the calls above (the last falls in)");
+        for (const lines of e.bodyLines) e.lines.push(...lines);
+      }
+      e.label(`ret${c}`);
+      e.endLine();
+    }
+  }
+
   // ---- whole permutation ----------------------------------------------------
 
   build(): Value[] {
@@ -1223,7 +1388,21 @@ class Builder {
       this.stepBytes.push(e.bytes);
     }
 
+    let body: number[][] | undefined;
+    if (this.opts.sharedBody) {
+      if (!this.opts.internalConsume) {
+        throw new Error("sharedBody needs internalConsume");
+      }
+      body = this.bodyCalls();
+      if (!body) throw new Error("the body would run once at most");
+    }
+
     for (let r = Math.max(from - 1, 0); r + 1 < to; r++) {
+      if (body && r === body[0][0]) {
+        this.emitBodyCalls(body);
+        r += body.flat().length - 1;
+        continue;
+      }
       e.nextRound();
       // round r + 1 belongs to this part too
       const next = r + 2 < to;
@@ -1447,6 +1626,7 @@ export function buildPermutation(
     inputSlots: b.inputSlots,
     stepBytes: b.stepBytes,
     memory: e.memory,
+    tables: e.tables,
   };
 }
 
@@ -1465,15 +1645,16 @@ export function largest(hi: number, ok: (n: number) => boolean): number {
 export type Best = { result: BuildResult; opts: BuildOptions };
 
 // Tries the option combinations that make sense for t and returns the
-// cheapest build of the range that stays within reach, depth and code size,
-// or undefined when the schedules that build are too large or too deep (the
-// caller may then split the permutation). The shadow option is only tried
-// when no schedule keeps the whole state within reach, so the widths that
-// fit the reach keep their stack-only output. With DUPN / SWAPN each
-// combination also defers gcInternal as long as the depth allows and keeps
-// as many diag constants PUSH32 as the code size allows (the depth grows
-// with gcInternalFrom and the size with diagPush32, so a binary search finds
-// each limit). Throws when nothing builds at all.
+// cheapest build of the range (code and memory expansion) that stays within
+// reach, depth and code size, or undefined when the schedules that build are
+// too large or too deep (the caller may then split the permutation). The
+// shadow option is only tried when no schedule keeps the whole state within
+// reach, so the widths that fit the reach keep their stack-only output. With
+// DUPN / SWAPN each combination also defers gcInternal as long as the depth
+// allows, keeps as many diag constants PUSH32 as the code size allows and
+// then as many steady rounds inline (the depth grows with gcInternalFrom and
+// the size with diagPush32 and bodyInline, so a binary search finds each
+// limit). Throws when nothing builds at all.
 export function buildBest(
   params: Params,
   inputs: bigint[][],
@@ -1506,23 +1687,29 @@ export function buildBest(
                         for (const primeStack of internalConsume
                           ? bools
                           : [false]) {
-                          list.push({
-                            diagInMemory,
-                            gcExternal,
-                            gcM4,
-                            gcInternal,
-                            chainSwapMod,
-                            externalD,
-                            primeUnderExternal,
-                            internalReduceOutputs,
-                            floatPrimeInternal,
-                            internalConsume,
-                            primeStack,
-                            gcInternalFrom: 0,
-                            gcM4From: 0,
-                            diagPush32: 0,
-                            shadow,
-                          });
+                          for (const sharedBody of internalConsume
+                            ? bools
+                            : [false]) {
+                            list.push({
+                              diagInMemory,
+                              gcExternal,
+                              gcM4,
+                              gcInternal,
+                              chainSwapMod,
+                              externalD,
+                              primeUnderExternal,
+                              internalReduceOutputs,
+                              floatPrimeInternal,
+                              internalConsume,
+                              primeStack,
+                              gcInternalFrom: 0,
+                              gcM4From: 0,
+                              diagPush32: 0,
+                              shadow,
+                              sharedBody,
+                              bodyInline: 0,
+                            });
+                          }
                         }
                       }
                     }
@@ -1543,20 +1730,31 @@ export function buildBest(
       return undefined;
     }
   };
+  // the code and the memory it expands (the state region at least)
+  const cost = (result: BuildResult) =>
+    result.gas + memoryGas(Math.max(result.memory, 32 * params.t));
   let best: Best | undefined;
   let built = 0;
   const failures: string[] = [];
   const search = (list: BuildOptions[]) => {
     for (let opts of list) {
       try {
-        let result = buildPermutation(
-          params,
-          inputs,
-          opts,
-          fork,
-          range,
-          boundary,
-        );
+        const build = () =>
+          buildPermutation(params, inputs, opts, fork, range, boundary);
+        let result: BuildResult;
+        if (opts.sharedBody) {
+          // the round after a part's entry still loads from the entry's
+          // shadow slots (a memory layout of its own), so the body starts
+          // at the first count of inline rounds that builds
+          let r = attempt(opts);
+          while (r === undefined && opts.bodyInline < 2) {
+            opts = { ...opts, bodyInline: opts.bodyInline + 1 };
+            r = attempt(opts);
+          }
+          result = r ?? build();
+        } else {
+          result = build();
+        }
         built++;
         if (result.maxDepth <= 1000) {
           if (opts.gcInternal && fork.reach > 16) {
@@ -1597,6 +1795,26 @@ export function buildBest(
               boundary,
             );
           }
+          if (opts.sharedBody && result.bytes <= maxBytes) {
+            const { steady } = steadyRounds(params, range);
+            const fits = (n: number) => {
+              const r = attempt({ ...opts, bodyInline: n });
+              return r !== undefined && r.bytes <= maxBytes;
+            };
+            const base = opts.bodyInline;
+            let bodyInline =
+              base + largest(steady - base, (n) => fits(base + n));
+            // a remainder call and the mid exit cost more than the 3 gas
+            // per round the body charges, so the largest count that leaves
+            // none when one fits
+            const period = bodyPeriod(params, fork);
+            const extra = (period - ((steady - bodyInline) % period)) % period;
+            if (bodyInline >= extra && fits(bodyInline - extra)) {
+              bodyInline -= extra;
+            }
+            opts = { ...opts, bodyInline };
+            result = build();
+          }
         }
         if (result.maxDepth > 1000) {
           failures.push(`${JSON.stringify(opts)}: depth ${result.maxDepth}`);
@@ -1606,7 +1824,7 @@ export function buildBest(
           failures.push(`${JSON.stringify(opts)}: ${result.bytes} bytes`);
           continue;
         }
-        if (!best || result.gas < best.result.gas) best = { result, opts };
+        if (!best || cost(result) < cost(best.result)) best = { result, opts };
       } catch (err) {
         failures.push(`${JSON.stringify(opts)}: ${(err as Error).message}`);
       }

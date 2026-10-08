@@ -9,13 +9,23 @@
 // A build covers a range of steps (step 0 is the initial linear layer, step
 // r + 1 is round r) so that a permutation too large for the fork's code size
 // can be cut into parts.
+//
+// The consuming internal rounds rotate the stack layout by one slot per
+// round, so after `period` rounds (the elements the stack holds) the layout
+// is back where it started and the bounds are a fixed point after the first
+// round. With shared_body the steady internal rounds (all but the first and
+// the last of the range) are therefore emitted once as a body of one period
+// that every call reaches by JUMP with its return label in memory and its
+// round constants CODECOPYed from a code table to a memory scratch; a last
+// call of fewer rounds leaves the body at a mid exit.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use rayon::prelude::*;
 
-use super::emitter::{Emitter, Id, Key, Operand};
+use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
+use super::render::memory_gas;
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
@@ -66,6 +76,12 @@ pub struct BuildOptions {
     /// shadow the values the reach cannot DUP in memory and hand the outputs
     /// over in memory instead of on the stack
     pub shadow: bool,
+    /// with internal_consume, run the steady internal rounds through one
+    /// body of a period reached by JUMP (see above)
+    pub shared_body: bool,
+    /// with shared_body, keep the first body_inline steady rounds inline as
+    /// far as the code size allows
+    pub body_inline: usize,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -84,6 +100,8 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     gc_m4_from: 0,
     diag_push32: 0,
     shadow: false,
+    shared_body: false,
+    body_inline: 0,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -141,6 +159,12 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.shadow {
         enabled.push("shadow".to_string());
     }
+    if opts.shared_body {
+        enabled.push("sharedBody".to_string());
+    }
+    if opts.body_inline > 0 {
+        enabled.push(format!("bodyInline={}", opts.body_inline));
+    }
     if enabled.is_empty() {
         "none".to_string()
     } else {
@@ -168,9 +192,27 @@ pub struct BuildResult {
     /// code bytes at the end of each step of the range
     pub step_bytes: Vec<usize>,
     pub memory: usize,
+    /// the round constants of the shared body's calls
+    pub tables: Vec<Table>,
 }
 
 pub const DIAG_MEMORY_BASE: usize = 0;
+
+/// The internal rounds of the range but its first and last, whose code
+/// differs (the entry's PRIME copy, the final round's layout): the ones the
+/// shared body may run, from round `first`.
+pub fn steady_rounds(params: &Params, range: Range) -> (usize, usize) {
+    let rf_half = params.rounds_f / 2;
+    let first = (range.from as i64 - 1).max(rf_half as i64) + 1;
+    let last = (range.to as i64 - 2).min((rf_half + params.rounds_p) as i64 - 1) - 1;
+    (first as usize, (last - first + 1).max(0) as usize)
+}
+
+/// elements the consuming round holds on the stack: the rounds the layout
+/// takes to rotate back, the length of the shared body
+pub fn body_period(params: &Params, fork: &Fork) -> usize {
+    (params.t - 1).min(fork.reach - 4)
+}
 
 fn wmax() -> U512 {
     wide(UINT256_MAX)
@@ -200,8 +242,13 @@ struct Builder<'a> {
     params: &'a Params,
     opts: BuildOptions,
     range: Range,
+    vectors: usize,
     state_in_memory: bool,
     diag_base: usize,
+    /// the shared body's scratch: the round constants of a call, then the
+    /// return offsets of its mid exit and of its end
+    rc_base: usize,
+    period: usize,
     input_slots: Vec<Option<usize>>,
     step_bytes: Vec<usize>,
     state: Vec<Id>,
@@ -245,16 +292,23 @@ impl<'a> Builder<'a> {
         let t = params.t;
         let state_in_memory = opts.shadow || range.to < step_count(params);
         let mut e = Emitter::new(inputs.len(), fork, shadow, permissive, text);
-        // the hand-off region [0, 32t) comes first, then the diag table and
-        // the shadow slots
+        // the hand-off region [0, 32t) comes first, then the diag table, the
+        // body scratch and the shadow slots
         let diag_base = if state_in_memory {
             32 * t
         } else {
             DIAG_MEMORY_BASE
         };
-        e.slot_base = diag_base
+        let rc_base = diag_base
             + if opts.diag_in_memory {
                 32 * (t - opts.diag_push32)
+            } else {
+                0
+            };
+        let period = body_period(params, &fork);
+        e.slot_base = rc_base
+            + if opts.shared_body {
+                32 * (period + 2)
             } else {
                 0
             };
@@ -286,8 +340,11 @@ impl<'a> Builder<'a> {
             params,
             opts,
             range,
+            vectors: inputs.len(),
             state_in_memory,
             diag_base,
+            rc_base,
+            period,
             input_slots,
             step_bytes: Vec::new(),
             state,
@@ -1133,19 +1190,36 @@ impl<'a> Builder<'a> {
 
     // ---- internal rounds ---------------------------------------------------
 
-    fn round_start(&mut self, round: usize) -> Result<Id> {
+    /// s0 + c and its S-box. In the shared body the round constant is
+    /// MLOADed from slot `rc` of the scratch, with the bound of any field
+    /// element so that the body never depends on the constant of one call.
+    fn round_start(&mut self, round: usize, rc: Option<usize>) -> Result<Id> {
         let s0 = self.state[0];
         let p = self.p();
         if self.e.top(0)? != s0 || self.e.top(1)? != p {
             bail!("internal round expects [s0, P] on top");
         }
-        let c = self.params.round_constants[round][0];
-        if !self.e.fits_add(self.bound(s0), c) {
-            bail!("s0 + c does not fit");
-        }
-        let y = self
-            .e
-            .compute(Op::Add, &[constant(c, "c"), inplace(s0)], "s0+c")?;
+        let c0 = self.params.round_constants[round][0];
+        let c = match rc {
+            None => {
+                if !self.e.fits_add(self.bound(s0), c0) {
+                    bail!("s0 + c does not fit");
+                }
+                constant(c0, "c")
+            }
+            Some(rc) => {
+                if !self.e.fits_add(self.bound(s0), p1()) {
+                    bail!("s0 + c does not fit");
+                }
+                Operand::Load {
+                    offset: self.rc_base + 32 * rc,
+                    name: "c".to_string(),
+                    bound: p1(),
+                    vals: vec![c0; self.vectors],
+                }
+            }
+        };
+        let y = self.e.compute(Op::Add, &[c, inplace(s0)], "s0+c")?;
         let x5 = self.sbox(y, "s0^5")?;
         self.e.end_line();
         Ok(x5)
@@ -1155,7 +1229,7 @@ impl<'a> Builder<'a> {
     /// round) so that s0 + c lands in place for the S-box.
     fn internal_round(&mut self, round: usize, next_internal: bool) -> Result<()> {
         let t = self.t;
-        let x5 = self.round_start(round)?;
+        let x5 = self.round_start(round, None)?;
         let collect =
             self.opts.gc_internal && round - self.params.rounds_f / 2 >= self.opts.gc_internal_from;
         if collect {
@@ -1331,12 +1405,17 @@ impl<'a> Builder<'a> {
     /// loaded for the chain and their MULMOD and stored again. Each element
     /// swapped to the top gets a PRIME copy swapped under it, or with
     /// prime_stack lands on one of the copies stacked under m0 beforehand.
-    fn internal_round_consume(&mut self, round: usize, next_internal: bool) -> Result<()> {
+    fn internal_round_consume(
+        &mut self,
+        round: usize,
+        next_internal: bool,
+        rc: Option<usize>,
+    ) -> Result<()> {
         let t = self.t;
         let p = self.p();
         let slots = (t - 1).min(self.e.max_reach - 4);
         let mem = t - 1 - slots;
-        let x5 = self.round_start(round)?;
+        let x5 = self.round_start(round, rc)?;
         // the external round before leaves an M4 temporary among the state;
         // its slot takes s0^5, which is swapped back on top
         for v in std::mem::take(&mut self.dead) {
@@ -1508,6 +1587,115 @@ impl<'a> Builder<'a> {
         self.consume_finish(i, old[i], sum, mem, out)
     }
 
+    /// The steady internal rounds of the range that run through the shared
+    /// body, as the rounds of each call: full calls of a period, then the
+    /// remainder as a last call that leaves at the mid exit. None when the
+    /// body would run once at most.
+    fn body_calls(&self) -> Result<Option<Vec<Vec<usize>>>> {
+        let (first, steady) = steady_rounds(self.params, self.range);
+        if self.opts.body_inline > steady {
+            bail!("bodyInline exceeds the steady rounds");
+        }
+        let start = first + self.opts.body_inline;
+        let rest = steady - self.opts.body_inline;
+        let full = rest / self.period;
+        if full == 0 {
+            return Ok(None);
+        }
+        let mut calls: Vec<Vec<usize>> = (0..full)
+            .map(|c| {
+                let r = start + c * self.period;
+                (r..r + self.period).collect()
+            })
+            .collect();
+        let rem = rest % self.period;
+        if rem > 0 {
+            let r = start + full * self.period;
+            calls.push((r..r + rem).collect());
+        }
+        Ok(Some(calls))
+    }
+
+    /// Emits the calls of the shared body. A call CODECOPYs its round
+    /// constants from its code table to the scratch, stores its return
+    /// label and JUMPs to the body, which the last call falls into instead;
+    /// the body's text goes out there. The emitter simulates the body at
+    /// every call, recording it at the first (emitter.rs). A remainder call
+    /// stores its return label at the mid exit's slot, which the full calls
+    /// had set to the label right after the exit.
+    fn emit_body_calls(&mut self, calls: &[Vec<usize>]) -> Result<()> {
+        let period = self.period;
+        let ret_mid = self.rc_base + 32 * period;
+        let ret_end = ret_mid + 32;
+        let rem = calls[calls.len() - 1].len() % period;
+        self.e
+            .comment("Shared body of the steady internal rounds (see the calls)");
+        if rem > 0 {
+            self.e.push_label("body_mid");
+            self.e.mstore(ret_mid)?;
+            self.e.end_line();
+        }
+        for (c, rounds) in calls.iter().enumerate() {
+            let n = rounds.len();
+            let last_call = c == calls.len() - 1;
+            self.e.comment(&format!(
+                "Rounds {} to {} (internal): body call {c}",
+                rounds[0],
+                rounds[n - 1]
+            ));
+            let name = format!("RC{c}");
+            let words = rounds
+                .iter()
+                .map(|&r| self.params.round_constants[r][0])
+                .collect();
+            self.e.table(&name, words);
+            self.e.codecopy(&name, n, self.rc_base)?;
+            self.e.push_label(&format!("ret{c}"));
+            self.e.mstore(if n < period { ret_mid } else { ret_end })?;
+            if !last_call {
+                self.e.push_label("body");
+                self.e.jump();
+            }
+            self.e.end_line();
+
+            self.e.begin_body(c == 0)?;
+            self.e.label("body");
+            self.e.end_line();
+            for (k, &r) in rounds.iter().enumerate() {
+                if k > 0 {
+                    self.e.segment();
+                }
+                if k == rem && k > 0 {
+                    // the mid exit: a remainder call returns, a full one
+                    // goes on
+                    self.e.jump_via(ret_mid)?;
+                    self.e.end_line();
+                    self.e.label("body_mid");
+                    self.e.end_line();
+                }
+                self.e.next_round();
+                self.e.comment(&format!("Round {r} (internal)"));
+                self.internal_round_consume(r, true, Some(k))?;
+                self.e.comment("");
+                self.step_bytes.push(self.e.bytes);
+            }
+            self.e.segment();
+            self.e
+                .jump_via(if n < period { ret_mid } else { ret_end })?;
+            self.e.end_line();
+            self.e.end_body()?;
+            if last_call {
+                self.e
+                    .comment("Shared body, entered by the calls above (the last falls in)");
+                let lines: Vec<String> = self.e.body_lines.iter().flatten().cloned().collect();
+                self.e.lines.extend(lines);
+            }
+            self.e.label(&format!("ret{c}"));
+            self.e.end_line();
+        }
+        Ok(())
+    }
+
     // ---- whole permutation -------------------------------------------------
 
     fn build(&mut self) -> Result<Vec<Id>> {
@@ -1538,8 +1726,27 @@ impl<'a> Builder<'a> {
             self.step_bytes.push(self.e.bytes);
         }
 
+        let body = if self.opts.shared_body {
+            if !self.opts.internal_consume {
+                bail!("sharedBody needs internalConsume");
+            }
+            match self.body_calls()? {
+                Some(calls) => Some(calls),
+                None => bail!("the body would run once at most"),
+            }
+        } else {
+            None
+        };
+
         let mut r = from.saturating_sub(1);
         while r + 1 < to {
+            if let Some(calls) = &body
+                && r == calls[0][0]
+            {
+                self.emit_body_calls(calls)?;
+                r += calls.iter().map(Vec::len).sum::<usize>();
+                continue;
+            }
             self.e.next_round();
             // round r + 1 belongs to this part too
             let next = r + 2 < to;
@@ -1558,7 +1765,7 @@ impl<'a> Builder<'a> {
                 }
                 let next_internal = r < p_end - 1 && next;
                 if self.opts.internal_consume {
-                    self.internal_round_consume(r, next_internal)?;
+                    self.internal_round_consume(r, next_internal, None)?;
                 } else {
                     self.internal_round(r, next_internal)?;
                 }
@@ -1817,6 +2024,7 @@ fn build_checked(
         input_slots: b.input_slots,
         step_bytes: b.step_bytes,
         memory: e.memory,
+        tables: e.tables,
     })
 }
 
@@ -1864,23 +2072,27 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                             t >= 8 && !gc_internal && !float_prime_internal;
                                         for &internal_consume in pick(consume) {
                                             for &prime_stack in pick(internal_consume) {
-                                                list.push(BuildOptions {
-                                                    diag_in_memory,
-                                                    gc_external,
-                                                    gc_m4,
-                                                    gc_internal,
-                                                    chain_swap_mod,
-                                                    external_d,
-                                                    prime_under_external,
-                                                    internal_reduce_outputs,
-                                                    float_prime_internal,
-                                                    internal_consume,
-                                                    prime_stack,
-                                                    gc_internal_from: 0,
-                                                    gc_m4_from: 0,
-                                                    diag_push32: 0,
-                                                    shadow,
-                                                });
+                                                for &shared_body in pick(internal_consume) {
+                                                    list.push(BuildOptions {
+                                                        diag_in_memory,
+                                                        gc_external,
+                                                        gc_m4,
+                                                        gc_internal,
+                                                        chain_swap_mod,
+                                                        external_d,
+                                                        prime_under_external,
+                                                        internal_reduce_outputs,
+                                                        float_prime_internal,
+                                                        internal_consume,
+                                                        prime_stack,
+                                                        gc_internal_from: 0,
+                                                        gc_m4_from: 0,
+                                                        diag_push32: 0,
+                                                        shadow,
+                                                        shared_body,
+                                                        body_inline: 0,
+                                                    });
+                                                }
                                             }
                                         }
                                     }
@@ -1896,15 +2108,16 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
 }
 
 /// What the search learns from one candidate: whether its first build
-/// succeeded, and its final options and gas or the reason it fails.
+/// succeeded, and its final options and cost or the reason it fails.
 struct Outcome {
     built: bool,
     result: std::result::Result<(BuildOptions, u64), String>,
 }
 
 /// Tries the option combinations that make sense for t and returns the
-/// cheapest build of the range that stays within reach, depth and code size,
-/// or None when the schedules that build are too large or too deep. The
+/// cheapest build of the range (code and memory expansion) that stays within
+/// reach, depth and code size, or None when the schedules that build are too
+/// large or too deep. The
 /// candidates are evaluated in parallel; the winner is the first strictly
 /// cheaper one in enumeration order, as in the TS, and is rebuilt with its
 /// lines. Fails when nothing builds at all.
@@ -1934,9 +2147,19 @@ pub fn build_best_with(
         )
     };
     let attempt = |opts: &BuildOptions| build(opts).ok();
+    // the code and the memory it expands (the state region at least)
+    let cost = |result: &BuildResult| result.gas + memory_gas(result.memory.max(32 * params.t));
     let evaluate = |opts: &BuildOptions| -> Outcome {
         let mut opts = *opts;
-        let mut result = match build(&opts) {
+        let mut first = build(&opts);
+        // the round after a part's entry still loads from the entry's
+        // shadow slots (a memory layout of its own), so the body starts at
+        // the first count of inline rounds that builds
+        while opts.shared_body && first.is_err() && opts.body_inline < 2 {
+            opts.body_inline += 1;
+            first = build(&opts);
+        }
+        let mut result = match first {
             Ok(r) => r,
             Err(err) => {
                 return Outcome {
@@ -1980,6 +2203,28 @@ pub fn build_best_with(
                     opts.diag_push32 = diag_push32;
                     result = build(&opts).map_err(|e| e.0)?;
                 }
+                if opts.shared_body && result.bytes <= max_bytes {
+                    let (_, steady) = steady_rounds(params, range);
+                    let fits = |n: usize| {
+                        attempt(&BuildOptions {
+                            body_inline: n,
+                            ..opts
+                        })
+                        .is_some_and(|r| r.bytes <= max_bytes)
+                    };
+                    let base = opts.body_inline;
+                    let mut body_inline = base + largest(steady - base, |n| fits(base + n));
+                    // a remainder call and the mid exit cost more than the
+                    // 3 gas per round the body charges, so the largest count
+                    // that leaves none when one fits
+                    let period = body_period(params, &fork);
+                    let extra = (period - (steady - body_inline) % period) % period;
+                    if body_inline >= extra && fits(body_inline - extra) {
+                        body_inline -= extra;
+                    }
+                    opts.body_inline = body_inline;
+                    result = build(&opts).map_err(|e| e.0)?;
+                }
             }
             if result.max_depth > 1000 {
                 return Err(format!("depth {}", result.max_depth));
@@ -1987,7 +2232,7 @@ pub fn build_best_with(
             if result.bytes > max_bytes {
                 return Err(format!("{} bytes", result.bytes));
             }
-            Ok((opts, result.gas))
+            Ok((opts, cost(&result)))
         };
         Outcome {
             built: true,
@@ -2045,7 +2290,8 @@ pub fn build_best_with(
                 params, inputs, &expected, &opts, fork, range, true, boundary,
             )?;
             assert_eq!(
-                result.gas, gas,
+                cost(&result),
+                gas,
                 "the rebuilt winner costs what the search measured"
             );
             Ok(Some(Best { result, opts }))

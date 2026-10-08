@@ -17,6 +17,13 @@
 // from there (<off> MLOAD, 6 gas) whenever it is out of reach. Neither
 // changes the stack layout, so a permissive pass first records which values
 // need it and a second pass with the same schedule shadows exactly those.
+//
+// Code the schedule reaches by JUMP more than once (the shared body of the
+// internal rounds, schedule.ts) is simulated at every call: the first call
+// records its lines and opcodes and pays its bytes, every later call replays
+// the same schedule for the gas, the stack, the bounds and the concrete
+// values without bytes or lines, and must emit the same opcodes segment by
+// segment, which is what makes one body valid for every call.
 
 import { PRIME, UINT256_MAX, hex } from "../shared/field.ts";
 import { ARITY, Value, applyOp, type Op } from "../shared/value.ts";
@@ -48,7 +55,21 @@ export const GAS = {
   mod: 5,
   mload: 3,
   mstore: 3,
+  jump: 8,
+  jumpdest: 1,
+  // plus 3 per word copied
+  codecopy: 3,
 } as const;
+
+// Memory expansion gas of a frame that touches [0, bytes).
+export function memoryGas(bytes: number): number {
+  const words = Math.ceil(bytes / 32);
+  return 3 * words + Math.floor((words * words) / 512);
+}
+
+// A code table of 32-byte words next to the macro (the round constants of a
+// body call), CODECOPYed to memory at its call site.
+export type Table = { name: string; words: bigint[] };
 
 // Text, gas and bytes of PUSHing a constant on the fork.
 export function pushText(c: bigint, fork: Fork): string {
@@ -116,6 +137,15 @@ export class Emitter {
   stores = 0;
   loads = 0;
 
+  // ---- shared body ---------------------------------------------------------
+  // off outside a body; the first call records, the others replay
+  private bodyMode: "off" | "record" | "replay" = "off";
+  // the recorded lines and opcodes, a segment per body round
+  readonly bodyLines: string[][] = [];
+  private bodyOps: string[][] = [];
+  private replayOps: string[][] = [];
+  readonly tables: Table[] = [];
+
   constructor(
     vectors: number,
     fork: Fork = FORKS.shanghai,
@@ -165,9 +195,28 @@ export class Emitter {
   // ---- raw opcodes ---------------------------------------------------------
 
   private opcode(text: string, gas: number, bytes: number) {
-    this.pending.push(text);
     this.gas += gas;
+    if (this.bodyMode === "replay") {
+      this.replayOps[this.replayOps.length - 1].push(text);
+      return;
+    }
+    this.pending.push(text);
     this.bytes += bytes;
+    if (this.bodyMode === "record") {
+      this.bodyOps[this.bodyOps.length - 1].push(text);
+    }
+  }
+
+  // An opcode outside the arithmetic (labels, jumps, CODECOPY).
+  raw(text: string, gas: number, bytes: number) {
+    this.opcode(text, gas, bytes);
+  }
+
+  // A value the stack holds that the arithmetic never sees (a code offset).
+  private pushOpaque(name: string): Value {
+    const v = new Value(name, 0xffffn, new Array(this.vectors).fill(0n));
+    this.pushed(v);
+    return v;
   }
 
   // The 1024 limit is left to the schedule search (a build over it is
@@ -267,11 +316,129 @@ export class Emitter {
     return v;
   }
 
+  // Load a value stored at a memory offset by code outside the simulation
+  // (a round constant a body call CODECOPYed): the bound is given, so that
+  // the body never depends on the value of one call.
+  mloadValue(
+    offset: number,
+    name: string,
+    bound: bigint,
+    vals: bigint[],
+  ): Value {
+    this.push(BigInt(offset));
+    this.stack.shift();
+    this.opcode("mload", GAS.mload, 1);
+    const v = new Value(name, bound, vals);
+    this.pushed(v);
+    return v;
+  }
+
   // Put a copy of PRIME on top: dup the nearest copy within reach, else push.
   pushPrime(): Value {
     const n = this.findPrime();
     if (n > 0) return this.dup(this.stack[n - 1]);
     return this.push(PRIME);
+  }
+
+  // ---- control flow --------------------------------------------------------
+
+  // `name:` (a JUMPDEST)
+  label(name: string) {
+    this.opcode(`${name}:`, GAS.jumpdest, 1);
+  }
+
+  // the offset of a label (a PUSH2)
+  pushLabel(name: string): Value {
+    this.opcode(name, GAS.push, 3);
+    return this.pushOpaque(name);
+  }
+
+  // JUMP to the offset on top
+  jump() {
+    this.opcode("jump", GAS.jump, 1);
+    this.stack.shift();
+  }
+
+  // JUMP to the offset stored at a memory offset: <off> MLOAD JUMP
+  jumpVia(offset: number) {
+    this.push(BigInt(offset));
+    this.stack.shift();
+    this.opcode("mload", GAS.mload, 1);
+    this.pushOpaque("ret");
+    this.jump();
+  }
+
+  // A code table of the words, appended after the macro (render.ts); its
+  // bytes count once, at its definition.
+  table(name: string, words: bigint[]) {
+    this.tables.push({ name, words });
+    this.bytes += 32 * words.length;
+  }
+
+  // CODECOPY a table of `words` words to memory at `offset`
+  codecopy(name: string, words: number, offset: number) {
+    this.push(BigInt(32 * words));
+    this.opcode(`__tablestart(${name})`, GAS.push, 3);
+    this.pushOpaque(name);
+    this.push(BigInt(offset));
+    this.opcode("codecopy", GAS.codecopy + 3 * words, 1);
+    this.stack.splice(0, 3);
+    if (offset + 32 * words > this.memory) this.memory = offset + 32 * words;
+  }
+
+  // ---- shared body ---------------------------------------------------------
+
+  // The first call of a body records, every later one replays: the lines
+  // and opcodes go to the current segment (see segment), bytes count only
+  // when recording. The pending opcodes must be flushed.
+  beginBody(record: boolean) {
+    if (this.pending.length > 0 || this.bodyMode !== "off") {
+      throw new Error("beginBody within a line or a body");
+    }
+    this.bodyMode = record ? "record" : "replay";
+    if (record) {
+      this.bodyLines.length = 0;
+      this.bodyOps.length = 0;
+    } else {
+      this.replayOps = [];
+    }
+    this.segment();
+  }
+
+  // A new segment (one per body round, and one for the exit): a replayed
+  // segment must repeat the opcodes of the recorded one.
+  segment() {
+    this.endLine();
+    if (this.bodyMode === "record") {
+      this.bodyLines.push([]);
+      this.bodyOps.push([]);
+    } else {
+      this.replayOps.push([]);
+    }
+  }
+
+  // Ends the body: a replay is checked against the recording, every segment
+  // in full but the last, which a call that leaves the body early cuts
+  // short at its exit.
+  endBody() {
+    this.endLine();
+    if (this.bodyMode === "replay") {
+      const n = this.replayOps.length;
+      for (const [i, ops] of this.replayOps.entries()) {
+        const want = this.bodyOps[i] ?? [];
+        const length =
+          i === n - 1 ? ops.length <= want.length : ops.length === want.length;
+        const same = length && ops.every((op, j) => op === want[j]);
+        if (!same) {
+          const j = ops.findIndex((op, k) => op !== want[k]);
+          throw new Error(
+            `body segment ${i} differs between calls at opcode ${j}: ` +
+              `${want[j] ?? "end"} recorded, ${ops[j] ?? "end"} replayed`,
+          );
+        }
+      }
+    }
+    this.bodyMode = "off";
   }
 
   // ---- shadow copies -------------------------------------------------------
@@ -428,11 +595,21 @@ export class Emitter {
     if (this.stack.length > 12) shown.push("...");
     const ops = this.pending.join(" ");
     this.pending = [];
-    this.lines.push(`${indent}${ops.padEnd(40)} // [${shown.join(", ")}]`);
+    this.line(`${indent}${ops.padEnd(40)} // [${shown.join(", ")}]`);
   }
 
   comment(text: string, indent = "    ") {
     this.endLine(indent);
-    this.lines.push(text === "" ? "" : `${indent}// ${text}`);
+    if (this.bodyMode === "replay") return;
+    this.line(text === "" ? "" : `${indent}// ${text}`);
+  }
+
+  // to the output, or to the body's current segment while recording
+  private line(text: string) {
+    if (this.bodyMode === "record") {
+      this.bodyLines[this.bodyLines.length - 1].push(text);
+    } else {
+      this.lines.push(text);
+    }
   }
 }

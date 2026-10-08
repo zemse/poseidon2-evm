@@ -285,6 +285,33 @@ fn stats(result: &BuildResult) -> String {
     text
 }
 
+/// the round constants of the shared body's calls as code tables, which
+/// huffc appends to the runtime code behind the macro
+fn tables(result: &BuildResult) -> String {
+    result
+        .tables
+        .iter()
+        .enumerate()
+        .map(|(i, table)| {
+            let words: Vec<String> = table
+                .words
+                .iter()
+                .map(|&w| format!("    {}", hex(w)))
+                .collect();
+            format!(
+                "
+/// @notice Round constants of call {i} of the shared body, CODECOPYed to memory at the call
+#define table {} {{
+{}
+}}
+",
+                table.name,
+                words.join("\n")
+            )
+        })
+        .collect()
+}
+
 fn state_names(t: usize, suffix: &str) -> String {
     (0..t)
         .map(|i| format!("s{i}{suffix}"))
@@ -323,12 +350,13 @@ pub fn render_permutation(
 #define macro POSEIDON2_PERMUTATION() = {{
 {lines}
 }}
-",
+{tables}",
         includes = includes(fork, utils_path),
         note = fork_note(fork),
         stats = stats(result),
         options = describe_options(opts),
         lines = result.lines.join("\n"),
+        tables = tables(result),
     )
 }
 
@@ -667,7 +695,7 @@ pub fn render_part(
 #define macro POSEIDON2_PART() = {{
 {lines}
 }}
-
+{tables}
 /// @notice Part {part} entry: calldata = {t} words (reduced mod PRIME), {ability}
 #define macro MAIN() = {{
 {code_lines}
@@ -679,6 +707,7 @@ pub fn render_part(
         stats = stats(result),
         options = describe_options(opts),
         lines = result.lines.join("\n"),
+        tables = tables(result),
         code_lines = code.lines.join("\n"),
     )
 }
