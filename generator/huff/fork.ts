@@ -1,9 +1,10 @@
 // Hardfork table: the EVM features the emitted code may use and the limits
 // it must respect, per fork. Every fork here has EIP-170, EIP-2929 and
 // STATICCALL; PUSH0 (EIP-3855) and the initcode limit (EIP-3860) arrive with
-// Shanghai, DUPN / SWAPN (EIP-8024) and the larger code size (EIP-7954) with
-// Amsterdam. Nothing emitted depends on Cancun (no MCOPY), Prague or Osaka,
-// so their output equals Shanghai's.
+// Shanghai, DUPN / SWAPN (EIP-8024), the larger code size (EIP-7954) and the
+// 3,000 gas cold account access (EIP-8038) with Amsterdam. Nothing emitted
+// depends on Cancun (no MCOPY), Prague or Osaka, so their output equals
+// Shanghai's.
 
 export type Hardfork =
   | "paris"
@@ -49,6 +50,7 @@ export const FORKS: Record<Hardfork, Fork> = {
     reach: 235,
     codeSize: 65536,
     initcodeSize: 131072,
+    coldAccount: 3000,
   },
 };
 

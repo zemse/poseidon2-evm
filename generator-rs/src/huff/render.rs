@@ -189,8 +189,11 @@ fn hand_over(code: &mut Code, t: usize, part: usize) {
     code.op("ok", 3, 3);
     code.op("jumpi", 10, 1);
     code.end("");
-    code.push(0);
-    code.push(0);
+    // the revert branch: bytes only, a call that succeeds skips it
+    let fork = code.fork;
+    let zero = push_text(U256::ZERO, &fork);
+    code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
+    code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
     code.op("revert", 0, 1);
     code.end("");
     code.op("ok:", 1, 1);
@@ -216,9 +219,6 @@ fn next_part_bytes(t: usize) -> usize {
 pub struct Overhead {
     pub entry_gas: u64,
     pub tail_gas: u64,
-    /// of tail_gas, the zeros of the hand-over's revert, which a call that
-    /// succeeds skips (the TS counts them as well, so the logs keep them)
-    pub revert_gas: u64,
     pub bytes: usize,
 }
 
@@ -240,11 +240,6 @@ pub fn overhead(
     Overhead {
         entry_gas: entry.gas,
         tail_gas: tail.gas,
-        revert_gas: if hands_over {
-            2 * push_gas(U256::ZERO, &fork)
-        } else {
-            0
-        },
         bytes: entry.bytes + tail.bytes,
     }
 }

@@ -72,26 +72,26 @@ Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is call
 | 3   | 8   | 56  | 7,875           | 7,950    | 293             | 121     | 4,837         | stack                                                   |
 | 4   | 8   | 56  | 12,300          | 12,198   | 385             | 128     | 13,943        | stack, hash entry: round 0 per arity, s0' only          |
 | 8   | 8   | 57  | 24,163          | 24,353   | 831             | 152     | 25,419        | stack, diag as PUSH32                                   |
-| 12  | 8   | 57  | 35,650          | 35,932   | 1,000           | 147     | 37,439        | stack, diag as PUSH32, gcInternal from round 56         |
-| 16  | 8   | 57  | 47,967          | 48,341   | 996             | 152     | 50,751        | stack, diag as PUSH32, gcInternal from round 46         |
-| 20  | 8   | 57  | 59,875          | 60,341   | 726             | 189     | 63,266        | stack, diag as PUSH32, internalConsume                  |
+| 12  | 8   | 57  | 35,114          | 35,396   | 451             | 169     | 36,729        | stack, diag as PUSH32, internalConsume                  |
+| 16  | 8   | 57  | 45,733          | 46,107   | 588             | 153     | 50,045        | stack, diag as PUSH32, internalConsume                  |
+| 20  | 8   | 57  | 56,797          | 57,263   | 726             | 189     | 62,353        | stack, diag as PUSH32, internalConsume                  |
 | 24  | 8   | 57  | 67,629          | 68,191   | 863             | 201     | 50,454        | stack, diag as PUSH32, internalConsume, sharedBody      |
 | 28  | 8   | 59  | 80,447          | 81,101   | 973             | 233     | 56,486        | stack, diag as PUSH32, internalConsume, sharedBody      |
 
-Call gas is the Huff contract call measured by forge (t = 4 is `hash_2`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 24 and t = 28 fit the 65,536 byte limit through the shared body, with 50,454 and 56,486 bytes. Up to t = 16 every width DUPs the PRIME copies of its internal rounds from wherever the nearest one sits (`floatPrimeInternal`), which is why the deepest DUP is above 100 everywhere; from t = 20 the internal rounds consume the old state in place (`internalConsume`, see the legacy opcodes below), which beats collecting it within the 1024 depth, and t = 24 and t = 28 run their steady internal rounds through one shared body (`sharedBody`, below) rather than keep diag constants in memory. With the legacy opcodes (before Amsterdam) the same widths cost 6,196, 8,040, 12,497, 24,829 and 36,871 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_2`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 24 and t = 28 fit the 65,536 byte limit through the shared body, with 50,454 and 56,486 bytes. Up to t = 8 every width DUPs the PRIME copies of its internal rounds from wherever the nearest one sits (`floatPrimeInternal`), which is why the deepest DUP is above 100 everywhere; from t = 12 the internal rounds consume the old state in place (`internalConsume` with `primeStack`, see the legacy opcodes below), which beats collecting it within the 1024 depth, and t = 24 and t = 28 run their steady internal rounds through one shared body (`sharedBody`, below) rather than keep diag constants in memory. With the legacy opcodes (before Amsterdam) the same widths cost 6,196, 8,040, 12,497, 24,829 and 36,871 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
 
 #### Hardforks
 
 `--hardfork <name>` picks a row of `huff/fork.ts`; the emitted code uses exactly the features of that fork and the generator refuses a schedule over its limits. The default, and the only fork whose output is in the repository, is amsterdam. Nothing emitted depends on Cancun (no `MCOPY`), Prague or Osaka, so their output is the Shanghai output.
 
-| fork      | zero                        | DUP / SWAP reach           | code size (EIP-170 / EIP-7954) | initcode (EIP-3860 / EIP-7954) | STATICCALL account access (EIP-2929) |
-| --------- | --------------------------- | -------------------------- | ------------------------------ | ------------------------------ | ------------------------------------ |
-| paris     | `PUSH1 0x00` (3 gas, 2 B)   | 16                         | 24,576                         | none                           | 2,600 cold / 100 warm                |
-| shanghai  | `PUSH0` (2 gas, 1 B)        | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                |
-| cancun    | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                |
-| prague    | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                |
-| osaka     | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                |
-| amsterdam | `PUSH0`                     | 235 (`DUPN` / `SWAPN`)     | 65,536                         | 131,072                        | 2,600 cold / 100 warm                |
+| fork      | zero                        | DUP / SWAP reach           | code size (EIP-170 / EIP-7954) | initcode (EIP-3860 / EIP-7954) | STATICCALL account access (EIP-2929 / EIP-8038) |
+| --------- | --------------------------- | -------------------------- | ------------------------------ | ------------------------------ | ----------------------------------------------- |
+| paris     | `PUSH1 0x00` (3 gas, 2 B)   | 16                         | 24,576                         | none                           | 2,600 cold / 100 warm                           |
+| shanghai  | `PUSH0` (2 gas, 1 B)        | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                           |
+| cancun    | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                           |
+| prague    | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                           |
+| osaka     | `PUSH0`                     | 16                         | 24,576                         | 49,152                         | 2,600 cold / 100 warm                           |
+| amsterdam | `PUSH0`                     | 235 (`DUPN` / `SWAPN`)     | 65,536                         | 131,072                        | 3,000 cold / 100 warm                           |
 
 A fork other than amsterdam writes `huff/<fork>/t<t>/` and `test/<fork>/`; its tests need a foundry profile with that `evm_version`. huffc turns every zero literal into `PUSH0`, so before Shanghai the generator writes `ZERO()` (`huff/<fork>/Zero.huff`, `__VERBATIM(0x6000)`) and the test deploys with `with_evm_version`.
 

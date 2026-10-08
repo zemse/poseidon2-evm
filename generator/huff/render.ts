@@ -177,8 +177,9 @@ function handOver(code: Code, t: number, part: number) {
   code.op("ok", 3, 3);
   code.op("jumpi", 10, 1);
   code.end();
-  code.push(0);
-  code.push(0);
+  // the revert branch: bytes only, a call that succeeds skips it
+  code.op(pushText(0n, code.fork), 0, pushBytes(0n, code.fork));
+  code.op(pushText(0n, code.fork), 0, pushBytes(0n, code.fork));
   code.op("revert", 0, 1);
   code.end();
   code.op("ok:", 1, 1);

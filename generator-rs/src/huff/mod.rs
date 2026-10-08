@@ -79,7 +79,7 @@ pub enum Target {
     /// Poseidon2.huff: t words in, t words out
     Entry { path: String, gas: u64 },
     /// Part0.huff .. Part<n-1>.huff, each part's gas with a cold hop to the
-    /// next one but without the next one's own gas (nor the revert branch)
+    /// next one but without the next one's own gas
     Parts { paths: Vec<String>, gas: Vec<u64> },
     /// hash_1 / hash_2 / hash_3 of t4/Poseidon2.huff with the gas of each,
     /// and an entry around the full permutation (`source`, never written)
@@ -241,7 +241,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         let memory = memory_gas(result.memory.max(32 * t + 32));
         let gas = o.entry_gas + result.gas + o.tail_gas + memory;
         total += gas;
-        part_gas.push(gas - o.revert_gas);
+        part_gas.push(gas);
         actions.push(Action::Log(format!(
             "  part {i}: steps {from}..{}, {bytes} bytes, {gas} gas (entry {}, tail {}, memory {memory}): {}",
             to as i64 - 1,

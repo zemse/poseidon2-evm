@@ -1,8 +1,9 @@
 // Hardfork table (huff/fork.ts): the EVM features the emitted code may use
 // and the limits it must respect, per fork. PUSH0 (EIP-3855) and the
-// initcode limit (EIP-3860) arrive with Shanghai, DUPN / SWAPN (EIP-8024)
-// and the larger code size (EIP-7954) with Amsterdam. Nothing emitted
-// depends on Cancun, Prague or Osaka, so their output equals Shanghai's.
+// initcode limit (EIP-3860) arrive with Shanghai, DUPN / SWAPN (EIP-8024),
+// the larger code size (EIP-7954) and the 3,000 gas cold account access
+// (EIP-8038) with Amsterdam. Nothing emitted depends on Cancun, Prague or
+// Osaka, so their output equals Shanghai's.
 
 use crate::bail;
 use crate::error::Result;
@@ -61,6 +62,7 @@ pub const FORKS: [Fork; 6] = [
         reach: 235,
         code_size: 65536,
         initcode_size: 131072,
+        cold_account: 3000,
         ..LEGACY
     },
 ];
