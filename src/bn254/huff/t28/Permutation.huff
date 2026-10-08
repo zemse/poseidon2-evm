@@ -8,7 +8,7 @@
 /// @dev takes [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, PRIME] with clean inputs, returns [s0', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', s24', s25', s26', s27', ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN (Eip8024.huff): runs on Amsterdam and later only
-/// @dev 88354 gas, max stack depth 776, max dup 205, 64958 bytes
+/// @dev 88351 gas, max stack depth 776, max dup 205, 64956 bytes
 /// @dev schedule options: diagInMemory, gcM4, internalConsume, diagPush32=13
 #define macro POSEIDON2_PERMUTATION() = {
     // Internal diag constants, loaded with MLOAD in the internal rounds
@@ -665,7 +665,7 @@
     // Round 4 (internal)
     0x1dbfa6590ac62407c2ba07924322356b666a4cc785b29f2dce053303f56db4a6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     DUP89() SWAP29() pop                     // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
-    DUP29() DUP29() dup2 DUP30() DUP30() dup3 DUP31() DUP31() dup3 DUP32() DUP32() dup3 DUP33() DUP33() dup3 DUP34() DUP34() dup3 DUP35() DUP35() dup3 DUP36() DUP36() dup3 DUP37() DUP37() dup3 DUP38() DUP38() dup3 DUP39() DUP39() dup3 DUP40() DUP40() dup3 DUP41() DUP41() dup3 DUP42() DUP42() DUP42() add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add dup2 swap1 mod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
+    DUP29() dup1 DUP30() dup2 DUP31() DUP31() dup3 DUP32() DUP32() dup3 DUP33() DUP33() dup3 DUP34() DUP34() dup3 DUP35() DUP35() dup3 DUP36() DUP36() dup3 DUP37() DUP37() dup3 DUP38() DUP38() dup3 DUP39() DUP39() dup3 DUP40() DUP40() dup3 DUP41() DUP41() dup3 DUP42() DUP42() dup3 DUP43() DUP43() DUP43() add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod addmod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 DUP30() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap3 DUP30() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s1', s3', s4', s5', s6', s7', s8', s9', s10', ...]

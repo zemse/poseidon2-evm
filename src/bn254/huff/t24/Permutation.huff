@@ -8,7 +8,7 @@
 /// @dev takes [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, PRIME] with clean inputs, returns [s0', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN (Eip8024.huff): runs on Amsterdam and later only
-/// @dev 72227 gas, max stack depth 863, max dup 201, 65108 bytes
+/// @dev 72056 gas, max stack depth 863, max dup 201, 64994 bytes
 /// @dev schedule options: diagInMemory, internalConsume, diagPush32=18
 #define macro POSEIDON2_PERMUTATION() = {
     // Internal diag constants, loaded with MLOAD in the internal rounds
@@ -510,7 +510,7 @@
     // Round 4 (internal)
     0x151b52cf90c9bc1ae0b46ddb9d1d3eef8dc6047d6b1dcb587731855c8fe01f19 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     DUP101() SWAP25() pop                    // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
-    DUP25() DUP25() dup2 DUP26() DUP26() dup3 DUP27() DUP27() dup3 DUP28() DUP28() dup3 DUP29() DUP29() dup3 DUP30() DUP30() dup3 DUP31() DUP31() dup3 DUP32() DUP32() dup3 DUP33() DUP33() dup3 DUP34() DUP34() dup3 DUP35() DUP35() dup3 DUP36() DUP36() DUP36() add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add dup2 swap1 mod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
+    DUP25() dup1 DUP26() dup2 DUP27() DUP27() dup3 DUP28() DUP28() dup3 DUP29() DUP29() dup3 DUP30() DUP30() dup3 DUP31() DUP31() dup3 DUP32() DUP32() dup3 DUP33() DUP33() dup3 DUP34() DUP34() dup3 DUP35() DUP35() dup3 DUP36() DUP36() dup3 DUP37() DUP37() DUP37() add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod add addmod addmod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap3 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s1', s3', s4', s5', s6', s7', s8', s9', s10', ...]
@@ -539,7 +539,7 @@
 
     // Round 5 (internal)
     0x235300f49b853759868fb11eda064ec14ed8d183073ff92b0e58052d548e8c08 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap3 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s23', s2', s3', s4', s5', s6', s7', s8', s9', ...]
@@ -568,7 +568,7 @@
 
     // Round 6 (internal)
     0x0eb85a97ecc8cb9bf6b086400dadbf50b0c396a40963b6c3f0bdddadfbe07173 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap3 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s22', s1', s2', s3', s4', s5', s6', s7', s8', ...]
@@ -597,7 +597,7 @@
 
     // Round 7 (internal)
     0xfa9059e377ac0c53ead965b4608c01949d74f502d7db31ed1244d7900f4aec add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap3 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s21', s23', s1', s2', s3', s4', s5', s6', s7', ...]
@@ -626,7 +626,7 @@
 
     // Round 8 (internal)
     0x26a93af97e518c8126a8a7386d95b47ad8da9b9aff319b6b50523c51518be1ea add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap3 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s20', s22', s23', s1', s2', s3', s4', s5', s6', ...]
@@ -655,7 +655,7 @@
 
     // Round 9 (internal)
     0x0275444823417d834efd79e45c8b280fabac4bc2d09deb23e86454dc93b5443f add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap3 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s19', s21', s22', s23', s1', s2', s3', s4', s5', ...]
@@ -684,7 +684,7 @@
 
     // Round 10 (internal)
     0x28bbd37aaf51409e3638f9b8fc701cdc44c7c3292fecc1d62ad4b20210b87901 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap3 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s18', s20', s21', s22', s23', s1', s2', s3', s4', ...]
@@ -713,7 +713,7 @@
 
     // Round 11 (internal)
     0x1f32a15d688eadd3ea194454e021c6d00afc9e9cccc71ec91f227e80f042b002 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap3 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s17', s19', s20', s21', s22', s23', s1', s2', s3', ...]
@@ -742,7 +742,7 @@
 
     // Round 12 (internal)
     0x2edc518517bf9afcbc87353f09e227e081370933dc7cb5cfc2eb2a93fc7f0181 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap3 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s16', s18', s19', s20', s21', s22', s23', s1', s2', ...]
@@ -771,7 +771,7 @@
 
     // Round 13 (internal)
     0x070ee271c1852402d40776aef704889e8a84b5819c2246d86884ed1a5d2016f3 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 DUP26() swap1 0x0a47349847a5b7579b427b758b9cef6a30d47854a03aaf93f09f65a327b41bcf mulmod dup2 add // [s15', sum, m0, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap3 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s15', s17', s18', s19', s20', s21', s22', s23', s1', ...]
@@ -800,7 +800,7 @@
 
     // Round 14 (internal)
     0x1de047b5a5849ca4ccf45c85d9fdcaefbc2f255e0401b1dcb660ce8e990c3a5f add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 DUP26() swap1 0x16abe4445323c3697ab8dbe87f0454731f2d7f41e194d6a943b6b3aa5a287e8c mulmod dup2 add // [s14', sum, m0, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap3 DUP26() swap1 0x0a47349847a5b7579b427b758b9cef6a30d47854a03aaf93f09f65a327b41bcf mulmod dup2 add // [s15', sum, m0, s14', s16', s17', s18', s19', s20', s21', s22', s23', ...]
@@ -829,7 +829,7 @@
 
     // Round 15 (internal)
     0x1fe000b6cea269c07492c75eb1436627d9cc326ca919b085a0b36dd1502446e2 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap2 DUP26() swap1 0x10999088d952bcd9516c63d6fbad2083ae4ffd7577d38eaa50d49533aa240cc7 mulmod dup2 add // [s13', sum, m0, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap3 DUP26() swap1 0x16abe4445323c3697ab8dbe87f0454731f2d7f41e194d6a943b6b3aa5a287e8c mulmod dup2 add // [s14', sum, m0, s13', s15', s16', s17', s18', s19', s20', s21', s22', ...]
@@ -858,7 +858,7 @@
 
     // Round 16 (internal)
     0x13dd422393c83775bed2ab695b3f3e9a4e8d8af14670c3a48b285bffcca7cec1 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap2 DUP26() swap1 0x0165df51906ba6b9fca128d3717151788c8966a26486667759e0dabda0535d42 mulmod dup2 add // [s12', sum, m0, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap3 DUP26() swap1 0x10999088d952bcd9516c63d6fbad2083ae4ffd7577d38eaa50d49533aa240cc7 mulmod dup2 add // [s13', sum, m0, s12', s14', s15', s16', s17', s18', s19', s20', s21', ...]
@@ -887,7 +887,7 @@
 
     // Round 17 (internal)
     0x11f3cc797ed2aa28ac2edf15be93b2a099d6199a968101b64dc5dfb643040065 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap2 DUP26() swap1 0x2b12ee450e7c84195fcb8012abe55bba6704890124ace89ab2572ae0e35e3f2e mulmod dup2 add // [s11', sum, m0, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap3 DUP26() swap1 0x0165df51906ba6b9fca128d3717151788c8966a26486667759e0dabda0535d42 mulmod dup2 add // [s12', sum, m0, s11', s13', s14', s15', s16', s17', s18', s19', s20', ...]
@@ -916,7 +916,7 @@
 
     // Round 18 (internal)
     0x04bc15c1955a97713b39d987a3d854e050e42d21ec45b78fd02918175ae2a3af add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap2 DUP26() swap1 0x1c11f5ac96126ba1175d97bd71bff7e6ab2204947b0746a6a2ae792b162415cf mulmod dup2 add // [s10', sum, m0, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap3 DUP26() swap1 0x2b12ee450e7c84195fcb8012abe55bba6704890124ace89ab2572ae0e35e3f2e mulmod dup2 add // [s11', sum, m0, s10', s12', s13', s14', s15', s16', s17', s18', s19', ...]
@@ -945,7 +945,7 @@
 
     // Round 19 (internal)
     0x1555aa2256acb136b0a41c725add47f1cc6c8bbfb1213c351942a8343dc17aa5 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap2 DUP26() swap1 0x01fe8416c32fc539395222b3ffdbddf8699d691170d2e2b8a2ef2f389cf1770c mulmod dup2 add // [s9', sum, m0, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap3 DUP26() swap1 0x1c11f5ac96126ba1175d97bd71bff7e6ab2204947b0746a6a2ae792b162415cf mulmod dup2 add // [s10', sum, m0, s9', s11', s12', s13', s14', s15', s16', s17', s18', ...]
@@ -974,7 +974,7 @@
 
     // Round 20 (internal)
     0x0ea1ab4df4bb5c407fd4c17d358b529825387d2d7d8937860645fe9862409e6e add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap2 DUP26() swap1 0x085539c400acaf1a1f9494f3400e1d8f545a5923e74569fd2c23293a896527c0 mulmod dup2 add // [s8', sum, m0, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap3 DUP26() swap1 0x01fe8416c32fc539395222b3ffdbddf8699d691170d2e2b8a2ef2f389cf1770c mulmod dup2 add // [s9', sum, m0, s8', s10', s11', s12', s13', s14', s15', s16', s17', ...]
@@ -1003,7 +1003,7 @@
 
     // Round 21 (internal)
     0x1def5e882cc2d408429d67e2e3b71ff1e58174b1a5776ed237546f3b1e9f386f add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap2 DUP26() swap1 0x2a79cda35b204a654641ee0634d296f9af80da31ee3fec980f15d6be705cf784 mulmod dup2 add // [s7', sum, m0, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap3 DUP26() swap1 0x085539c400acaf1a1f9494f3400e1d8f545a5923e74569fd2c23293a896527c0 mulmod dup2 add // [s8', sum, m0, s7', s9', s10', s11', s12', s13', s14', s15', s16', ...]
@@ -1032,7 +1032,7 @@
 
     // Round 22 (internal)
     0x27fbb0b3c12e12adfa9ab4bf92753d34b144423d24227c4a1eb097ff0a07c371 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap2 DUP26() swap1 0x11a4188543f8c0316888219237841ecac77bc3531fe289a1d9e0c27f511730 mulmod dup2 add // [s6', sum, m0, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap3 DUP26() swap1 0x2a79cda35b204a654641ee0634d296f9af80da31ee3fec980f15d6be705cf784 mulmod dup2 add // [s7', sum, m0, s6', s8', s9', s10', s11', s12', s13', s14', s15', ...]
@@ -1061,7 +1061,7 @@
 
     // Round 23 (internal)
     0x0a38819ad7b64e12c488e69370c7a978a5c97aea6c3a50626de8253c9db97309 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap2 DUP26() swap1 0xa0 mload mulmod dup2 add // [s5', sum, m0, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap3 DUP26() swap1 0x11a4188543f8c0316888219237841ecac77bc3531fe289a1d9e0c27f511730 mulmod dup2 add // [s6', sum, m0, s5', s7', s8', s9', s10', s11', s12', s13', s14', ...]
@@ -1090,7 +1090,7 @@
 
     // Round 24 (internal)
     0x293a03ec576df29826a95a74be5efc8cca48a13ecb02619943b921c6a0bea905 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap2 DUP26() swap1 0x80 mload mulmod dup2 add // [s4', sum, m0, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap3 DUP26() swap1 0xa0 mload mulmod dup2 add // [s5', sum, m0, s4', s6', s7', s8', s9', s10', s11', s12', s13', ...]
@@ -1119,7 +1119,7 @@
 
     // Round 25 (internal)
     0x287163c4e2a65879d32f5ec547e5c6d98d2c969cf264a0d7d55eb5a0d170793e add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap2 DUP26() swap1 0x60 mload mulmod dup2 add // [s3', sum, m0, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap3 DUP26() swap1 0x80 mload mulmod dup2 add // [s4', sum, m0, s3', s5', s6', s7', s8', s9', s10', s11', s12', ...]
@@ -1148,7 +1148,7 @@
 
     // Round 26 (internal)
     0x0ea23f32b1aba6e7d2127daaab1f4805de8617732bb8f52d33105521454162ef add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap2 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap3 DUP26() swap1 0x60 mload mulmod dup2 add // [s3', sum, m0, s2', s4', s5', s6', s7', s8', s9', s10', s11', ...]
@@ -1177,7 +1177,7 @@
 
     // Round 27 (internal)
     0x065f49cf7619ddd7e22a0c46aa5027086f9383f7eaef9e227c780f616090ee19 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap3 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s1', s3', s4', s5', s6', s7', s8', s9', s10', ...]
@@ -1206,7 +1206,7 @@
 
     // Round 28 (internal)
     0x08708036a050e2bbe45fa12682260983e9895ba90632af2488bcf41de69ded6b add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap3 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s23', s2', s3', s4', s5', s6', s7', s8', s9', ...]
@@ -1235,7 +1235,7 @@
 
     // Round 29 (internal)
     0x2843d953517013b65dbedc3aced6851d1329cbf0de09d2c0832b6183f8c2d18c add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap3 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s22', s1', s2', s3', s4', s5', s6', s7', s8', ...]
@@ -1264,7 +1264,7 @@
 
     // Round 30 (internal)
     0x1e9905c5b536d708f6c44f8517c7c6d6bec313af20547b9c9c434074dbf03040 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap3 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s21', s23', s1', s2', s3', s4', s5', s6', s7', ...]
@@ -1293,7 +1293,7 @@
 
     // Round 31 (internal)
     0x1ddeb714b7019a6dadac060c2d750b670e77c84a04cca76056f28f245affc add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap3 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s20', s22', s23', s1', s2', s3', s4', s5', s6', ...]
@@ -1322,7 +1322,7 @@
 
     // Round 32 (internal)
     0x16214bbed01155787505c77393c0506a7d7b71506f3db749b2608275adec9d3a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap3 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s19', s21', s22', s23', s1', s2', s3', s4', s5', ...]
@@ -1351,7 +1351,7 @@
 
     // Round 33 (internal)
     0x136cbe02e9eb10041a2803a012e546f7d81121fae19502e81380769bfeb1a8d0 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap3 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s18', s20', s21', s22', s23', s1', s2', s3', s4', ...]
@@ -1380,7 +1380,7 @@
 
     // Round 34 (internal)
     0x1ab2f06c7bc59198b7f0b4c5cc45d102b3aeff2e3bedaa7e83f9ec8a9b729941 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap3 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s17', s19', s20', s21', s22', s23', s1', s2', s3', ...]
@@ -1409,7 +1409,7 @@
 
     // Round 35 (internal)
     0x12d4c4bab7b4f563811336fe52042fbcbc114b473b5a5246b82dd7d09d95165d add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap3 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s16', s18', s19', s20', s21', s22', s23', s1', s2', ...]
@@ -1438,7 +1438,7 @@
 
     // Round 36 (internal)
     0x1b28a2179a00c36efc1f83e7c24e04a26df39de731f3ace7c9cb322322cf31d3 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 DUP26() swap1 0x0a47349847a5b7579b427b758b9cef6a30d47854a03aaf93f09f65a327b41bcf mulmod dup2 add // [s15', sum, m0, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap3 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s15', s17', s18', s19', s20', s21', s22', s23', s1', ...]
@@ -1467,7 +1467,7 @@
 
     // Round 37 (internal)
     0x1dee72111e083a320a6fcb2b39934cc0ed29b90b44e15192b92a19670cd17a3b add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 DUP26() swap1 0x16abe4445323c3697ab8dbe87f0454731f2d7f41e194d6a943b6b3aa5a287e8c mulmod dup2 add // [s14', sum, m0, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap3 DUP26() swap1 0x0a47349847a5b7579b427b758b9cef6a30d47854a03aaf93f09f65a327b41bcf mulmod dup2 add // [s15', sum, m0, s14', s16', s17', s18', s19', s20', s21', s22', s23', ...]
@@ -1496,7 +1496,7 @@
 
     // Round 38 (internal)
     0x2a0df5296b32b357caf9f282b2130f46465bb36801c5624729eb3c623e03091a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap2 DUP26() swap1 0x10999088d952bcd9516c63d6fbad2083ae4ffd7577d38eaa50d49533aa240cc7 mulmod dup2 add // [s13', sum, m0, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap3 DUP26() swap1 0x16abe4445323c3697ab8dbe87f0454731f2d7f41e194d6a943b6b3aa5a287e8c mulmod dup2 add // [s14', sum, m0, s13', s15', s16', s17', s18', s19', s20', s21', s22', ...]
@@ -1525,7 +1525,7 @@
 
     // Round 39 (internal)
     0x204f4adb876dad8ba2fbc2c0779dfc5b75e70e4d61da09133dc6920c00b890c6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap2 DUP26() swap1 0x0165df51906ba6b9fca128d3717151788c8966a26486667759e0dabda0535d42 mulmod dup2 add // [s12', sum, m0, s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
     swap3 DUP26() swap1 0x10999088d952bcd9516c63d6fbad2083ae4ffd7577d38eaa50d49533aa240cc7 mulmod dup2 add // [s13', sum, m0, s12', s14', s15', s16', s17', s18', s19', s20', s21', ...]
@@ -1554,7 +1554,7 @@
 
     // Round 40 (internal)
     0x0e688dde977f582a42fbc656a7487f6481ebea1d91bbb2fb0107751154edfd71 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap2 DUP26() swap1 0x2b12ee450e7c84195fcb8012abe55bba6704890124ace89ab2572ae0e35e3f2e mulmod dup2 add // [s11', sum, m0, s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
     swap3 DUP26() swap1 0x0165df51906ba6b9fca128d3717151788c8966a26486667759e0dabda0535d42 mulmod dup2 add // [s12', sum, m0, s11', s13', s14', s15', s16', s17', s18', s19', s20', ...]
@@ -1583,7 +1583,7 @@
 
     // Round 41 (internal)
     0xca20b0a04fd91b9a72c568ad43a59b659874412581c42b6c7b97c9008560b6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap2 DUP26() swap1 0x1c11f5ac96126ba1175d97bd71bff7e6ab2204947b0746a6a2ae792b162415cf mulmod dup2 add // [s10', sum, m0, s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
     swap3 DUP26() swap1 0x2b12ee450e7c84195fcb8012abe55bba6704890124ace89ab2572ae0e35e3f2e mulmod dup2 add // [s11', sum, m0, s10', s12', s13', s14', s15', s16', s17', s18', s19', ...]
@@ -1612,7 +1612,7 @@
 
     // Round 42 (internal)
     0x2a2f43665c00aef29ea68a8ec59cf24254e7c3983e53fdeecdf6a708a6745b21 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap2 DUP26() swap1 0x01fe8416c32fc539395222b3ffdbddf8699d691170d2e2b8a2ef2f389cf1770c mulmod dup2 add // [s9', sum, m0, s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
     swap3 DUP26() swap1 0x1c11f5ac96126ba1175d97bd71bff7e6ab2204947b0746a6a2ae792b162415cf mulmod dup2 add // [s10', sum, m0, s9', s11', s12', s13', s14', s15', s16', s17', s18', ...]
@@ -1641,7 +1641,7 @@
 
     // Round 43 (internal)
     0x1f75b1a349640fc0aa5e898e2df792b681bc9739bab8cbae9cfb39f57aa83f68 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap2 DUP26() swap1 0x085539c400acaf1a1f9494f3400e1d8f545a5923e74569fd2c23293a896527c0 mulmod dup2 add // [s8', sum, m0, s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
     swap3 DUP26() swap1 0x01fe8416c32fc539395222b3ffdbddf8699d691170d2e2b8a2ef2f389cf1770c mulmod dup2 add // [s9', sum, m0, s8', s10', s11', s12', s13', s14', s15', s16', s17', ...]
@@ -1670,7 +1670,7 @@
 
     // Round 44 (internal)
     0x1dcc3c60b4049e197cadb892999514a1b43365322b3f28a3a10aaa18d465ae2a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap2 DUP26() swap1 0x2a79cda35b204a654641ee0634d296f9af80da31ee3fec980f15d6be705cf784 mulmod dup2 add // [s7', sum, m0, s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
     swap3 DUP26() swap1 0x085539c400acaf1a1f9494f3400e1d8f545a5923e74569fd2c23293a896527c0 mulmod dup2 add // [s8', sum, m0, s7', s9', s10', s11', s12', s13', s14', s15', s16', ...]
@@ -1699,7 +1699,7 @@
 
     // Round 45 (internal)
     0x2fa0e2fd1597f0e868e0eb6afac33528696b3eb7f07c64659bf2fb66cdf76bda add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap2 DUP26() swap1 0x11a4188543f8c0316888219237841ecac77bc3531fe289a1d9e0c27f511730 mulmod dup2 add // [s6', sum, m0, s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     swap3 DUP26() swap1 0x2a79cda35b204a654641ee0634d296f9af80da31ee3fec980f15d6be705cf784 mulmod dup2 add // [s7', sum, m0, s6', s8', s9', s10', s11', s12', s13', s14', s15', ...]
@@ -1728,7 +1728,7 @@
 
     // Round 46 (internal)
     0x0870055fc6a8744ee9f1e7d107633dc5659825fd5ef3d172e830f02e811646bb add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap2 DUP26() swap1 0xa0 mload mulmod dup2 add // [s5', sum, m0, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     swap3 DUP26() swap1 0x11a4188543f8c0316888219237841ecac77bc3531fe289a1d9e0c27f511730 mulmod dup2 add // [s6', sum, m0, s5', s7', s8', s9', s10', s11', s12', s13', s14', ...]
@@ -1757,7 +1757,7 @@
 
     // Round 47 (internal)
     0x295d9a9575eb1e6ef01848675a02bee43cac198ed8d7357c9cf83418be30073f add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap2 DUP26() swap1 0x80 mload mulmod dup2 add // [s4', sum, m0, s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
     swap3 DUP26() swap1 0xa0 mload mulmod dup2 add // [s5', sum, m0, s4', s6', s7', s8', s9', s10', s11', s12', s13', ...]
@@ -1786,7 +1786,7 @@
 
     // Round 48 (internal)
     0x1acea7e503c3c41a97dc984ace332114453fee4a0b73612960acd1c853851680 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap2 DUP26() swap1 0x60 mload mulmod dup2 add // [s3', sum, m0, s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
     swap3 DUP26() swap1 0x80 mload mulmod dup2 add // [s4', sum, m0, s3', s5', s6', s7', s8', s9', s10', s11', s12', ...]
@@ -1815,7 +1815,7 @@
 
     // Round 49 (internal)
     0x08e42c1b4325bedf37bc85a6584d696925cd47c46a5163d8eedf1f4d3f444705 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap2 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     swap3 DUP26() swap1 0x60 mload mulmod dup2 add // [s3', sum, m0, s2', s4', s5', s6', s7', s8', s9', s10', s11', ...]
@@ -1844,7 +1844,7 @@
 
     // Round 50 (internal)
     0x08a547908591ba0862e42834f6b978ca2c73d01873d63e8582402d54ac679f48 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap2 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
     swap3 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s1', s3', s4', s5', s6', s7', s8', s9', s10', ...]
@@ -1873,7 +1873,7 @@
 
     // Round 51 (internal)
     0x24edb9b90ea1ee3b67235de2e7f5b8ad148ea7fb6f5986cd01170b18609cb736 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap2 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
     swap3 DUP26() swap1 0x20 mload mulmod dup2 add // [s1', sum, m0, s23', s2', s3', s4', s5', s6', s7', s8', s9', ...]
@@ -1902,7 +1902,7 @@
 
     // Round 52 (internal)
     0x1aeb13905ae7552963c6e13fc7f03fe3cebcb596bad32172513705d3ef3c7023 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', s9', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap2 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
     swap3 DUP26() swap1 0xbfb6890e5d54b9c1c63b208662b34b358608e8a67aad42c9789cff0048f00 mulmod dup2 add // [s23', sum, m0, s22', s1', s2', s3', s4', s5', s6', s7', s8', ...]
@@ -1931,7 +1931,7 @@
 
     // Round 53 (internal)
     0x0aab603043287aebc52d5301a6db7e284565469a22fe18805628e2a89621e2c6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', s8', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap2 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
     swap3 DUP26() swap1 0x0b7a45deef342808e91b614d68df785b048a56f08f32235029b240b9f288c6ff mulmod dup2 add // [s22', sum, m0, s21', s23', s1', s2', s3', s4', s5', s6', s7', ...]
@@ -1960,7 +1960,7 @@
 
     // Round 54 (internal)
     0x2196965ed241c16380d765a6bf7c8292c7549a5d987fba5db9e39db3356bf14a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', s7', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap2 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
     swap3 DUP26() swap1 0x2a74083b14a3f1f75de481b9f508dc17bb11f82b18664c2e000585d5c081da49 mulmod dup2 add // [s21', sum, m0, s20', s22', s23', s1', s2', s3', s4', s5', s6', ...]
@@ -1989,7 +1989,7 @@
 
     // Round 55 (internal)
     0x2b73e3bd1eb2166246848fa981e1a928557de9cc2da62810c5a7320b5881a828 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', s6', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap2 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
     swap3 DUP26() swap1 0x14ad3b9d12eb56c44814eeffc29c444b6e106a2ebbe37627bbac1c69f699402e mulmod dup2 add // [s20', sum, m0, s19', s21', s22', s23', s1', s2', s3', s4', s5', ...]
@@ -2018,7 +2018,7 @@
 
     // Round 56 (internal)
     0x53fd0370e23595c6b323e3c1935548fd2ca4b0e6b3eee7a50fa3a3fd955d43 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', s5', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap2 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
     swap3 DUP26() swap1 0x5292843d83d80e1da8d88640d187d0bc8c86ae6defbcd458c5e2e0ce51c642 mulmod dup2 add // [s19', sum, m0, s18', s20', s21', s22', s23', s1', s2', s3', s4', ...]
@@ -2047,7 +2047,7 @@
 
     // Round 57 (internal)
     0x0693143fc92953c8a2d464d586177ebaa689bb394247da714cafa2a0f4a468f0 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', s4', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap2 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
     swap3 DUP26() swap1 0x8a03980c6ecd1dfedfe5d79b3bcc02ae25e48e38f33dbbd048af3f217e0583 mulmod dup2 add // [s18', sum, m0, s17', s19', s20', s21', s22', s23', s1', s2', s3', ...]
@@ -2076,7 +2076,7 @@
 
     // Round 58 (internal)
     0x0f3d7bc305c949f1a7c1ef8b597e52fcdbcb8d56b90eb44af676e748431bc474 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', s3', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap2 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
     swap3 DUP26() swap1 0x0172eb1723c92ac3ac15c10c6fd3fc705bd47053eb52a30a3c132f5c17daa91b mulmod dup2 add // [s17', sum, m0, s16', s18', s19', s20', s21', s22', s23', s1', s2', ...]
@@ -2105,7 +2105,7 @@
 
     // Round 59 (internal)
     0x177f7e938d2fffef4f780d33461591b457ffc67ecb9f941a0801ca197b01bc01 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', s2', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap2 DUP26() swap1 0x0a47349847a5b7579b427b758b9cef6a30d47854a03aaf93f09f65a327b41bcf mulmod dup2 add // [s15', sum, m0, s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
     swap3 DUP26() swap1 0x2c8c71487d9d87b070f1632a60239b55213cbfffc96af41e171b746d29ec6257 mulmod dup2 add // [s16', sum, m0, s15', s17', s18', s19', s20', s21', s22', s23', s1', ...]
@@ -2134,7 +2134,7 @@
 
     // Round 60 (internal)
     0x1644a446c7070125d203433c8127dc1084802b4f93f5c9523a1efe74ba7b3c36 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', s1', ...]
-    DUP25() DUP25() DUP25() dup3 DUP26() DUP26() DUP26() dup4 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() DUP32() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add dup2 swap1 mod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
+    DUP25() dup1 DUP26() DUP26() dup3 DUP27() DUP27() DUP27() dup4 DUP28() DUP28() DUP28() dup4 DUP29() DUP29() DUP29() dup4 DUP30() DUP30() DUP30() dup4 DUP31() DUP31() DUP31() dup4 DUP32() DUP32() DUP32() dup4 DUP33() DUP33() DUP33() DUP33() add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add add addmod add addmod // [sum, P, s0^5, s14', s15', s16', s17', s18', s19', s20', s21', s22', ...]
     swap2 0x0 mload mulmod                   // [m0, sum, s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap2 DUP26() swap1 0x16abe4445323c3697ab8dbe87f0454731f2d7f41e194d6a943b6b3aa5a287e8c mulmod dup2 add // [s14', sum, m0, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]
     swap13 DUP26() swap1 0x40 mload mulmod dup2 add // [s2', sum, m0, s15', s16', s17', s18', s19', s20', s21', s22', s23', ...]

@@ -324,6 +324,13 @@ export class Emitter {
     return this.allocate(v);
   }
 
+  // Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
+  // value then lives in memory only and dup loads it.
+  spill(v: Value) {
+    if (this.top(0) !== v) throw new Error("spill expects the value on top");
+    this.mstore(this.allocate(v));
+  }
+
   slotOf(v: Value): number | undefined {
     return this.slots.get(v);
   }

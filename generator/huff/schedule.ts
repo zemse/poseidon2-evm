@@ -315,34 +315,39 @@ class Builder {
   }
 
   // Sum of values with every operand DUPed in advance, deepest value first
-  // (its DUP happens before the copies pile up), so the chain runs in
-  // place and leaves nothing behind. A reduction is an ADDMOD with a PRIME
-  // copy placed under its operand while `primes` allows (every copy costs a
-  // slot of reach), then a MOD of the accumulator (3 gas more, no slot);
-  // the reduction the cap forces at the end is a MOD as well.
-  chainSumInPlace(
-    values: Value[],
-    name: string,
-    cap: bigint,
-    primes: number,
-  ): Value {
+  // (its DUP happens before the copies pile up; values in memory are
+  // loaded last), so the chain runs in place and leaves nothing behind. A
+  // reduction is an ADDMOD with a PRIME copy placed under its operand
+  // while the reach allows (every copy pushes the later DUPs one deeper,
+  // so the deepest value's slot sets the budget), then a MOD of the
+  // accumulator before the ADD (3 gas more, no slot); the one the cap
+  // forces at the end is a MOD after it.
+  chainSumInPlace(values: Value[], name: string, cap: bigint): Value {
     const e = this.e;
     const n = values.length;
     if (n < 2) throw new Error("chainSumInPlace needs two values");
     const order = this.byDepth(values)
       .reverse()
       .map((i) => values[i]);
+    const primes = e.maxReach - e.find(order[n - 1]);
     // per step: "addmod" (PRIME under the operand), "mod" (before the ADD)
     // or "add"
     const steps: ("add" | "addmod" | "mod")[] = [];
+    let used = 0;
     let bound = order[0].bound;
     for (let j = 1; j < n; j++) {
-      if (bound + order[j].bound <= UINT256_MAX) {
+      const lazy = bound + order[j].bound;
+      const last = j === n - 1;
+      if (lazy <= UINT256_MAX && !(last && lazy > cap)) {
         steps.push("add");
-        bound += order[j].bound;
-      } else if (steps.filter((s) => s === "addmod").length < primes) {
+        bound = lazy;
+      } else if (used < primes) {
         steps.push("addmod");
+        used++;
         bound = PRIME - 1n;
+      } else if (lazy <= UINT256_MAX) {
+        steps.push("add");
+        bound = lazy;
       } else {
         steps.push("mod");
         bound = PRIME - 1n + order[j].bound;
@@ -420,8 +425,19 @@ class Builder {
     const out: Value[] = new Array(t);
     // with shadow the results replace the old slots in place, so the shallow
     // elements go first and every slot stays within the reach of the swap
-    const order = this.byDepth(this.state);
+    let order = this.byDepth(this.state);
     if (this.opts.shadow && this.opts.gcExternal) order.reverse();
+    const memory = order.filter((i) => e.find(this.state[i]) === 0);
+    if (memory.length) {
+      // elements the consuming rounds keep in memory (the first indices):
+      // loaded last, highest index first, so that the blocks come out in
+      // order with block 0 on top
+      order = [
+        ...order.filter((i) => i !== 0 && !memory.includes(i)),
+        ...memory.sort((a, b) => b - a),
+        0,
+      ];
+    }
     for (const i of order) {
       const s = this.state[i];
       const c = this.constant(this.params.roundConstants[round][i], "c");
@@ -776,35 +792,40 @@ class Builder {
     this.state = out;
   }
 
-  // Order in which the consuming round takes the elements of `old` but s0:
-  // the one under the sum first (m0 takes its slot and [output, sum, m0]
-  // stays on top), and since the output of each element takes the slot of
-  // the next one and the last output lands under [s0', P], the order
-  // decides the next layout: slot order for the rounds in between (the
-  // layout rotates by one slot), and for the last internal round an order
-  // that leaves every element in the slots of its block of the external
-  // layer (block 0 on top, as externalD needs). Each slot is an edge from
-  // the block of its range to the block of the element it holds, so that
-  // order is an Eulerian circuit of the blocks (in- and out-degree are the
-  // block size), found by Hierholzer's algorithm; it exists when the
-  // rotations before have connected the blocks.
-  consumeOrder(old: Value[], nextInternal: boolean): number[] {
+  // Order in which the consuming round takes the elements of `old` the
+  // stack holds but s0: the one under the sum first (m0 takes its slot and
+  // [output, sum, m0] stays on top), and since the output of each element
+  // takes the slot of the next one and the last output lands under
+  // [s0', P], the order decides the next layout: slot order for the rounds
+  // in between (the layout rotates by one slot), and for the last internal
+  // round an order that leaves every element in the slots of its block of
+  // the external layer (block 0 on top, as externalD needs; the elements
+  // in memory are the first indices and come out on top). Each slot is an
+  // edge from the block of its range to the block of the element it holds,
+  // so that order is an Eulerian circuit of the blocks (in- and out-degree
+  // are the block size), found by Hierholzer's algorithm; it exists when
+  // the rotations before have connected the blocks.
+  consumeOrder(old: Value[], mem: number, nextInternal: boolean): number[] {
     const e = this.e;
     const t = this.t;
-    // slot s holds index s - 2 in the block order
+    const slots = t - 1 - mem;
+    // slot s holds index s - 2 + mem in the block order
     const at = new Map<number, number>();
-    for (let i = 1; i < t; i++) at.set(e.find(old[i]), i);
+    for (let i = 1; i < t; i++) {
+      const s = e.find(old[i]);
+      if (s >= 3 && s <= slots + 2) at.set(s, i);
+    }
     if (at.get(3) === undefined) throw new Error("no element under the sum");
-    const slots = [...at.keys()].sort((a, b) => a - b);
-    if (nextInternal) return slots.map((s) => at.get(s)!);
+    const order = [...at.keys()].sort((a, b) => a - b);
+    if (nextInternal) return order.map((s) => at.get(s)!);
     const block = (i: number) => i >> 2;
     const out = new Map<number, number[]>();
-    for (const s of slots) {
-      const b = block(s - 2);
+    for (const s of order) {
+      const b = block(s - 2 + mem);
       out.set(b, [...(out.get(b) ?? []), s]);
     }
     const circuit: number[] = [];
-    const stack: { node: number; via: number }[] = [{ node: 0, via: 0 }];
+    const stack = [{ node: block(1 + mem), via: 0 }];
     while (stack.length) {
       const top = stack[stack.length - 1];
       const s = out.get(top.node)?.pop();
@@ -813,7 +834,7 @@ class Builder {
     }
     circuit.pop();
     circuit.reverse();
-    if (circuit.length !== t - 1) {
+    if (circuit.length !== slots) {
       throw new Error("the blocks are not connected");
     }
     const start = circuit.indexOf(3);
@@ -830,6 +851,17 @@ class Builder {
   // sum. Every other element is swapped to the top (the previous output
   // takes its slot), gets a PRIME copy swapped under it and is consumed by
   // its MULMOD; the last ADD consumes the sum and m0 together.
+  //
+  // The stack holds reach - 4 such elements ([output, sum, m0] and the
+  // PRIME copy below take the rest of the reach); beyond that the first
+  // indices live in memory (block 0 and whole blocks, so that the external
+  // layer after finds its blocks in place), loaded for the chain and their
+  // MULMOD and stored again, and s0^5 joins the chain from memory as well.
+  // The first round gets them all on the stack: the ones the region does
+  // not hold are loaded from where they sit (shadowed when out of reach),
+  // each following an element whose output moves to memory so that
+  // [output, sum, m0] stays on top, and the round ends by installing the
+  // PRIME copy under the region.
   internalRoundConsume(round: number, nextInternal: boolean) {
     const e = this.e;
     const t = this.t;
@@ -837,6 +869,8 @@ class Builder {
     if (e.top(0) !== s0 || e.top(1) !== this.P) {
       throw new Error("internal round expects [s0, P] on top");
     }
+    const slots = Math.min(t - 1, e.maxReach - 4);
+    const mem = t - 1 - slots;
     const c = this.constant(this.params.roundConstants[round][0], "c");
     if (!e.fitsAdd(s0, c)) throw new Error("s0 + c does not fit");
     const y = e.compute("add", [c, inplace(s0)], "s0+c");
@@ -847,7 +881,7 @@ class Builder {
     for (const v of this.dead) this.gc(v);
     this.dead = [];
     if (e.top(0) !== x5) e.swap(e.find(x5) - 1);
-    if (e.stack[t] !== this.P) {
+    if (mem === 0 && e.stack[t] !== this.P) {
       // the PRIME copy the rounds DUP from, in place of the slot under the
       // state
       e.pushPrime();
@@ -857,14 +891,17 @@ class Builder {
     e.endLine();
 
     const old = [x5, ...this.state.slice(1)];
+    if (mem > 0) e.spill(x5);
     e.pushPrime();
-    // the chain DUPs t values over this copy, so its deepest DUP allows
-    // reach - t - 1 PRIME copies
-    const primes = e.maxReach - t - 1;
-    const sum = this.chainSumInPlace(old, "sum", PRIME - 1n, primes);
+    const sum = this.chainSumInPlace(old, "sum", PRIME - 1n);
     e.endLine();
     // [sum, P, s0^5, ...]: s0^5 on top of the PRIME copy, m0 lands on the sum
-    e.swap(2);
+    if (mem > 0) {
+      e.swap(1);
+      e.dup(x5);
+    } else {
+      e.swap(2);
+    }
     const m0 = e.compute(
       "mulmod",
       [this.diag(0), inplace(x5), inplace(this.P)],
@@ -873,21 +910,54 @@ class Builder {
     e.endLine();
 
     const out: Value[] = new Array(t);
-    for (const i of this.consumeOrder(old, nextInternal)) {
-      const s = old[i];
-      e.swap(e.find(s) - 1);
-      e.pushPrime();
-      e.swap(1);
+    // m_i + sum on top; the output of an index in memory goes there
+    const finish = (i: number, s: Value) => {
       const m = e.compute(
         "mulmod",
         [this.diag(i), inplace(s), inplace(this.P)],
         `m${i}`,
       );
       out[i] = e.compute("add", [sum, inplace(m)], `s${i}'`);
+      if (i <= mem) e.spill(out[i]);
       e.endLine();
+    };
+    // an element not held by the region: loaded under a PRIME copy
+    const load = (i: number) => {
+      e.pushPrime();
+      e.dup(old[i]);
+      finish(i, old[i]);
+    };
+    const loads: number[] = [];
+    for (let i = 1; i < t; i++) {
+      const s = e.find(old[i]);
+      if (s < 3 || s > slots + 2) loads.push(i);
     }
+    const toStack = loads.filter((i) => i > mem);
+    for (const [k, i] of this.consumeOrder(old, mem, nextInternal).entries()) {
+      const s = old[i];
+      e.swap(e.find(s) - 1);
+      e.pushPrime();
+      e.swap(1);
+      finish(i, s);
+      if (i <= mem) {
+        // the output went to memory: one that comes back to the stack
+        // takes its place on top
+        const j = toStack.shift();
+        if (j === undefined) throw new Error("no element to load on top");
+        load(j);
+      }
+      if (k === 0) for (const j of loads) if (j <= mem) load(j);
+    }
+    if (toStack.length) throw new Error("elements left to load on top");
     e.swap(2);
     out[0] = e.compute("add", [inplace(e.top(0)), inplace(e.top(1))], "s0'");
+    if (mem > 0 && e.stack[slots + 1] !== this.P) {
+      // the PRIME copy the rounds DUP from, in place of the slot under the
+      // region
+      e.pushPrime();
+      e.swap(slots + 2);
+      e.pop();
+    }
     if (nextInternal) {
       // PRIME copy under the next round's s0 + c
       e.pushPrime();
