@@ -15,7 +15,7 @@
 // arguments right to left. Every local is kept within DUP16 / SWAP16 by the
 // reach model below, which assumes the literal compile.
 
-import { PRIME, UINT256_MAX } from "../params/field.ts";
+import { PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../params/params.ts";
 import { permutation } from "../shared/reference.ts";
 import { Value } from "../shared/value.ts";

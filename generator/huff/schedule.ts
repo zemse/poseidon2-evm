@@ -22,7 +22,7 @@
 // t >= 16 run with the legacy opcodes.
 
 import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
-import { PRIME, UINT256_MAX } from "../params/field.ts";
+import { PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../params/params.ts";
 import { permutationSteps } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";

@@ -18,7 +18,7 @@
 // changes the stack layout, so a permissive pass first records which values
 // need it and a second pass with the same schedule shadows exactly those.
 
-import { PRIME, UINT256_MAX, hex } from "../params/field.ts";
+import { PRIME, UINT256_MAX, hex } from "../shared/field.ts";
 import { ARITY, Value, applyOp, type Op } from "../shared/value.ts";
 import { FORKS, type Fork } from "./fork.ts";
 

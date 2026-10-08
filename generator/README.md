@@ -2,8 +2,8 @@
 
 `node generator/huff/generate.ts [--hardfork <name>] [t ...]` builds the Poseidon2 BN254 Huff permutation for a state width t (2, 3, 4, 8, 12, 16, 20, 24, 28) and `node generator/yul/generate.ts [t ...]` the Yul library (2, 3, 4, 8, 12). The hardfork (`huff/fork.ts`: paris, shanghai, cancun, prague, osaka, amsterdam; default amsterdam) sets the opcodes the Huff emitter may use and the code size limit. Only the amsterdam output, which uses the EIP-8024 `DUPN` / `SWAPN` opcodes, is in the repository; another fork writes to `src/bn254/huff/<fork>/` and `test/<fork>/` and needs a foundry profile with that `evm_version`, and over its code size the permutation becomes a chain of contracts (`huff/split.ts`).
 
-- `params/`: the Poseidon2 parameters and their tests. `params.ts` derives the round numbers, round constants and internal diagonal (the sage port), `field.ts` is the GF(p) arithmetic, `assert-known.ts` checks `params.ts` and the reference permutation against published values.
-- `shared/`: what both code generators use. `reference.ts` is the BigInt reference permutation every generated file is checked against, `vectors.ts` the test inputs, `value.ts` the bound-tracked values with the opcode semantics.
+- `params/`: the Poseidon2 parameters and their tests. `params.ts` derives the round numbers, round constants and internal diagonal (the sage port), `assert-known.ts` checks `params.ts` and the reference permutation against published values.
+- `shared/`: what both code generators use. `reference.ts` is the BigInt reference permutation every generated file is checked against, `vectors.ts` the test inputs, `field.ts` the GF(p) arithmetic, `value.ts` the bound-tracked values with the opcode semantics.
 - `huff/`: `generate.ts` (CLI), `fork.ts`, `schedule.ts`, `split.ts`, `emitter.ts`, `render.ts`.
 - `yul/`: `generate.ts` (CLI), `schedule.ts`, `program.ts`, `render.ts`.
 

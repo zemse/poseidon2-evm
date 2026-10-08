@@ -1,7 +1,7 @@
 // Writers for the generated Solidity libraries and the Foundry test of a
 // t != 4 permutation.
 
-import { hex, PRIME } from "../params/field.ts";
+import { hex, PRIME } from "../shared/field.ts";
 import type { Params } from "../params/params.ts";
 import type { BuildResult, Layout } from "./schedule.ts";
 

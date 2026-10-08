@@ -9,7 +9,7 @@
 // 16 and gnark-crypto constants for t = 8, 12, 16. Nothing pins t = 20, 24 or
 // 28 beyond the paper's round numbers for 20 and 24.
 
-import { PRIME, hex, mod } from "./field.ts";
+import { PRIME, hex, mod } from "../shared/field.ts";
 import { calcRoundNumbers, generateParams } from "./params.ts";
 import { hashSponge, permutation } from "../shared/reference.ts";
 import { internal_matrix_diagonal, round_constant } from "../../constants.ts";

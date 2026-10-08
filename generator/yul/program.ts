@@ -7,7 +7,7 @@
 // carries its concrete result for each test vector. let(), assign() and
 // mstore() are the only calls that emit statements.
 
-import { PRIME, UINT256_MAX, hex } from "../params/field.ts";
+import { PRIME, UINT256_MAX, hex } from "../shared/field.ts";
 import { Value, applyOp, type Op } from "../shared/value.ts";
 
 export function literal(c: bigint): string {

@@ -6,7 +6,7 @@
 // the 32-byte word the deployer appends to the initcode; CONSTRUCTOR keeps
 // it behind the runtime code, where NEXT_PART() reads it with CODECOPY.
 
-import { hex, PRIME } from "../params/field.ts";
+import { hex, PRIME } from "../shared/field.ts";
 import type { Params } from "../params/params.ts";
 import {
   dupText,

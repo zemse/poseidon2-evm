@@ -6,7 +6,7 @@
 // only node (no SageMath install) and every width derives its parameters at
 // generation time; assert-known.ts checks the port against published outputs.
 
-import { PRIME, add, mul, inv, mod } from "./field.ts";
+import { PRIME, add, mul, inv, mod } from "../shared/field.ts";
 
 const FIELD = 1;
 const SBOX = 0;

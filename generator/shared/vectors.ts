@@ -3,7 +3,7 @@
 // pseudo-random states. They drive the symbolic simulation and the vectors in
 // the generated Foundry tests.
 
-import { PRIME, mod } from "../params/field.ts";
+import { PRIME, mod } from "./field.ts";
 
 // deterministic 256-bit values from a splitmix64 stream
 export function prng(seed: bigint): () => bigint {
