@@ -11,8 +11,8 @@
 
 import { PRIME, hex, mod } from "./field.ts";
 import { calcRoundNumbers, generateParams } from "./params.ts";
-import { hashSponge, permutation } from "./reference.ts";
-import { internal_matrix_diagonal, round_constant } from "../constants.ts";
+import { hashSponge, permutation } from "../shared/reference.ts";
+import { internal_matrix_diagonal, round_constant } from "../../constants.ts";
 
 function assert(name: string, ok: boolean) {
   if (!ok) throw new Error(`${name} does not match the known value`);

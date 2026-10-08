@@ -5,7 +5,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
-/// @notice Vectors come from the BigInt reference permutation in generator/reference.ts
+/// @notice Vectors come from the BigInt reference permutation in generator/shared/reference.ts
 contract Poseidon2T24Test is Test {
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 

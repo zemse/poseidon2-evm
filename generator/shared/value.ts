@@ -7,7 +7,7 @@
 // reduce to PRIME - 1. Lazy reduction is therefore proven by the tracker,
 // never argued by hand.
 
-import { PRIME, UINT256_MAX } from "./field.ts";
+import { PRIME, UINT256_MAX } from "../params/field.ts";
 
 export class Value {
   private static counter = 0;

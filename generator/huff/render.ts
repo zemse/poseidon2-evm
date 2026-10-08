@@ -6,8 +6,8 @@
 // the 32-byte word the deployer appends to the initcode; CONSTRUCTOR keeps
 // it behind the runtime code, where NEXT_PART() reads it with CODECOPY.
 
-import { hex, PRIME } from "../field.ts";
-import type { Params } from "../params.ts";
+import { hex, PRIME } from "../params/field.ts";
+import type { Params } from "../params/params.ts";
 import {
   dupText,
   pushBytes,
@@ -506,7 +506,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 ${imports}
-/// @notice Vectors come from the BigInt reference permutation in generator/reference.ts
+/// @notice Vectors come from the BigInt reference permutation in generator/shared/reference.ts
 ${note}contract ${name}Test is Test {
     uint256 constant PRIME = ${hex(PRIME)};
 

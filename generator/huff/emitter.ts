@@ -1,6 +1,6 @@
 // Huff emitter backed by a symbolic stack simulator.
 //
-// Every stack slot holds a Value (../value.ts). A Value carries an exact upper
+// Every stack slot holds a Value (../shared/value.ts). A Value carries an exact upper
 // bound (inclusive, as a BigInt) so the schedule can choose ADD over ADDMOD
 // only when the sum provably fits in uint256, plus one concrete evaluation per
 // test vector so the emitted stream is checked against the reference before
@@ -18,8 +18,8 @@
 // changes the stack layout, so a permissive pass first records which values
 // need it and a second pass with the same schedule shadows exactly those.
 
-import { PRIME, UINT256_MAX, hex } from "../field.ts";
-import { ARITY, Value, applyOp, type Op } from "../value.ts";
+import { PRIME, UINT256_MAX, hex } from "../params/field.ts";
+import { ARITY, Value, applyOp, type Op } from "../shared/value.ts";
 import { FORKS, type Fork } from "./fork.ts";
 
 export { Value, type Op };

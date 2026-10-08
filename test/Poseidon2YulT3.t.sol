@@ -14,7 +14,7 @@ contract Poseidon2YulT3 {
     }
 }
 
-/// @notice Vectors come from the BigInt reference permutation in generator/reference.ts
+/// @notice Vectors come from the BigInt reference permutation in generator/shared/reference.ts
 contract Poseidon2YulT3Test is Test {
     uint256 constant PRIME = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 

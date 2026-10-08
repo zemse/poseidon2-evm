@@ -1,14 +1,14 @@
 // Straight-line Yul emitter backed by the shared bound tracker.
 //
-// Every operand is a Value (../value.ts) whose name is the Yul text that
+// Every operand is a Value (../shared/value.ts) whose name is the Yul text that
 // produces it: a variable, a literal, an mload or a nested expression. expr()
 // builds a nested expression and runs applyOp on it, so an ADD or MUL that
 // could overflow uint256 throws before any text is written, and every value
 // carries its concrete result for each test vector. let(), assign() and
 // mstore() are the only calls that emit statements.
 
-import { PRIME, UINT256_MAX, hex } from "../field.ts";
-import { Value, applyOp, type Op } from "../value.ts";
+import { PRIME, UINT256_MAX, hex } from "../params/field.ts";
+import { Value, applyOp, type Op } from "../shared/value.ts";
 
 export function literal(c: bigint): string {
   if (c < 0n || c > UINT256_MAX) throw new Error("constant out of range");

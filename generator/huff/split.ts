@@ -7,7 +7,7 @@
 // keeps the same slack. Each part is built like a whole permutation (option
 // search, bound tracker, reference check of its own steps).
 
-import type { Params } from "../params.ts";
+import type { Params } from "../params/params.ts";
 import type { Fork } from "./fork.ts";
 import { overhead, type Overhead } from "./render.ts";
 import {

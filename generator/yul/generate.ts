@@ -2,7 +2,7 @@
 //
 //   node generator/yul/generate.ts [t ...]      (default: 4)
 //
-// Parameters are derived like the HorizenLabs sage script (../params.ts),
+// Parameters are derived like the HorizenLabs sage script (../params/params.ts),
 // the straight-line Yul is simulated with exact bounds and checked against
 // the BigInt reference permutation before anything is written (schedule.ts).
 // t = 4 keeps the hash_1 / hash_2 / hash_3 / poseidon2_core library in
@@ -11,10 +11,10 @@
 // test.
 
 import { mkdirSync, writeFileSync } from "fs";
-import { assertKnown } from "../assert-known.ts";
-import { generateParams } from "../params.ts";
-import { permutation } from "../reference.ts";
-import { testInputs } from "../vectors.ts";
+import { assertKnown } from "../params/assert-known.ts";
+import { generateParams } from "../params/params.ts";
+import { permutation } from "../shared/reference.ts";
+import { testInputs } from "../shared/vectors.ts";
 import { buildPermutation, type Layout } from "./schedule.ts";
 import {
   libraryName,
