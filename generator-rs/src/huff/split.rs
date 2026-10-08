@@ -1,9 +1,11 @@
 // Cuts a permutation that does not fit the fork's code size into parts at
 // step boundaries (huff/split.ts). Every hop costs the same whatever the
-// cut, so the fewest parts cost the least gas: a greedy pass finds that
-// number by extending each part as far as the size allows (with the shared
-// body of the internal rounds where that holds more), then the cuts are
-// moved to balance the bytes so every part keeps the same slack. Each part
+// cut, so the fewest parts cost the least gas unless a part only fits
+// through the dearest schedules: a greedy pass finds that number by
+// extending each part as far as the size allows (with the shared body of
+// the internal rounds, at its shortest period, where that holds more), then
+// the cuts are moved to balance the bytes so every part keeps the same
+// slack, and fewer parts are kept while they build and cost less. Each part
 // is built like a whole permutation (option search, bound tracker, reference
 // check of its own steps); a part after the first takes its inputs as the
 // part before leaves them, lazy below the hand-over bound (part_boundary),
@@ -15,7 +17,7 @@ use super::fork::Fork;
 use super::render::{Overhead, overhead};
 use super::schedule::{
     Best, BuildOptions, DEFAULT_OPTIONS, Range, build_best, build_best_with,
-    build_permutation_with, largest, part_boundary, step_count,
+    build_permutation_with, group_candidates, largest, part_boundary, step_count,
 };
 use crate::bail;
 use crate::error::Result;
@@ -69,13 +71,16 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
     };
     // the shared body of the steady internal rounds lets a part hold far
     // more of them: the probe also tries that schedule (as the option
-    // search will), with the steady rounds it needs inline
+    // search will), with the steady rounds it needs inline, as one chain
+    // and in the sub-chains of the shortest period
     let body_opts = BuildOptions {
         internal_consume: true,
         prime_stack: true,
         shared_body: true,
         ..probe_opts
     };
+    let mut groups = vec![0];
+    groups.extend(group_candidates(params, &fork).first());
     let fits = |opts: &BuildOptions, range: Range| -> bool {
         match build_permutation_with(params, inputs, opts, fork, range, false, &boundary(range)) {
             Ok(r) => r.max_depth <= 1000 && r.bytes <= budget(range),
@@ -85,14 +90,17 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
     let builds = |range: Range| -> bool {
         fits(&probe_opts, range)
             || (t >= 8
-                && (0..3).any(|body_inline| {
-                    fits(
-                        &BuildOptions {
-                            body_inline,
-                            ..body_opts
-                        },
-                        range,
-                    )
+                && groups.iter().any(|&consume_group| {
+                    (0..3).any(|body_inline| {
+                        fits(
+                            &BuildOptions {
+                                body_inline,
+                                consume_group,
+                                ..body_opts
+                            },
+                            range,
+                        )
+                    })
                 }))
     };
 
@@ -217,7 +225,8 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
         bail!("no split fits on {}", fork.name);
     };
     // the option search per part may find smaller code than the probe: try
-    // fewer parts while they fit, cut by the probe bytes and by the bytes the
+    // fewer parts while they fit and cost less (a part may only fit through
+    // the dearest schedules), cut by the probe bytes and by the bytes the
     // parts actually had
     for count in (1..greedy.len()).rev() {
         let fewer = both(
@@ -225,6 +234,9 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
             balance(count, &measured(&parts)),
         )?;
         let Some(fewer) = fewer else { break };
+        if gas(&fewer) >= gas(&parts) {
+            break;
+        }
         parts = fewer;
     }
     Ok(parts)

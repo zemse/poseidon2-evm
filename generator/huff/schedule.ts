@@ -30,7 +30,11 @@
 // round constants CODECOPYed from a code table to a memory scratch; a last
 // call of fewer rounds leaves the body at a mid exit. The body's diag
 // constants are PUSH32 as it exists once, which is what the code size
-// otherwise forces into memory or into a split.
+// otherwise forces into memory or into a split. With consumeGroup the round
+// consumes the elements in sub-chains of that many slots, each rotating on
+// its own (one SWAP more per chain), so the period is the chains' lcm and
+// the body shorter, which is what lets a part hold its rounds within the
+// legacy code size.
 
 import {
   Emitter,
@@ -100,6 +104,10 @@ export type BuildOptions = {
   // with sharedBody, keep the first bodyInline steady rounds inline as far
   // as the code size allows
   bodyInline: number;
+  // with internalConsume, consume the elements of a round that leads to
+  // another in sub-chains of consumeGroup slots (the last takes the rest),
+  // each rotating on its own, for a shorter body (0: one chain)
+  consumeGroup: number;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -120,6 +128,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   shadow: false,
   sharedBody: false,
   bodyInline: 0,
+  consumeGroup: 0,
 };
 
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
@@ -201,9 +210,38 @@ export function steadyRounds(
 }
 
 // elements the consuming round holds on the stack: the rounds the layout
-// takes to rotate back, the length of the shared body
-export function bodyPeriod(params: Params, fork: Fork): number {
-  return Math.min(params.t - 1, fork.reach - 4);
+// takes to rotate back, the length of the shared body; in sub-chains of
+// `group` slots each rotates on its own, so the lcm of their lengths
+export function bodyPeriod(params: Params, fork: Fork, group = 0): number {
+  const slots = Math.min(params.t - 1, fork.reach - 4);
+  if (group === 0 || group >= slots) return slots;
+  const rem = slots % group;
+  return rem === 0 ? group : lcm(group, rem);
+}
+
+function lcm(a: number, b: number): number {
+  const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+  return (a / gcd(a, b)) * b;
+}
+
+// The sub-chain lengths worth trying, by the period they give, shortest
+// first: the one with the fewest chains per period (the chains cost a SWAP
+// each, the calls of a shorter body their overhead)
+export function groupCandidates(params: Params, fork: Fork): number[] {
+  const slots = bodyPeriod(params, fork);
+  const byPeriod = new Map<number, number>();
+  for (let group = 1; group < slots; group++) {
+    const period = bodyPeriod(params, fork, group);
+    if (period >= slots) continue;
+    const prev = byPeriod.get(period);
+    if (
+      prev === undefined ||
+      Math.ceil(slots / group) < Math.ceil(slots / prev)
+    ) {
+      byPeriod.set(period, group);
+    }
+  }
+  return [...byPeriod].sort((a, b) => a[0] - b[0]).map(([, group]) => group);
 }
 
 class Builder {
@@ -255,7 +293,7 @@ class Builder {
     this.diagBase = this.stateInMemory ? 32 * this.t : DIAG_MEMORY_BASE;
     this.rcBase =
       this.diagBase + (opts.diagInMemory ? 32 * (this.t - opts.diagPush32) : 0);
-    this.period = bodyPeriod(params, fork);
+    this.period = bodyPeriod(params, fork, opts.consumeGroup);
     this.e.slotBase =
       this.rcBase + (opts.sharedBody ? 32 * (this.period + 2) : 0);
     // takes: [s0, s1, ..., s(t-1), PRIME]
@@ -1061,20 +1099,23 @@ class Builder {
     this.state = out;
   }
 
-  // Order in which the consuming round takes the elements of `old` the
-  // stack holds but s0: the one under the sum first (m0 takes its slot and
-  // [output, sum, m0] stays on top), and since the output of each element
-  // takes the slot of the next one and the last output lands under
-  // [s0', P], the order decides the next layout: slot order for the rounds
-  // in between (the layout rotates by one slot), and for the last internal
-  // round an order that leaves every element in the slots of its block of
-  // the external layer (block 0 on top, as externalD needs; the elements
-  // in memory are the first indices and come out on top). Each slot is an
-  // edge from the block of its range to the block of the element it holds,
-  // so that order is an Eulerian circuit of the blocks (in- and out-degree
-  // are the block size), found by Hierholzer's algorithm; it exists when
-  // the rotations before have connected the blocks.
-  consumeOrder(old: Value[], mem: number, nextInternal: boolean): number[] {
+  // The chains in which the consuming round takes the elements of `old` the
+  // stack holds but s0, as index lists. m0 takes the slot of a chain's
+  // first element, the output of each element takes the slot of the next
+  // one and the last output the first slot when m0 is swapped back on top
+  // (one SWAP per chain, the last one's in place of the swap that brings
+  // m0 to the sum), so the chains decide the next layout: for the rounds
+  // in between slot order from the slot under the sum, as one chain (the
+  // layout rotates by one slot) or in sub-chains of consumeGroup slots
+  // (each rotates on its own), and for the last internal round chains that
+  // leave every element in the slots of its block of the external layer
+  // (block 0 on top, as externalD needs; the elements in memory are the
+  // first indices and come out on top). Each slot is an edge from the block
+  // of its range to the block of the element it holds, so those chains are
+  // Eulerian circuits of the blocks (in- and out-degree are the block
+  // size), one per connected component, found by Hierholzer's algorithm
+  // from the lowest slot left.
+  consumeChains(old: Value[], mem: number, nextInternal: boolean): number[][] {
     const e = this.e;
     const t = this.t;
     const slots = t - 1 - mem;
@@ -1086,30 +1127,40 @@ class Builder {
     }
     if (at.get(3) === undefined) throw new Error("no element under the sum");
     const order = [...at.keys()].sort((a, b) => a - b);
-    if (nextInternal) return order.map((s) => at.get(s)!);
+    const chains: number[][] = [];
+    if (nextInternal) {
+      const group = this.opts.consumeGroup || order.length;
+      for (let k = 0; k < order.length; k += group) {
+        chains.push(order.slice(k, k + group).map((s) => at.get(s)!));
+      }
+      return chains;
+    }
     const block = (i: number) => i >> 2;
     const out = new Map<number, number[]>();
     for (const s of order) {
       const b = block(s - 2 + mem);
       out.set(b, [...(out.get(b) ?? []), s]);
     }
-    const circuit: number[] = [];
-    const stack = [{ node: block(1 + mem), via: 0 }];
-    while (stack.length) {
-      const top = stack[stack.length - 1];
-      const s = out.get(top.node)?.pop();
-      if (s !== undefined) stack.push({ node: block(at.get(s)!), via: s });
-      else circuit.push(stack.pop()!.via);
+    const used = new Set<number>();
+    for (const first of order) {
+      if (used.has(first)) continue;
+      const circuit: number[] = [];
+      const stack = [{ node: block(first - 2 + mem), via: 0 }];
+      while (stack.length) {
+        const top = stack[stack.length - 1];
+        const s = out.get(top.node)?.pop();
+        if (s !== undefined) stack.push({ node: block(at.get(s)!), via: s });
+        else circuit.push(stack.pop()!.via);
+      }
+      circuit.pop();
+      circuit.reverse();
+      const start = circuit.indexOf(first);
+      const chain = [...circuit.slice(start), ...circuit.slice(0, start)];
+      for (const s of chain) used.add(s);
+      chains.push(chain.map((s) => at.get(s)!));
     }
-    circuit.pop();
-    circuit.reverse();
-    if (circuit.length !== slots) {
-      throw new Error("the blocks are not connected");
-    }
-    const start = circuit.indexOf(3);
-    return [...circuit.slice(start), ...circuit.slice(0, start)].map((s) =>
-      at.get(s)!,
-    );
+    if (used.size !== slots) throw new Error("the blocks have no circuit");
+    return chains;
   }
 
   // Internal round that consumes the old state in place. Expects [s0, P] on
@@ -1217,7 +1268,11 @@ class Builder {
       if (s < 3 || s > slots + 2) loads.push(i);
     }
     const toStack = loads.filter((i) => i > mem);
-    const order = this.consumeOrder(old, mem, nextInternal);
+    const chains = this.consumeChains(old, mem, nextInternal);
+    const order = chains.flat();
+    // m0 back on top, the chain's last output into the slot of its first
+    // element (the sum is then right under m0 after the last chain)
+    const close = () => e.swap(e.find(m0) - 1);
     if (this.opts.primeStack) {
       // the elements in memory first, then the PRIME copies of the first
       // `stacked` swapped elements under m0: [m0, P, ..., P, sum, ...]. The
@@ -1235,41 +1290,50 @@ class Builder {
         e.swap(stacked);
         e.endLine();
       }
-      for (const [k, i] of order.entries()) {
-        const s = old[i];
-        e.swap(e.find(s) - 1);
-        if (k >= stacked) {
-          e.pushPrime();
-          e.swap(1);
+      let k = 0;
+      for (const chain of chains) {
+        for (const i of chain) {
+          const s = old[i];
+          e.swap(e.find(s) - 1);
+          if (k >= stacked) {
+            e.pushPrime();
+            e.swap(1);
+          }
+          finish(i, s);
+          if (i <= mem) {
+            // the output went to memory: one that comes back to the stack
+            // takes its place on top, with its own PRIME copy
+            const j = toStack.shift();
+            if (j === undefined) throw new Error("no element to load on top");
+            load(j);
+          }
+          k++;
         }
-        finish(i, s);
-        if (i <= mem) {
-          // the output went to memory: one that comes back to the stack
-          // takes its place on top, with its own PRIME copy
-          const j = toStack.shift();
-          if (j === undefined) throw new Error("no element to load on top");
-          load(j);
-        }
+        close();
       }
     } else {
-      for (const [k, i] of order.entries()) {
-        const s = old[i];
-        e.swap(e.find(s) - 1);
-        e.pushPrime();
-        e.swap(1);
-        finish(i, s);
-        if (i <= mem) {
-          // the output went to memory: one that comes back to the stack
-          // takes its place on top
-          const j = toStack.shift();
-          if (j === undefined) throw new Error("no element to load on top");
-          load(j);
+      let k = 0;
+      for (const chain of chains) {
+        for (const i of chain) {
+          const s = old[i];
+          e.swap(e.find(s) - 1);
+          e.pushPrime();
+          e.swap(1);
+          finish(i, s);
+          if (i <= mem) {
+            // the output went to memory: one that comes back to the stack
+            // takes its place on top
+            const j = toStack.shift();
+            if (j === undefined) throw new Error("no element to load on top");
+            load(j);
+          }
+          if (k === 0) for (const j of loads) if (j <= mem) load(j);
+          k++;
         }
-        if (k === 0) for (const j of loads) if (j <= mem) load(j);
+        close();
       }
     }
     if (toStack.length) throw new Error("elements left to load on top");
-    e.swap(2);
     out[0] = e.compute("add", [inplace(e.top(0)), inplace(e.top(1))], "s0'");
     if (mem > 0 && e.stack[slots + 1] !== this.P) {
       // the PRIME copy the rounds DUP from, in place of the slot under the
@@ -1693,7 +1757,8 @@ export type Best = { result: BuildResult; opts: BuildOptions };
 // allows, keeps as many diag constants PUSH32 as the code size allows and
 // then as many steady rounds inline (the depth grows with gcInternalFrom and
 // the size with diagPush32 and bodyInline, so a binary search finds each
-// limit). Throws when nothing builds at all.
+// limit); a body over the code size first takes the sub-chains of the
+// longest period that fits. Throws when nothing builds at all.
 export function buildBest(
   params: Params,
   inputs: bigint[][],
@@ -1745,6 +1810,7 @@ export function buildBest(
                               shadow,
                               sharedBody,
                               bodyInline: 0,
+                              consumeGroup: 0,
                             });
                           }
                         }
@@ -1817,6 +1883,21 @@ export function buildBest(
             opts = { ...opts, gcM4From };
             result = buildPermutation(params, inputs, opts, fork, range);
           }
+          if (opts.sharedBody && result.bytes > maxBytes) {
+            // a body too large for the code size: sub-chains shorten it,
+            // the longest period that fits (the shorter, the more chains
+            // and calls)
+            const groups = groupCandidates(params, fork);
+            const fits = (n: number) => {
+              const r = attempt({ ...opts, consumeGroup: groups[n] });
+              return r !== undefined && r.bytes <= maxBytes;
+            };
+            if (groups.length > 0 && fits(0)) {
+              const consumeGroup = groups[largest(groups.length - 1, fits)];
+              opts = { ...opts, consumeGroup };
+              result = build();
+            }
+          }
           if (opts.diagInMemory && result.bytes <= maxBytes) {
             const diagPush32 = largest(params.t, (n) => {
               const r = attempt({ ...opts, diagPush32: n });
@@ -1844,7 +1925,7 @@ export function buildBest(
             // a remainder call and the mid exit cost more than the 3 gas
             // per round the body charges, so the largest count that leaves
             // none when one fits
-            const period = bodyPeriod(params, fork);
+            const period = bodyPeriod(params, fork, opts.consumeGroup);
             const extra = (period - ((steady - bodyInline) % period)) % period;
             if (bodyInline >= extra && fits(bodyInline - extra)) {
               bodyInline -= extra;

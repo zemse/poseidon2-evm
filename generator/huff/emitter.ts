@@ -446,10 +446,12 @@ export class Emitter {
 
   // Ends the body: a replay is checked against the recording, every segment
   // in full but the last, which a call that leaves the body early cuts
-  // short at its exit.
+  // short at its exit. The permissive pass is not checked: its slots are
+  // held for two rounds whatever the loads (a pattern of period 2 that an
+  // odd period never repeats), and the real pass checks its own opcodes.
   endBody() {
     this.endLine();
-    if (this.bodyMode === "replay") {
+    if (this.bodyMode === "replay" && !this.permissive) {
       const n = this.replayOps.length;
       for (const [i, ops] of this.replayOps.entries()) {
         const want = this.bodyOps[i] ?? [];

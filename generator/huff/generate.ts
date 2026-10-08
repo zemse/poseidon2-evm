@@ -30,12 +30,13 @@ import {
   type BuildOptions,
   type BuildResult,
 } from "./schedule.ts";
-import { splitPermutation } from "./split.ts";
+import { splitPermutation, type Part } from "./split.ts";
 import {
   entryBytes,
   hashEntry,
   huffDir,
   memoryGas,
+  overhead,
   renderDeployParts,
   renderEip8024,
   renderEntry,
@@ -60,11 +61,25 @@ function describe(result: BuildResult, opts: BuildOptions): string {
   );
 }
 
+// gas of a call to an unsplit permutation's entry
+function entryGas(fork: Fork, t: number, result: BuildResult): number {
+  const o = overhead(fork, t, result.inputSlots, result.stateInMemory, false);
+  const memory = memoryGas(Math.max(result.memory, 32 * t));
+  return o.entryGas + result.gas + o.tailGas + memory;
+}
+
+// gas of a call to a part, with a cold hop to the next one
+function partGas(part: Part, t: number): number {
+  const { result, overhead: o } = part;
+  const memory = memoryGas(Math.max(result.memory, 32 * t + 32));
+  return o.entryGas + result.gas + o.tailGas + memory;
+}
+
 function generate(t: number, fork: Fork) {
   const params = generateParams(t);
   const inputs = testInputs(t);
   const legacy = fork.name === DEFAULT_HARDFORK;
-  const overhead = entryBytes(fork, t);
+  const entryOverhead = entryBytes(fork, t);
   const dir = `${huffDir(fork)}/t${t}`;
   const utilsPath = legacy ? "../Utils.huff" : "../../Utils.huff";
   const vectors: Vector[] = inputs.map((input) => ({
@@ -75,7 +90,25 @@ function generate(t: number, fork: Fork) {
   const testPath = `${tests}/Poseidon2T${t}.t.sol`;
   const label = `t=${t} Rf=${params.roundsF} Rp=${params.roundsP} on ${fork.name}`;
 
-  const best = buildBest(params, inputs, fork.codeSize - overhead, fork);
+  let best = buildBest(params, inputs, fork.codeSize - entryOverhead, fork);
+  // a whole permutation that fits only through the sub-chains of a shorter
+  // body pays for the size (the chains, the calls, diag constants in
+  // memory), which a split may beat
+  let parts: Part[] | undefined;
+  if (best && best.opts.consumeGroup > 0) {
+    parts = splitPermutation(params, inputs, fork);
+    const single = entryGas(fork, t, best.result);
+    const split = parts.reduce((sum, p) => sum + partGas(p, t), 0);
+    if (split < single) {
+      console.log(`${label}: ${describe(best.result, best.opts)}`);
+      console.log(
+        `  ${single} gas per call as one contract: the split below costs less`,
+      );
+      best = undefined;
+    } else {
+      parts = undefined;
+    }
+  }
   if (best) {
     const { result, opts } = best;
     console.log(`${label}: ${describe(result, opts)}`);
@@ -118,7 +151,11 @@ function generate(t: number, fork: Fork) {
     }
     mkdirSync(dir, { recursive: true });
     writeForkFiles(fork);
+    // the parts of an earlier split
     if (existsSync(`${dir}/DeployParts.sol`)) rmSync(`${dir}/DeployParts.sol`);
+    for (let i = 0; existsSync(`${dir}/Part${i}.huff`); i++) {
+      rmSync(`${dir}/Part${i}.huff`);
+    }
     writeFileSync(
       `${dir}/Permutation.huff`,
       renderPermutation(params, result, opts, utilsPath, fork),
@@ -137,16 +174,17 @@ function generate(t: number, fork: Fork) {
   }
 
   // over the code size: split at step boundaries
-  const parts = splitPermutation(params, inputs, fork);
+  parts ??= splitPermutation(params, inputs, fork);
   console.log(`${label}: ${parts.length} parts (code size ${fork.codeSize})`);
   mkdirSync(dir, { recursive: true });
   writeForkFiles(fork);
   let total = 0;
-  parts.forEach(({ result, opts, overhead: o }, i) => {
+  parts.forEach((part, i) => {
+    const { result, opts, overhead: o } = part;
     const { from, to } = result.range;
     const bytes = result.bytes + o.bytes;
     const memory = memoryGas(Math.max(result.memory, 32 * t + 32));
-    const gas = o.entryGas + result.gas + o.tailGas + memory;
+    const gas = partGas(part, t);
     total += gas;
     console.log(
       `  part ${i}: steps ${from}..${to - 1}, ${bytes} bytes, ${gas} gas ` +

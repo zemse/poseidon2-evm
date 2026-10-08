@@ -2,14 +2,15 @@
 // step boundaries (the initial linear layer, then one step per round). Every
 // hop costs the same whatever the cut (the hand-over in the caller, a cold
 // STATICCALL and the entry of the callee), so the fewest parts cost the least
-// gas: a greedy pass finds that number by extending each part as far as the
-// size allows (with the shared body of the internal rounds where that holds
-// more), then the cuts are moved to balance the bytes so every part keeps
-// the same slack. Each part is built like a whole permutation (option
-// search, bound tracker, reference check of its own steps); a part after
-// the first takes its inputs as the part before leaves them, lazy below
-// the hand-over bound (partBoundary), so its entry neither reduces nor
-// stores them.
+// gas unless a part only fits through the dearest schedules: a greedy pass
+// finds that number by extending each part as far as the size allows (with
+// the shared body of the internal rounds, at its shortest period, where
+// that holds more), then the cuts are moved to balance the bytes so every
+// part keeps the same slack, and fewer parts are kept while they build and
+// cost less. Each part is built like a whole permutation (option search,
+// bound tracker, reference check of its own steps); a part after the first
+// takes its inputs as the part before leaves them, lazy below the hand-over
+// bound (partBoundary), so its entry neither reduces nor stores them.
 
 import type { Params } from "../round-constants/round-constants.ts";
 import type { Fork } from "./fork.ts";
@@ -17,6 +18,7 @@ import { overhead, type Overhead } from "./render.ts";
 import {
   buildBest,
   buildPermutation,
+  groupCandidates,
   largest,
   partBoundary,
   stepCount,
@@ -65,13 +67,15 @@ export function splitPermutation(
   };
   // the shared body of the steady internal rounds lets a part hold far
   // more of them: the probe also tries that schedule (as the option search
-  // will), with the steady rounds it needs inline
+  // will), with the steady rounds it needs inline, as one chain and in the
+  // sub-chains of the shortest period
   const bodyOpts: BuildOptions = {
     ...probeOpts,
     internalConsume: true,
     primeStack: true,
     sharedBody: true,
   };
+  const groups = [0, ...groupCandidates(params, fork).slice(0, 1)];
   const fits = (opts: BuildOptions, range: Range): boolean => {
     try {
       const r = buildPermutation(
@@ -90,7 +94,11 @@ export function splitPermutation(
   const builds = (range: Range): boolean =>
     fits(probeOpts, range) ||
     (t >= 8 &&
-      [0, 1, 2].some((bodyInline) => fits({ ...bodyOpts, bodyInline }, range)));
+      groups.some((consumeGroup) =>
+        [0, 1, 2].some((bodyInline) =>
+          fits({ ...bodyOpts, bodyInline, consumeGroup }, range),
+        ),
+      ));
 
   // fewest parts: extend each as far as it fits
   const greedy: Range[] = [];
@@ -196,14 +204,15 @@ export function splitPermutation(
   let parts = cheaper(build(balance(greedy.length, stepBytes)), build(greedy));
   if (!parts) throw new Error(`no split fits on ${fork.name}`);
   // the option search per part may find smaller code than the probe: try
-  // fewer parts while they fit, cut by the probe bytes and by the bytes the
+  // fewer parts while they fit and cost less (a part may only fit through
+  // the dearest schedules), cut by the probe bytes and by the bytes the
   // parts actually had
   for (let count = greedy.length - 1; count >= 1; count--) {
     const fewer = cheaper(
       build(balance(count, stepBytes)),
       build(balance(count, measured(parts))),
     );
-    if (!fewer) break;
+    if (!fewer || gas(fewer) >= gas(parts)) break;
     parts = fewer;
   }
   return parts;

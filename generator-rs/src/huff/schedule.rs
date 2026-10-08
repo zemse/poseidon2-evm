@@ -17,7 +17,11 @@
 // the last of the range) are therefore emitted once as a body of one period
 // that every call reaches by JUMP with its return label in memory and its
 // round constants CODECOPYed from a code table to a memory scratch; a last
-// call of fewer rounds leaves the body at a mid exit.
+// call of fewer rounds leaves the body at a mid exit. With consume_group the
+// round consumes the elements in sub-chains of that many slots, each
+// rotating on its own (one SWAP more per chain), so the period is the
+// chains' lcm and the body shorter, which is what lets a part hold its
+// rounds within the legacy code size.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -82,6 +86,10 @@ pub struct BuildOptions {
     /// with shared_body, keep the first body_inline steady rounds inline as
     /// far as the code size allows
     pub body_inline: usize,
+    /// with internal_consume, consume the elements of a round that leads to
+    /// another in sub-chains of consume_group slots (the last takes the
+    /// rest), each rotating on its own, for a shorter body (0: one chain)
+    pub consume_group: usize,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -102,6 +110,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     shadow: false,
     shared_body: false,
     body_inline: 0,
+    consume_group: 0,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -189,6 +198,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.body_inline > 0 {
         enabled.push(format!("bodyInline={}", opts.body_inline));
     }
+    if opts.consume_group > 0 {
+        enabled.push(format!("consumeGroup={}", opts.consume_group));
+    }
     if enabled.is_empty() {
         "none".to_string()
     } else {
@@ -233,9 +245,43 @@ pub fn steady_rounds(params: &Params, range: Range) -> (usize, usize) {
 }
 
 /// elements the consuming round holds on the stack: the rounds the layout
-/// takes to rotate back, the length of the shared body
-pub fn body_period(params: &Params, fork: &Fork) -> usize {
-    (params.t - 1).min(fork.reach - 4)
+/// takes to rotate back, the length of the shared body; in sub-chains of
+/// `group` slots each rotates on its own, so the lcm of their lengths
+pub fn body_period(params: &Params, fork: &Fork, group: usize) -> usize {
+    let slots = (params.t - 1).min(fork.reach - 4);
+    if group == 0 || group >= slots {
+        return slots;
+    }
+    let rem = slots % group;
+    if rem == 0 { group } else { lcm(group, rem) }
+}
+
+fn lcm(a: usize, b: usize) -> usize {
+    fn gcd(x: usize, y: usize) -> usize {
+        if y == 0 { x } else { gcd(y, x % y) }
+    }
+    a / gcd(a, b) * b
+}
+
+/// The sub-chain lengths worth trying, by the period they give, shortest
+/// first: the one with the fewest chains per period (the chains cost a
+/// SWAP each, the calls of a shorter body their overhead)
+pub fn group_candidates(params: &Params, fork: &Fork) -> Vec<usize> {
+    let slots = body_period(params, fork, 0);
+    let mut by_period: BTreeMap<usize, usize> = BTreeMap::new();
+    for group in 1..slots {
+        let period = body_period(params, fork, group);
+        if period >= slots {
+            continue;
+        }
+        match by_period.get(&period) {
+            Some(&prev) if slots.div_ceil(group) >= slots.div_ceil(prev) => {}
+            _ => {
+                by_period.insert(period, group);
+            }
+        }
+    }
+    by_period.into_values().collect()
 }
 
 fn wmax() -> U512 {
@@ -329,7 +375,7 @@ impl<'a> Builder<'a> {
             } else {
                 0
             };
-        let period = body_period(params, &fork);
+        let period = body_period(params, &fork, opts.consume_group);
         e.slot_base = rc_base
             + if opts.shared_body {
                 32 * (period + 2)
@@ -1378,12 +1424,20 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    /// Order in which the consuming round takes the elements of `old` the
-    /// stack holds but s0: the one under the sum first, then slot order for
-    /// the rounds in between, and for the last internal round an Eulerian
-    /// circuit of the blocks (Hierholzer's algorithm) that leaves every
-    /// element in the slots of its block of the external layer.
-    fn consume_order(&self, old: &[Id], mem: usize, next_internal: bool) -> Result<Vec<usize>> {
+    /// The chains in which the consuming round takes the elements of `old`
+    /// the stack holds but s0, as index lists (huff/schedule.ts
+    /// consumeChains): slot order from the slot under the sum for the
+    /// rounds in between, as one chain or in sub-chains of consume_group
+    /// slots, and for the last internal round Eulerian circuits of the
+    /// blocks (Hierholzer's algorithm), one per connected component from
+    /// the lowest slot left, that leave every element in the slots of its
+    /// block of the external layer.
+    fn consume_chains(
+        &self,
+        old: &[Id],
+        mem: usize,
+        next_internal: bool,
+    ) -> Result<Vec<Vec<usize>>> {
         let t = self.t;
         let slots = t - 1 - mem;
         // slot s holds index s - 2 + mem in the block order
@@ -1399,39 +1453,54 @@ impl<'a> Builder<'a> {
         }
         let order: Vec<usize> = at.keys().copied().collect();
         if next_internal {
-            return Ok(order.iter().map(|s| at[s]).collect());
+            let group = if self.opts.consume_group > 0 {
+                self.opts.consume_group
+            } else {
+                order.len()
+            };
+            return Ok(order
+                .chunks(group)
+                .map(|chunk| chunk.iter().map(|s| at[s]).collect())
+                .collect());
         }
         let block = |i: usize| i >> 2;
         let mut out: HashMap<usize, Vec<usize>> = HashMap::new();
         for &s in &order {
             out.entry(block(s - 2 + mem)).or_default().push(s);
         }
-        let mut circuit: Vec<usize> = Vec::new();
-        // (node, via)
-        let mut stack: Vec<(usize, usize)> = vec![(block(1 + mem), 0)];
-        while let Some(&(node, _)) = stack.last() {
-            match out.get_mut(&node).and_then(Vec::pop) {
-                Some(s) => stack.push((block(at[&s]), s)),
-                None => {
-                    let (_, via) = stack.pop().expect("non-empty stack");
-                    circuit.push(via);
+        let mut chains: Vec<Vec<usize>> = Vec::new();
+        let mut used: HashSet<usize> = HashSet::new();
+        for &first in &order {
+            if used.contains(&first) {
+                continue;
+            }
+            let mut circuit: Vec<usize> = Vec::new();
+            // (node, via)
+            let mut stack: Vec<(usize, usize)> = vec![(block(first - 2 + mem), 0)];
+            while let Some(&(node, _)) = stack.last() {
+                match out.get_mut(&node).and_then(Vec::pop) {
+                    Some(s) => stack.push((block(at[&s]), s)),
+                    None => {
+                        let (_, via) = stack.pop().expect("non-empty stack");
+                        circuit.push(via);
+                    }
                 }
             }
+            circuit.pop();
+            circuit.reverse();
+            let start = circuit.iter().position(|&s| s == first).unwrap_or(0);
+            let chain: Vec<usize> = circuit[start..]
+                .iter()
+                .chain(&circuit[..start])
+                .copied()
+                .collect();
+            used.extend(&chain);
+            chains.push(chain.iter().map(|s| at[s]).collect());
         }
-        circuit.pop();
-        circuit.reverse();
-        if circuit.len() != slots {
-            bail!("the blocks are not connected");
+        if used.len() != slots {
+            bail!("the blocks have no circuit");
         }
-        let start = circuit
-            .iter()
-            .position(|&s| s == 3)
-            .unwrap_or(circuit.len().saturating_sub(1));
-        Ok(circuit[start..]
-            .iter()
-            .chain(&circuit[..start])
-            .map(|s| at[s])
-            .collect())
+        Ok(chains)
     }
 
     /// Internal round that consumes the old state in place. Expects [s0, P]
@@ -1485,7 +1554,8 @@ impl<'a> Builder<'a> {
             self.e.swap(2)?;
         }
         let d0 = self.diag(0);
-        self.e
+        let m0 = self
+            .e
             .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
         self.e.end_line();
 
@@ -1498,7 +1568,11 @@ impl<'a> Builder<'a> {
             }
         }
         let mut to_stack: VecDeque<usize> = loads.iter().copied().filter(|&i| i > mem).collect();
-        let order = self.consume_order(&old, mem, next_internal)?;
+        let chains = self.consume_chains(&old, mem, next_internal)?;
+        let order: Vec<usize> = chains.iter().flatten().copied().collect();
+        // a chain closes with m0 back on top, its last output into the slot
+        // of its first element (the sum is then right under m0 after the
+        // last chain)
         if self.opts.prime_stack {
             // the elements in memory first, then the PRIME copies of the
             // first `stacked` swapped elements under m0: [m0, P, ..., P,
@@ -1520,51 +1594,61 @@ impl<'a> Builder<'a> {
                 self.e.swap(stacked)?;
                 self.e.end_line();
             }
-            for (k, &i) in order.iter().enumerate() {
-                let s = old[i];
-                self.swap_up(s)?;
-                if k >= stacked {
-                    self.e.push_prime()?;
-                    self.e.swap(1)?;
+            let mut k = 0;
+            for chain in &chains {
+                for &i in chain {
+                    let s = old[i];
+                    self.swap_up(s)?;
+                    if k >= stacked {
+                        self.e.push_prime()?;
+                        self.e.swap(1)?;
+                    }
+                    self.consume_finish(i, s, sum, mem, &mut out)?;
+                    if i <= mem {
+                        // the output went to memory: one that comes back to
+                        // the stack takes its place on top, with its own
+                        // PRIME copy
+                        let Some(j) = to_stack.pop_front() else {
+                            bail!("no element to load on top");
+                        };
+                        self.consume_load(j, &old, sum, mem, &mut out)?;
+                    }
+                    k += 1;
                 }
-                self.consume_finish(i, s, sum, mem, &mut out)?;
-                if i <= mem {
-                    // the output went to memory: one that comes back to the
-                    // stack takes its place on top, with its own PRIME copy
-                    let Some(j) = to_stack.pop_front() else {
-                        bail!("no element to load on top");
-                    };
-                    self.consume_load(j, &old, sum, mem, &mut out)?;
-                }
+                self.swap_up(m0)?;
             }
         } else {
-            for (k, &i) in order.iter().enumerate() {
-                let s = old[i];
-                self.swap_up(s)?;
-                self.e.push_prime()?;
-                self.e.swap(1)?;
-                self.consume_finish(i, s, sum, mem, &mut out)?;
-                if i <= mem {
-                    // the output went to memory: one that comes back to the
-                    // stack takes its place on top
-                    let Some(j) = to_stack.pop_front() else {
-                        bail!("no element to load on top");
-                    };
-                    self.consume_load(j, &old, sum, mem, &mut out)?;
-                }
-                if k == 0 {
-                    for &j in &loads {
-                        if j <= mem {
-                            self.consume_load(j, &old, sum, mem, &mut out)?;
+            let mut k = 0;
+            for chain in &chains {
+                for &i in chain {
+                    let s = old[i];
+                    self.swap_up(s)?;
+                    self.e.push_prime()?;
+                    self.e.swap(1)?;
+                    self.consume_finish(i, s, sum, mem, &mut out)?;
+                    if i <= mem {
+                        // the output went to memory: one that comes back to
+                        // the stack takes its place on top
+                        let Some(j) = to_stack.pop_front() else {
+                            bail!("no element to load on top");
+                        };
+                        self.consume_load(j, &old, sum, mem, &mut out)?;
+                    }
+                    if k == 0 {
+                        for &j in &loads {
+                            if j <= mem {
+                                self.consume_load(j, &old, sum, mem, &mut out)?;
+                            }
                         }
                     }
+                    k += 1;
                 }
+                self.swap_up(m0)?;
             }
         }
         if !to_stack.is_empty() {
             bail!("elements left to load on top");
         }
-        self.e.swap(2)?;
         let (a, b) = (self.e.top(0)?, self.e.top(1)?);
         out[0] = self.e.compute(Op::Add, &[inplace(a), inplace(b)], "s0'")?;
         if mem > 0 && self.e.at(slots + 1) != Some(p) {
@@ -2136,6 +2220,7 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                         shadow,
                                                         shared_body,
                                                         body_inline: 0,
+                                                        consume_group: 0,
                                                     });
                                                 }
                                             }
@@ -2237,6 +2322,23 @@ pub fn build_best_with(
                     opts.gc_m4_from = gc_m4_from;
                     result = build(&opts).map_err(|e| e.0)?;
                 }
+                if opts.shared_body && result.bytes > max_bytes {
+                    // a body too large for the code size: sub-chains shorten
+                    // it, the longest period that fits (the shorter, the
+                    // more chains and calls)
+                    let groups = group_candidates(params, &fork);
+                    let fits = |n: usize| {
+                        attempt(&BuildOptions {
+                            consume_group: groups[n],
+                            ..opts
+                        })
+                        .is_some_and(|r| r.bytes <= max_bytes)
+                    };
+                    if !groups.is_empty() && fits(0) {
+                        opts.consume_group = groups[largest(groups.len() - 1, fits)];
+                        result = build(&opts).map_err(|e| e.0)?;
+                    }
+                }
                 if opts.diag_in_memory && result.bytes <= max_bytes {
                     let diag_push32 = largest(params.t, |n| {
                         attempt(&BuildOptions {
@@ -2262,7 +2364,7 @@ pub fn build_best_with(
                     // a remainder call and the mid exit cost more than the
                     // 3 gas per round the body charges, so the largest count
                     // that leaves none when one fits
-                    let period = body_period(params, &fork);
+                    let period = body_period(params, &fork, opts.consume_group);
                     let extra = (period - (steady - body_inline) % period) % period;
                     if body_inline >= extra && fits(body_inline - extra) {
                         body_inline -= extra;

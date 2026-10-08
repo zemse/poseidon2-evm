@@ -638,7 +638,10 @@ impl Emitter {
     /// cuts short at its exit.
     pub fn end_body(&mut self) -> Result<()> {
         self.end_line();
-        if self.body_mode == BodyMode::Replay {
+        // the permissive pass is not checked: its slots are held for two
+        // rounds whatever the loads (a pattern of period 2 that an odd
+        // period never repeats), and the real pass checks its own opcodes
+        if self.body_mode == BodyMode::Replay && !self.permissive {
             let n = self.replay_ops.len();
             for (i, ops) in self.replay_ops.iter().enumerate() {
                 let want: &[String] = self.body_ops.get(i).map_or(&[], Vec::as_slice);

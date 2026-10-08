@@ -41,7 +41,7 @@ use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
     describe_options, step_count,
 };
-use split::split_permutation;
+use split::{Part, split_permutation};
 
 fn describe(result: &BuildResult, opts: &BuildOptions) -> String {
     let shadow = if result.stores + result.loads > 0 {
@@ -124,6 +124,12 @@ fn entry_gas(fork: &Fork, t: usize, result: &BuildResult) -> u64 {
     o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
 }
 
+/// gas of a call to a part, with a cold hop to the next one
+fn part_gas(part: &Part, t: usize) -> u64 {
+    let (result, o) = (&part.best.result, &part.overhead);
+    o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t + 32))
+}
+
 fn generate(t: usize, fork: &Fork) -> Result<Width> {
     let params = generate_params(t);
     let inputs = test_inputs(t);
@@ -154,7 +160,29 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         from: 0,
         to: step_count(&params),
     };
-    if let Some(best) = build_best(&params, &inputs, fork.code_size - overhead, *fork, range)? {
+    let mut best = build_best(&params, &inputs, fork.code_size - overhead, *fork, range)?;
+    // a whole permutation that fits only through the sub-chains of a shorter
+    // body pays for the size (the chains, the calls, diag constants in
+    // memory), which a split may beat
+    let mut parts = None;
+    if let Some(b) = &best {
+        if b.opts.consume_group > 0 {
+            let split = split_permutation(&params, &inputs, *fork)?;
+            let single = entry_gas(fork, t, &b.result);
+            if split.iter().map(|p| part_gas(p, t)).sum::<u64>() < single {
+                actions.push(Action::Log(format!(
+                    "{label}: {}",
+                    describe(&b.result, &b.opts)
+                )));
+                actions.push(Action::Log(format!(
+                    "  {single} gas per call as one contract: the split below costs less"
+                )));
+                best = None;
+            }
+            parts = Some(split);
+        }
+    }
+    if let Some(best) = best {
         let (result, opts) = (&best.result, &best.opts);
         actions.push(Action::Log(format!("{label}: {}", describe(result, opts))));
         if t == 4 {
@@ -216,7 +244,9 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         }
         actions.push(Action::MkdirAll(dir.clone()));
         fork_files(&mut actions, fork);
+        // the parts of an earlier split
         actions.push(Action::Remove(format!("{dir}/DeployParts.sol")));
+        actions.push(Action::RemoveParts(dir.clone(), 0));
         actions.push(Action::Write(
             format!("{dir}/Permutation.huff"),
             render_permutation(&params, result, opts, utils_path, fork),
@@ -243,7 +273,10 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     }
 
     // over the code size: split at step boundaries
-    let parts = split_permutation(&params, &inputs, *fork)?;
+    let parts = match parts {
+        Some(parts) => parts,
+        None => split_permutation(&params, &inputs, *fork)?,
+    };
     actions.push(Action::Log(format!(
         "{label}: {} parts (code size {})",
         parts.len(),
@@ -252,15 +285,15 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     actions.push(Action::MkdirAll(dir.clone()));
     fork_files(&mut actions, fork);
     let mut total = 0;
-    let mut part_gas = Vec::new();
+    let mut gases = Vec::new();
     for (i, part) in parts.iter().enumerate() {
         let (result, opts, o) = (&part.best.result, &part.best.opts, &part.overhead);
         let Range { from, to } = result.range;
         let bytes = result.bytes + o.bytes;
         let memory = memory_gas(result.memory.max(32 * t + 32));
-        let gas = o.entry_gas + result.gas + o.tail_gas + memory;
+        let gas = part_gas(part, t);
         total += gas;
-        part_gas.push(gas);
+        gases.push(gas);
         actions.push(Action::Log(format!(
             "  part {i}: steps {from}..{}, {bytes} bytes, {gas} gas (entry {}, tail {}, memory {memory}): {}",
             to as i64 - 1,
@@ -295,7 +328,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         paths: (0..parts.len())
             .map(|i| format!("{dir}/Part{i}.huff"))
             .collect(),
-        gas: part_gas,
+        gas: gases,
     };
     Ok(Width { t, actions, target })
 }
