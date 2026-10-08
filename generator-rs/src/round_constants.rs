@@ -2,13 +2,15 @@
 // reference script poseidon2_rust_params.sage (FIELD = 1, SBOX = 0, n = 254)
 // by way of round-constants/round-constants.ts. Everything the script
 // computes with Python floats is computed with f64 in the same operation
-// order, so the round-number search makes exactly the same choices.
+// order and node's log / log2 (fdlibm.rs), so the round-number search makes
+// exactly the same choices.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::prelude::*;
 
+use crate::fdlibm;
 use crate::field::{self, PRIME, U256, U512, add, inv, mul, neg, reduce, sub, u256};
 
 const FIELD: u64 = 1;
@@ -59,10 +61,10 @@ fn log2_big(x: u128) -> f64 {
     }
     let bits = 128 - x.leading_zeros();
     if bits <= 53 {
-        return (x as f64).log2();
+        return fdlibm::log2(x as f64);
     }
     let top = (x >> (bits - 53)) as f64;
-    top.log2() + f64::from(bits - 53)
+    fdlibm::log2(top) + f64::from(bits - 53)
 }
 
 /// Lanczos approximation of ln(gamma(x)), accurate to ~1e-13 relative
@@ -86,7 +88,7 @@ fn lgamma(x: f64) -> f64 {
     for (i, ci) in c.iter().enumerate().take(9).skip(1) {
         a += ci / (x + i as f64);
     }
-    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
+    0.5 * fdlibm::log(2.0 * std::f64::consts::PI) + (x + 0.5) * fdlibm::log(t) - t + fdlibm::log(a)
 }
 
 /// log2(binomial(n, k)). The float estimate decides unless it lands within
@@ -104,7 +106,7 @@ fn log2_binomial(n: f64, k: f64) -> f64 {
 }
 
 fn log(x: f64, base: f64) -> f64 {
-    x.ln() / base.ln()
+    fdlibm::log(x) / fdlibm::log(base)
 }
 
 fn sat_inequiv_alpha(t: f64, r_f: f64, r_p: f64, alpha: f64, m: f64) -> bool {

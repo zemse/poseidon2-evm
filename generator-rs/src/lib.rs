@@ -4,6 +4,7 @@
 
 pub mod assert_known;
 pub mod error;
+pub mod fdlibm;
 pub mod field;
 pub mod huff;
 pub mod reference;
