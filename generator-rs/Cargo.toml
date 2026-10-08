@@ -19,3 +19,7 @@ ruint = "1.20"
 debug = false
 lto = "thin"
 codegen-units = 1
+
+# the tests derive the parameters of t = 28, too slow unoptimized
+[profile.dev]
+opt-level = 3
