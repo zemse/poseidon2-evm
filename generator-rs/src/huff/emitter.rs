@@ -181,8 +181,13 @@ pub struct Emitter {
     /// keys DUPed out of reach, collected when permissive
     pub needed: HashSet<Key>,
     permissive: bool,
-    // memory slots: a shadowed value lives in its slot for the round it is
-    // produced in and the next one, then the slot is reused
+    /// dup calls per value so far, and per key the count at its last load
+    /// (collected when permissive; the real pass frees the slot there)
+    dups: HashMap<Id, usize>,
+    pub last_load: HashMap<Key, usize>,
+    // memory slots: a shadowed value lives in its slot until its last load
+    // (known from the permissive pass), or for the round it is produced in
+    // and the next one when no last load is known, then the slot is reused
     slots: HashMap<Id, usize>,
     holder: HashMap<usize, Id>,
     /// calldata offsets of the inputs that sit in calldata as the stack
@@ -232,6 +237,8 @@ impl Emitter {
             shadow,
             needed: HashSet::new(),
             permissive,
+            dups: HashMap::new(),
+            last_load: HashMap::new(),
             slots: HashMap::new(),
             holder: HashMap::new(),
             calldata: HashMap::new(),
@@ -381,9 +388,22 @@ impl Emitter {
 
     pub fn dup(&mut self, v: Id) -> Result<Id> {
         let n = self.find(v);
+        let count = {
+            let c = self.dups.entry(v).or_insert(0);
+            *c += 1;
+            *c
+        };
+        let key = self.keys[v];
         if n == 0 || n > self.max_reach {
             if let Some(&slot) = self.slots.get(&v) {
                 self.load(slot, v)?;
+                if let Some(key) = key {
+                    if self.permissive {
+                        self.last_load.insert(key, count);
+                    } else if self.last_load.get(&key) == Some(&count) {
+                        self.free(v, slot);
+                    }
+                }
                 return Ok(v);
             }
             if let Some(&offset) = self.calldata.get(&v) {
@@ -393,10 +413,10 @@ impl Emitter {
             if n == 0 {
                 bail!("{} is not on the stack", self.name(v));
             }
-            let key = self.keys[v];
             if let (true, Some(key)) = (self.permissive, key) {
                 // charged as the MLOAD it becomes once v is shadowed
                 self.needed.insert(key);
+                self.last_load.insert(key, count);
                 self.opcode(|| dup_text(n), gas::PUSH + gas::MLOAD, 4);
                 self.pushed(v);
                 return Ok(v);
@@ -684,6 +704,13 @@ impl Emitter {
             self.memory = offset + 32;
         }
         offset
+    }
+
+    /// The slot of v is free once its last load is done.
+    fn free(&mut self, v: Id, offset: usize) {
+        self.slots.remove(&v);
+        self.holder.remove(&offset);
+        self.pool[(offset - self.slot_base) / 32].round = i64::MIN / 2;
     }
 
     /// Shadow the top of the stack: DUP1 <off> MSTORE, the value stays on

@@ -1990,16 +1990,19 @@ fn build_checked(
     boundary: &Boundary,
 ) -> Result<BuildResult> {
     let mut shadow = HashSet::new();
+    let mut last_load = HashMap::new();
     if opts.shadow {
         let mut probe = Builder::new(
             params, inputs, *opts, fork, range, shadow, true, false, boundary,
         )?;
         probe.build()?;
         shadow = std::mem::take(&mut probe.e.needed);
+        last_load = std::mem::take(&mut probe.e.last_load);
     }
     let mut b = Builder::new(
         params, inputs, *opts, fork, range, shadow, false, text, boundary,
     )?;
+    b.e.last_load = last_load;
     let outputs = b.build()?;
     let e = &b.e;
     let t = params.t;

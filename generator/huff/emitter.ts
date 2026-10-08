@@ -16,7 +16,8 @@
 // a memory slot when it is produced (DUP1 <off> MSTORE, 9 gas) and loaded
 // from there (<off> MLOAD, 6 gas) whenever it is out of reach. Neither
 // changes the stack layout, so a permissive pass first records which values
-// need it and a second pass with the same schedule shadows exactly those.
+// need it, and when each is loaded for the last time, and a second pass with
+// the same schedule shadows exactly those and frees each slot at that load.
 //
 // Code the schedule reaches by JUMP more than once (the shared body of the
 // internal rounds, schedule.ts) is simulated at every call: the first call
@@ -128,8 +129,13 @@ export class Emitter {
   // keys DUPed out of reach, collected when permissive
   readonly needed = new Set<string>();
   readonly permissive: boolean;
-  // memory slots: a shadowed value lives in its slot for the round it is
-  // produced in and the next one, then the slot is reused
+  // dup calls per value so far, and per key the count at its last load
+  // (collected when permissive; the real pass frees the slot there)
+  private dups = new Map<Value, number>();
+  lastLoad: ReadonlyMap<string, number> = new Map();
+  // memory slots: a shadowed value lives in its slot until its last load
+  // (known from the permissive pass), or for the round it is produced in
+  // and the next one when no last load is known, then the slot is reused
   private slots = new Map<Value, number>();
   private holder = new Map<number, Value>();
   // calldata offsets of the inputs that sit in calldata as the stack holds
@@ -234,10 +240,20 @@ export class Emitter {
 
   dup(v: Value): Value {
     const n = this.find(v);
+    const count = (this.dups.get(v) ?? 0) + 1;
+    this.dups.set(v, count);
+    const key = this.keys.get(v);
     if (n === 0 || n > this.maxReach) {
       const slot = this.slots.get(v);
       if (slot !== undefined) {
         this.load(slot, v);
+        if (key !== undefined) {
+          if (this.permissive) {
+            (this.lastLoad as Map<string, number>).set(key, count);
+          } else if (this.lastLoad.get(key) === count) {
+            this.free(v, slot);
+          }
+        }
         return v;
       }
       const offset = this.calldata.get(v);
@@ -246,10 +262,10 @@ export class Emitter {
         return v;
       }
       if (n === 0) throw new Error(`${v.name} is not on the stack`);
-      const key = this.keys.get(v);
       if (this.permissive && key !== undefined) {
         // charged as the MLOAD it becomes once v is shadowed
         this.needed.add(key);
+        (this.lastLoad as Map<string, number>).set(key, count);
         this.opcode(dupText(n), GAS.push + GAS.mload, 4);
         this.pushed(v);
         return v;
@@ -480,6 +496,13 @@ export class Emitter {
     this.holder.set(slot.offset, v);
     if (slot.offset + 32 > this.memory) this.memory = slot.offset + 32;
     return slot.offset;
+  }
+
+  // The slot of v is free once its last load is done.
+  private free(v: Value, offset: number) {
+    this.slots.delete(v);
+    this.holder.delete(offset);
+    this.pool[(offset - this.slotBase) / 32].round = -Infinity;
   }
 
   // Shadow the top of the stack: DUP1 <off> MSTORE, the value stays on top.

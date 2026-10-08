@@ -1576,6 +1576,7 @@ export function buildPermutation(
   boundary: Boundary = {},
 ): BuildResult {
   let shadow: ReadonlySet<string> = new Set();
+  let lastLoad: ReadonlyMap<string, number> = new Map();
   if (opts.shadow) {
     const probe = new Builder(
       params,
@@ -1589,6 +1590,7 @@ export function buildPermutation(
     );
     probe.build();
     shadow = probe.e.needed;
+    lastLoad = probe.e.lastLoad;
   }
   const b = new Builder(
     params,
@@ -1600,6 +1602,7 @@ export function buildPermutation(
     false,
     boundary,
   );
+  b.e.lastLoad = lastLoad;
   const outputs = b.build();
   const e = b.e;
   const final = range.to === stepCount(params);

@@ -49,7 +49,7 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 56361);
+    assert_eq!(reports[0].gas.measured, 56289);
 }
 
 #[test]
@@ -58,5 +58,5 @@ fn osaka_split_t20() {
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 2);
     // forge, with every part cold
-    assert_eq!(reports[0].gas.measured, 74502);
+    assert_eq!(reports[0].gas.measured, 74271);
 }
