@@ -57,6 +57,9 @@ pub struct BuildOptions {
     /// with gc_internal, leave the garbage of the first gc_internal_from
     /// internal rounds in place as far as the depth allows
     pub gc_internal_from: usize,
+    /// with gc_m4, leave the M4 temporaries of the first gc_m4_from external
+    /// layers in place as far as the depth allows
+    pub gc_m4_from: usize,
     /// with diag_in_memory, keep the last diag_push32 diag constants as
     /// PUSH32 as far as the code size allows
     pub diag_push32: usize,
@@ -78,6 +81,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     internal_consume: false,
     prime_stack: false,
     gc_internal_from: 0,
+    gc_m4_from: 0,
     diag_push32: 0,
     shadow: false,
 };
@@ -127,6 +131,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
         .collect();
     if opts.gc_internal_from > 0 {
         enabled.push(format!("gcInternalFrom={}", opts.gc_internal_from));
+    }
+    if opts.gc_m4_from > 0 {
+        enabled.push(format!("gcM4From={}", opts.gc_m4_from));
     }
     if opts.diag_push32 > 0 {
         enabled.push(format!("diagPush32={}", opts.diag_push32));
@@ -202,6 +209,8 @@ struct Builder<'a> {
     dead: Vec<Id>,
     /// the outputs the caller reads, in state order (all when None)
     live: Option<Vec<usize>>,
+    /// external layers built so far
+    layers: usize,
 }
 
 fn val(v: Id) -> Operand {
@@ -284,6 +293,7 @@ impl<'a> Builder<'a> {
             state,
             dead: Vec::new(),
             live: boundary.live.clone(),
+            layers: 0,
         })
     }
 
@@ -724,7 +734,8 @@ impl<'a> Builder<'a> {
             reduce5,
         )?;
         self.e.end_line();
-        let gc = (self.opts.gc_m4 || hooks.force_gc) && !hooks.before_outputs;
+        let gc_m4 = self.opts.gc_m4 && self.layers > self.opts.gc_m4_from;
+        let gc = (gc_m4 || hooks.force_gc) && !hooks.before_outputs;
         let mut extra = temps;
         extra.extend_from_slice(&hooks.extra_garbage);
         if gc && !hooks.keep_order {
@@ -768,6 +779,7 @@ impl<'a> Builder<'a> {
     /// reach.
     fn external_matrix(&mut self, clean: bool, before_last: bool, prime_under: bool) -> Result<()> {
         let t = self.t;
+        self.layers += 1;
         let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
         let before_outputs =
             (clean && t <= 4) || (prime_under && !clean && self.opts.prime_under_external);
@@ -1865,6 +1877,7 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                     internal_consume,
                                                     prime_stack,
                                                     gc_internal_from: 0,
+                                                    gc_m4_from: 0,
                                                     diag_push32: 0,
                                                     shadow,
                                                 });
@@ -1943,6 +1956,17 @@ pub fn build_best_with(
                         .is_some_and(|r| r.max_depth <= 1000)
                     });
                     opts.gc_internal_from = gc_internal_from;
+                    result = build(&opts).map_err(|e| e.0)?;
+                }
+                if opts.gc_m4 && fork.reach > 16 {
+                    let gc_m4_from = largest(params.rounds_f + 1, |n| {
+                        attempt(&BuildOptions {
+                            gc_m4_from: n,
+                            ..opts
+                        })
+                        .is_some_and(|r| r.max_depth <= 1000)
+                    });
+                    opts.gc_m4_from = gc_m4_from;
                     result = build(&opts).map_err(|e| e.0)?;
                 }
                 if opts.diag_in_memory && result.bytes <= max_bytes {

@@ -66,6 +66,9 @@ export type BuildOptions = {
   // with gcInternal, leave the garbage of the first gcInternalFrom internal
   // rounds in place (no SWAPn POP) as far as the depth allows
   gcInternalFrom: number;
+  // with gcM4, leave the M4 temporaries of the first gcM4From external
+  // layers in place as far as the depth allows
+  gcM4From: number;
   // with diagInMemory, keep the last diagPush32 diag constants as PUSH32
   // (3 gas instead of 6 per use) as far as the code size allows
   diagPush32: number;
@@ -87,6 +90,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   internalConsume: false,
   primeStack: false,
   gcInternalFrom: 0,
+  gcM4From: 0,
   diagPush32: 0,
   shadow: false,
 };
@@ -153,6 +157,8 @@ class Builder {
   dead: Value[] = [];
   // the outputs the caller reads, in state order (all when undefined)
   readonly live: number[] | undefined;
+  // external layers built so far
+  layers = 0;
 
   constructor(
     params: Params,
@@ -562,7 +568,8 @@ class Builder {
       clean || !e.fitsAdd(t2, this.P),
     );
     e.endLine();
-    const gc = (this.opts.gcM4 || hooks.forceGc) && !hooks.beforeOutputs;
+    const gcM4 = this.opts.gcM4 && this.layers > this.opts.gcM4From;
+    const gc = (gcM4 || hooks.forceGc) && !hooks.beforeOutputs;
     const extra = [...temps, ...(hooks.extraGarbage ?? [])];
     if (gc && !hooks.keepOrder) {
       // three live outputs on top, order does not matter here
@@ -596,6 +603,7 @@ class Builder {
   externalMatrix(clean: boolean, beforeLast?: () => void, primeUnder = false) {
     const e = this.e;
     const t = this.t;
+    this.layers++;
     const names = Array.from({ length: t }, (_, i) => `s${i}'`);
     const beforeOutputs =
       (clean && t <= 4) ||
@@ -1511,6 +1519,7 @@ export function buildBest(
                             internalConsume,
                             primeStack,
                             gcInternalFrom: 0,
+                            gcM4From: 0,
                             diagPush32: 0,
                             shadow,
                           });
@@ -1564,6 +1573,14 @@ export function buildBest(
               range,
               boundary,
             );
+          }
+          if (opts.gcM4 && fork.reach > 16) {
+            const gcM4From = largest(params.roundsF + 1, (n) => {
+              const r = attempt({ ...opts, gcM4From: n });
+              return r !== undefined && r.maxDepth <= 1000;
+            });
+            opts = { ...opts, gcM4From };
+            result = buildPermutation(params, inputs, opts, fork, range);
           }
           if (opts.diagInMemory && result.bytes <= maxBytes) {
             const diagPush32 = largest(params.t, (n) => {
