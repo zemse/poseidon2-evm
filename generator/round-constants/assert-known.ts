@@ -1,4 +1,4 @@
-// Known values from sources independent of params.ts and reference.ts. Both
+// Known values from sources independent of round-constants.ts and reference.ts. Both
 // generators run every assertion here before building any width, so a change
 // to the parameter derivation or the reference permutation that no longer
 // reproduces them stops the generation. Nothing is fetched: the values are
@@ -10,7 +10,7 @@
 // 28 beyond the paper's round numbers for 20 and 24.
 
 import { PRIME, hex, mod } from "../shared/field.ts";
-import { calcRoundNumbers, generateParams } from "./params.ts";
+import { calcRoundNumbers, generateParams } from "./round-constants.ts";
 import { hashSponge, permutation } from "../shared/reference.ts";
 import { internal_matrix_diagonal, round_constant } from "../../constants.ts";
 

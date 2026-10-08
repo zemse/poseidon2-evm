@@ -2,7 +2,7 @@
 // reference implementation (matmul_m4 / matmul_external / matmul_internal).
 
 import { add, mul, mod } from "./field.ts";
-import type { Params } from "../params/params.ts";
+import type { Params } from "../round-constants/round-constants.ts";
 
 function sbox(x: bigint): bigint {
   const x2 = mul(x, x);

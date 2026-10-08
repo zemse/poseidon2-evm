@@ -2,7 +2,7 @@
 //
 //   node generator/huff/generate.ts [--hardfork <name>] [t ...]   (default: 4)
 //
-// Parameters are derived like the HorizenLabs sage script (../params/params.ts),
+// Parameters are derived like the HorizenLabs sage script (../round-constants/round-constants.ts),
 // the stack schedule is simulated and checked against the BigInt reference
 // permutation before anything is written (schedule.ts). The hardfork
 // (fork.ts, default amsterdam) decides the opcodes the schedule may use and
@@ -14,8 +14,8 @@
 // the contract to call.
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { assertKnown } from "../params/assert-known.ts";
-import { generateParams } from "../params/params.ts";
+import { assertKnown } from "../round-constants/assert-known.ts";
+import { generateParams } from "../round-constants/round-constants.ts";
 import { permutation } from "../shared/reference.ts";
 import { testInputs } from "../shared/vectors.ts";
 import { DEFAULT_HARDFORK, fork as forkOf, type Fork } from "./fork.ts";

@@ -23,7 +23,7 @@
 
 import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
 import { PRIME, UINT256_MAX } from "../shared/field.ts";
-import type { Params } from "../params/params.ts";
+import type { Params } from "../round-constants/round-constants.ts";
 import { permutationSteps } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 

@@ -16,7 +16,7 @@
 // reach model below, which assumes the literal compile.
 
 import { PRIME, UINT256_MAX } from "../shared/field.ts";
-import type { Params } from "../params/params.ts";
+import type { Params } from "../round-constants/round-constants.ts";
 import { permutation } from "../shared/reference.ts";
 import { Value } from "../shared/value.ts";
 import { Program } from "./program.ts";

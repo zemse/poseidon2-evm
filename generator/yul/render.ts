@@ -2,7 +2,7 @@
 // t != 4 permutation.
 
 import { hex, PRIME } from "../shared/field.ts";
-import type { Params } from "../params/params.ts";
+import type { Params } from "../round-constants/round-constants.ts";
 import type { BuildResult, Layout } from "./schedule.ts";
 
 const HEADER = `// SPDX-License-Identifier: MIT

@@ -7,7 +7,7 @@
 // it behind the runtime code, where NEXT_PART() reads it with CODECOPY.
 
 import { hex, PRIME } from "../shared/field.ts";
-import type { Params } from "../params/params.ts";
+import type { Params } from "../round-constants/round-constants.ts";
 import {
   dupText,
   pushBytes,
