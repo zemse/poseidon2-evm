@@ -106,6 +106,12 @@ pub fn permutation_steps(params: &Params, input: &[U256], from: usize, to: usize
 /// Sponge used by the deployed t = 4 contract: state [x0, x1, x2, n << 64],
 /// output is state[0] after one permutation.
 pub fn hash_sponge(params: &Params, inputs: &[U256]) -> U256 {
+    permutation(params, &sponge_state(params, inputs))[0]
+}
+
+/// The state the sponge permutes for n inputs: the inputs reduced, zeros,
+/// and n << 64 as the capacity element.
+pub fn sponge_state(params: &Params, inputs: &[U256]) -> Vec<U256> {
     let rate = params.t - 1;
     assert!(inputs.len() <= rate, "too many inputs for one permutation");
     let mut state = vec![U256::ZERO; params.t];
@@ -113,5 +119,5 @@ pub fn hash_sponge(params: &Params, inputs: &[U256]) -> U256 {
         *s = reduce(*x);
     }
     state[params.t - 1] = u256(inputs.len() as u64) << 64;
-    permutation(params, &state)[0]
+    state
 }

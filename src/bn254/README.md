@@ -23,7 +23,7 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 | --------------- | ------- | ------- | ------- |
 | Pure Solidity   | 217,702 | 218,222 | 218,801 |
 | Yul (contract)  | 15,127  | 15,127  | 15,127  |
-| Huff (contract) | 12,378  | 12,378  | 12,378  |
+| Huff (contract) | 12,176  | 12,198  | 12,271  |
 
 ## Recommendation
 
@@ -64,13 +64,13 @@ This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 de
 - `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs. The hardfork (`huff/fork.ts`, `--hardfork <name>`) sets the reach: `DUP16` / `SWAP16` for the legacy opcodes, slot 235 with the EIP-8024 `DUPN` / `SWAPN` of Amsterdam (3 gas and 2 bytes each, so the one-byte opcodes are still preferred up to 16). A value the reach cannot `DUP` can be shadowed: stored to a memory slot when produced and loaded from there instead (see Osaka below).
 - `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer, which value the internal round reduces, whether it leaves a PRIME copy under the state every round, whether the internal rounds consume the old state in place), keeping the cheapest one that fits. `huff/split.ts` cuts a permutation over the fork's code size into parts at round boundaries.
 
-Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is called through the hand-written `huff/t4/Poseidon2.huff` (`hash_1` / `hash_2` / `hash_3`, tested in `test/Poseidon2.t.sol`); the other widths get a generated entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`. All of them target Amsterdam (below), and `forge test` runs on an Amsterdam EVM (`evm_version = "amsterdam"` in `foundry.toml`); CI checks that the output fails on Osaka.
+Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is called through the generated hash entry `huff/t4/Poseidon2.huff` (`hash_1` / `hash_2` / `hash_3`, tested in `test/Poseidon2.t.sol`): the arity comes from calldatasize, each arity runs its own round 0 with the missing words and the capacity `n << 64` folded into its constants, then jumps into the shared rounds 1 to 63, whose last linear layer computes only the returned `s0'` (row 0 of M4 straight from the S-boxes). The three cost 12,176, 12,198 and 12,271 gas. The other widths get a generated entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`. All of them target Amsterdam (below), and `forge test` runs on an Amsterdam EVM (`evm_version = "amsterdam"` in `foundry.toml`); CI checks that the output fails on Osaka.
 
 | t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                               |
 | --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------- |
 | 2   | 8   | 56  | 6,081           | 6,133    | 218             | 120     | 4,037         | stack, lazy internal sum                                |
 | 3   | 8   | 56  | 7,875           | 7,950    | 293             | 121     | 4,837         | stack                                                   |
-| 4   | 8   | 56  | 12,300          | 12,378   | 396             | 128     | 13,432        | stack                                                   |
+| 4   | 8   | 56  | 12,300          | 12,198   | 385             | 128     | 13,943        | stack, hash entry: round 0 per arity, s0' only          |
 | 8   | 8   | 57  | 24,163          | 24,353   | 831             | 152     | 25,419        | stack, diag as PUSH32                                   |
 | 12  | 8   | 57  | 35,650          | 35,932   | 1,000           | 147     | 37,439        | stack, diag as PUSH32, gcInternal from round 56         |
 | 16  | 8   | 57  | 47,967          | 48,341   | 996             | 152     | 50,751        | stack, diag as PUSH32, gcInternal from round 46         |
@@ -78,7 +78,7 @@ Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is call
 | 24  | 8   | 57  | 72,056          | 72,615   | 863             | 201     | 65,262        | stack, 6 diag in memory, 18 PUSH32, internalConsume     |
 | 28  | 8   | 59  | 88,351          | 89,002   | 776             | 205     | 65,268        | stack, 15 diag in memory, 13 PUSH32, internalConsume    |
 
-Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 24 and t = 28 are about 270 bytes under the 65,536 byte limit. Up to t = 16 every width DUPs the PRIME copies of its internal rounds from wherever the nearest one sits (`floatPrimeInternal`), which is why the deepest DUP is above 100 everywhere; from t = 20 the internal rounds consume the old state in place (`internalConsume`, see the legacy opcodes below), which beats collecting it within the 1024 depth. With the legacy opcodes (before Amsterdam) the same widths cost 6,196, 8,040, 12,497, 24,829 and 39,865 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_2`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 24 and t = 28 are about 270 bytes under the 65,536 byte limit. Up to t = 16 every width DUPs the PRIME copies of its internal rounds from wherever the nearest one sits (`floatPrimeInternal`), which is why the deepest DUP is above 100 everywhere; from t = 20 the internal rounds consume the old state in place (`internalConsume`, see the legacy opcodes below), which beats collecting it within the 1024 depth. With the legacy opcodes (before Amsterdam) the same widths cost 6,196, 8,040, 12,497, 24,829 and 39,865 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
 
 #### Hardforks
 

@@ -19,7 +19,7 @@ use super::fork::Fork;
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
-use crate::reference::permutation_steps;
+use crate::reference::{permutation_steps, sponge_state};
 use crate::round_constants::Params;
 use crate::value::Op;
 
@@ -82,6 +82,17 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
 pub struct Range {
     pub from: usize,
     pub to: usize,
+}
+
+/// What a build takes and what its caller reads: the bound of every input
+/// (clean, PRIME - 1, by default) and the outputs the caller uses (all by
+/// default). The t = 4 hash entry starts its rounds from the lazy values of
+/// its round 0 and reads s0' alone, so its last linear layer computes only
+/// that row (final_round_row0).
+#[derive(Debug, Clone, Default)]
+pub struct Boundary {
+    pub bounds: Option<Vec<U256>>,
+    pub live: Option<Vec<usize>>,
 }
 
 pub fn step_count(params: &Params) -> usize {
@@ -183,6 +194,8 @@ struct Builder<'a> {
     state: Vec<Id>,
     /// dead values left near the top of the state by the previous round
     dead: Vec<Id>,
+    /// the outputs the caller reads, in state order (all when None)
+    live: Option<Vec<usize>>,
 }
 
 fn val(v: Id) -> Operand {
@@ -212,6 +225,7 @@ impl<'a> Builder<'a> {
         shadow: HashSet<Key>,
         permissive: bool,
         text: bool,
+        boundary: &Boundary,
     ) -> Result<Builder<'a>> {
         let t = params.t;
         let state_in_memory = opts.shadow || range.to < step_count(params);
@@ -234,7 +248,13 @@ impl<'a> Builder<'a> {
         let mut input_slots = vec![None; t];
         for (i, slot) in input_slots.iter_mut().enumerate() {
             let vals = inputs.iter().map(|inp| inp[i]).collect();
-            let v = e.alloc(crate::value::Value::new(format!("s{i}"), p1(), vals, None)?);
+            let bound = boundary.bounds.as_ref().map_or(p1(), |b| b[i]);
+            let v = e.alloc(crate::value::Value::new(
+                format!("s{i}"),
+                bound,
+                vals,
+                None,
+            )?);
             e.key(v, Key::In(i));
             if e.shadows(Key::In(i)) {
                 *slot = Some(e.declare(v));
@@ -257,6 +277,7 @@ impl<'a> Builder<'a> {
             step_bytes: Vec::new(),
             state,
             dead: Vec::new(),
+            live: boundary.live.clone(),
         })
     }
 
@@ -879,6 +900,208 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
+    /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
+    /// the S-boxes instead of the M4 temporaries. A PRIME copy for the final
+    /// MOD goes down first; each lane, last first, is S-boxed on top of its
+    /// coefficient and a PRIME copy, MULMODed by the coefficient in place
+    /// and ADDed to the row so far, which stays under 4p.
+    fn final_round_row0(&mut self, round: usize) -> Result<()> {
+        if self.t != 4 {
+            bail!("finalRoundRow0 is t = 4 only");
+        }
+        let row = [5u64, 7, 1, 3];
+        let p = self.p();
+        self.e.push_prime()?;
+        let mut acc: Option<Id> = None;
+        for i in (0..4).rev() {
+            let s = self.state[i];
+            let k = row[i];
+            let mut coeff = None;
+            if k != 1 {
+                self.e.push_prime()?;
+                coeff = Some(self.e.push(u256(k), None)?);
+            }
+            let c = self.params.round_constants[round][i];
+            self.e.push_prime()?;
+            let name = format!("s{i}+c");
+            let y = if self.e.fits_add(self.bound(s), c) {
+                self.e
+                    .compute(Op::Add, &[constant(c, "c"), val(s)], &name)?
+            } else {
+                self.e
+                    .compute(Op::Addmod, &[constant(c, "c"), val(s), val(p)], &name)?
+            };
+            let mut term = self.sbox(y, &format!("s{i}'"))?;
+            if let Some(coeff) = coeff {
+                term = self.e.compute(
+                    Op::Mulmod,
+                    &[inplace(term), inplace(coeff), inplace(p)],
+                    &format!("{k}s{i}'"),
+                )?;
+            }
+            acc = Some(match acc {
+                Some(acc) => self
+                    .e
+                    .compute(Op::Add, &[inplace(term), inplace(acc)], "row0")?,
+                None => term,
+            });
+            self.e.end_line();
+        }
+        let acc = acc.expect("four lanes");
+        let out = self
+            .e
+            .compute(Op::Mod, &[inplace(acc), inplace(p)], "s0'")?;
+        self.e.end_line();
+        self.state = vec![out];
+        Ok(())
+    }
+
+    /// k s on top, as MUL when k s + K fits in uint256 (K is added right
+    /// after), else MULMOD.
+    fn scale(&mut self, s: Id, k: u64, add: U256, name: &str) -> Result<Id> {
+        let kv = constant_hex(u256(k));
+        let fits = (wide(self.bound(s)) * U512::from(k) + wide(add)) <= wmax();
+        if fits {
+            return self.e.compute(Op::Mul, &[val(s), kv], name);
+        }
+        let p = self.p();
+        self.e.compute(Op::Mulmod, &[val(s), kv, val(p)], name)
+    }
+
+    /// A lane of the hash entry's round 0: y on top of a PRIME copy, then
+    /// its S-box.
+    fn hash_lane(&mut self, i: usize, make_y: impl FnOnce(&mut Self) -> Result<Id>) -> Result<Id> {
+        self.e.push_prime()?;
+        let y = make_y(self)?;
+        let out = self.sbox(y, &format!("s{i}'"))?;
+        self.e.end_line();
+        Ok(out)
+    }
+
+    /// Round 0 of the hash entry for n inputs: the stack holds [s0, ...,
+    /// s(n-1), PRIME] and the other lanes are the sponge constants (zeros,
+    /// then the capacity n << 64), so the initial linear layer and the
+    /// constant addition fold into one linear form per lane, y_i = sum_j
+    /// M4[i][j] s_j + K_i with K_i = M4[i][3] (n << 64) + c_i. With the
+    /// sums t0 = s0 + s1, w = 2 s1 + s2 (reduced), u = 4 s2 + t0 and t5 =
+    /// 4 t0 + w, the rows M4 = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7],
+    /// [1, 1, 4, 6]] give y3 = u + K3, y2 = w + u + K2, y1 = t5 + K1 and
+    /// y0 = t5 + t0 + K0; a zero lane drops its terms, and a form that
+    /// would not fit takes its multiple of t0 as a MULMOD. Each lane is then
+    /// S-boxed, last first, and M4 follows as in any external round, leaving
+    /// [s0', s1', s2', s3', PRIME] for the rounds after.
+    fn hash_round0(&mut self, n: usize) -> Result<()> {
+        if self.t != 4 {
+            bail!("hashRound0 is t = 4 only");
+        }
+        if !(1..=3).contains(&n) {
+            bail!("hash arity {n}");
+        }
+        let p = self.p();
+        let mut stack: Vec<Id> = self.state[..n].to_vec();
+        stack.push(p);
+        self.e.set_stack(&stack);
+        self.e.max_depth = stack.len();
+        self.e.end_line();
+        let iv = u256(n as u64) << 64;
+        let rows: [[u64; 4]; 4] = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7], [1, 1, 4, 6]];
+        let k: Vec<U256> = (0..4)
+            .map(|i| {
+                crate::field::reduce(u256(rows[i][3]) * iv + self.params.round_constants[0][i])
+            })
+            .collect();
+        let kc = |i: usize| constant(k[i], &format!("K{i}"));
+        let four = constant_hex(u256(4));
+        let (a, b, c) = (self.state[0], self.state[1], self.state[2]);
+        let mut out = [0; 4];
+        if n == 1 {
+            out[3] = self.hash_lane(3, |bl| bl.e.compute(Op::Add, &[kc(3), val(a)], "y3"))?;
+            out[2] = self.hash_lane(2, |bl| bl.e.compute(Op::Add, &[kc(2), val(a)], "y2"))?;
+            out[1] = self.hash_lane(1, |bl| {
+                let m = bl.scale(a, 4, k[1], "4s0")?;
+                bl.e.compute(Op::Add, &[kc(1), inplace(m)], "y1")
+            })?;
+            out[0] = self.hash_lane(0, |bl| {
+                let m = bl.scale(a, 5, k[0], "5s0")?;
+                bl.e.compute(Op::Add, &[kc(0), inplace(m)], "y0")
+            })?;
+        } else {
+            let t0 = self.e.compute(Op::Add, &[val(a), val(b)], "t0")?;
+            self.e.end_line();
+            let (w, u);
+            if n == 2 {
+                w = self.e.compute(Op::Add, &[val(b), val(b)], "w")?;
+                self.e.end_line();
+                u = t0;
+            } else {
+                w = self.add_to(
+                    |bl| bl.e.compute(Op::Add, &[val(b), val(b)], "2s1"),
+                    c,
+                    "w",
+                    true,
+                )?;
+                self.e.end_line();
+                let f = four.clone();
+                u = self.add_to(
+                    |bl| bl.e.compute(Op::Mulmod, &[val(c), f, val(p)], "4s2"),
+                    t0,
+                    "u",
+                    false,
+                )?;
+                self.e.end_line();
+            }
+            out[3] = self.hash_lane(3, |bl| bl.e.compute(Op::Add, &[kc(3), val(u)], "y3"))?;
+            out[2] = self.hash_lane(2, |bl| {
+                let s = bl.e.compute(Op::Add, &[val(w), val(u)], "w+u")?;
+                bl.e.compute(Op::Add, &[kc(2), inplace(s)], "y2")
+            })?;
+            if n == 2 {
+                // t5 + t0 would not fit: 5 t0 reduced, then w
+                let f = four.clone();
+                out[1] = self.hash_lane(1, |bl| {
+                    let t5 = bl.add_to(
+                        |bb| bb.e.compute(Op::Mulmod, &[val(t0), f, val(p)], "4t0"),
+                        w,
+                        "t5",
+                        false,
+                    )?;
+                    bl.e.compute(Op::Add, &[kc(1), inplace(t5)], "y1")
+                })?;
+                out[0] = self.hash_lane(0, |bl| {
+                    let s = bl.add_to(
+                        |bb| {
+                            bb.e.compute(
+                                Op::Mulmod,
+                                &[val(t0), constant_hex(u256(5)), val(p)],
+                                "5t0",
+                            )
+                        },
+                        w,
+                        "5t0+w",
+                        false,
+                    )?;
+                    bl.e.compute(Op::Add, &[kc(0), inplace(s)], "y0")
+                })?;
+            } else {
+                let t5 = self.add_to(
+                    |bl| bl.e.compute(Op::Mulmod, &[val(t0), four, val(p)], "4t0"),
+                    w,
+                    "t5",
+                    false,
+                )?;
+                self.e.end_line();
+                out[1] = self.hash_lane(1, |bl| bl.e.compute(Op::Add, &[kc(1), val(t5)], "y1"))?;
+                out[0] = self.hash_lane(0, |bl| {
+                    let s = bl.e.compute(Op::Add, &[val(t0), val(t5)], "t5+t0")?;
+                    bl.e.compute(Op::Add, &[kc(0), inplace(s)], "y0")
+                })?;
+            }
+        }
+        self.state = out.to_vec();
+        self.external_matrix(false, false, true)
+    }
+
     /// Writes the state to [0, 32t) for the next part or the caller.
     fn store_state(&mut self) -> Result<()> {
         self.e.comment("State to memory");
@@ -1279,6 +1502,12 @@ impl<'a> Builder<'a> {
                 } else {
                     self.internal_round(r, next_internal)?;
                 }
+            } else if r == total - 1 && self.live.is_some() {
+                self.e.comment(&format!("Round {r} (external, s0' only)"));
+                if self.live.as_deref() != Some(&[0]) {
+                    bail!("only s0' can be the live output");
+                }
+                self.final_round_row0(r)?;
             } else {
                 self.e.comment(&format!("Round {r} (external)"));
                 self.add_constants_and_sbox(r)?;
@@ -1297,6 +1526,106 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// The round 0 the hash entry runs for n inputs (Builder::hash_round0)
+/// with its gas, bytes, stack depth and lazy outputs, checked against the
+/// reference before anything is written.
+#[derive(Debug, Clone)]
+pub struct Prologue {
+    pub n: usize,
+    pub lines: Vec<String>,
+    pub gas: u64,
+    pub bytes: usize,
+    /// stack depth at the end: the rounds after run on top of it
+    pub depth: usize,
+    /// bound of [s0', s1', s2', s3'] after round 0, lazy
+    pub bounds: Vec<U256>,
+    /// their values per vector
+    pub outputs: Vec<Vec<U256>>,
+}
+
+pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> Result<Prologue> {
+    let t = params.t;
+    let n = inputs[0].len();
+    let states: Vec<Vec<U256>> = inputs
+        .iter()
+        .map(|input| sponge_state(params, input))
+        .collect();
+    let range = Range { from: 0, to: 2 };
+    let mut b = Builder::new(
+        params,
+        &states,
+        DEFAULT_OPTIONS,
+        fork,
+        range,
+        HashSet::new(),
+        false,
+        true,
+        &Boundary::default(),
+    )?;
+    b.hash_round0(n)?;
+    for (k, state) in states.iter().enumerate() {
+        let want = permutation_steps(params, state, 0, 2);
+        for (i, &w) in want.iter().enumerate() {
+            if crate::field::reduce(b.e.value(b.state[i]).vals[k]) != w {
+                bail!("hash_{n} round 0: vector {k} output {i} mismatch");
+            }
+        }
+    }
+    for i in 0..t {
+        if b.e.at(i) != Some(b.state[i]) {
+            bail!("hash_{n} round 0: outputs are not on top");
+        }
+    }
+    let bounds = b.state.iter().map(|&v| b.e.bound(v)).collect();
+    let outputs = (0..states.len())
+        .map(|k| b.state.iter().map(|&v| b.e.value(v).vals[k]).collect())
+        .collect();
+    let depth = b.e.depth();
+    Ok(Prologue {
+        n,
+        lines: b.e.lines,
+        gas: b.e.gas,
+        bytes: b.e.bytes,
+        depth,
+        bounds,
+        outputs,
+    })
+}
+
+/// The rounds after round 0 shared by the hash entry's arities, built from
+/// the lazy values every prologue leaves (their bounds joined, their
+/// vectors concatenated) and reading s0' alone.
+pub fn build_hash_rounds(
+    params: &Params,
+    prologues: &[Prologue],
+    max_bytes: usize,
+    fork: Fork,
+) -> Result<Best> {
+    let t = params.t;
+    let mut inputs: Vec<Vec<U256>> = Vec::new();
+    let mut bounds = vec![U256::ZERO; t];
+    for p in prologues {
+        for (bound, &b) in bounds.iter_mut().zip(&p.bounds) {
+            if b > *bound {
+                *bound = b;
+            }
+        }
+        inputs.extend(p.outputs.iter().cloned());
+    }
+    let boundary = Boundary {
+        bounds: Some(bounds),
+        live: Some(vec![0]),
+    };
+    let range = Range {
+        from: 2,
+        to: step_count(params),
+    };
+    match build_best_with(params, &inputs, max_bytes, fork, range, &boundary)? {
+        Some(best) => Ok(best),
+        None => bail!("the hash rounds do not fit on {}", fork.name),
+    }
+}
+
 /// Builds steps [range.from, range.to) and checks the emitted stream against
 /// the reference on every input. With shadow a permissive pass first finds
 /// the values DUPed out of reach, then the real pass shadows them. `text`
@@ -1309,19 +1638,44 @@ pub fn build_permutation(
     range: Range,
     text: bool,
 ) -> Result<BuildResult> {
-    let expected = expected_outputs(params, inputs, range);
-    build_checked(params, inputs, &expected, opts, fork, range, text)
+    build_permutation_with(
+        params,
+        inputs,
+        opts,
+        fork,
+        range,
+        text,
+        &Boundary::default(),
+    )
 }
 
-/// The reference state after the range, per input.
+/// build_permutation from lazy inputs and for the outputs the caller reads.
+pub fn build_permutation_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+    boundary: &Boundary,
+) -> Result<BuildResult> {
+    let expected = expected_outputs(params, inputs, range);
+    build_checked(params, inputs, &expected, opts, fork, range, text, boundary)
+}
+
+/// The reference state after the range, per input (which may be lazy).
 fn expected_outputs(params: &Params, inputs: &[Vec<U256>], range: Range) -> Vec<Vec<U256>> {
     inputs
         .iter()
-        .map(|input| permutation_steps(params, input, range.from, range.to))
+        .map(|input| {
+            let clean: Vec<U256> = input.iter().map(|&x| crate::field::reduce(x)).collect();
+            permutation_steps(params, &clean, range.from, range.to)
+        })
         .collect()
 }
 
 /// build_permutation against reference outputs computed once per range.
+#[allow(clippy::too_many_arguments)]
 fn build_checked(
     params: &Params,
     inputs: &[Vec<U256>],
@@ -1330,49 +1684,59 @@ fn build_checked(
     fork: Fork,
     range: Range,
     text: bool,
+    boundary: &Boundary,
 ) -> Result<BuildResult> {
     let mut shadow = HashSet::new();
     if opts.shadow {
-        let mut probe = Builder::new(params, inputs, *opts, fork, range, shadow, true, false)?;
+        let mut probe = Builder::new(
+            params, inputs, *opts, fork, range, shadow, true, false, boundary,
+        )?;
         probe.build()?;
         shadow = std::mem::take(&mut probe.e.needed);
     }
-    let mut b = Builder::new(params, inputs, *opts, fork, range, shadow, false, text)?;
+    let mut b = Builder::new(
+        params, inputs, *opts, fork, range, shadow, false, text, boundary,
+    )?;
     let outputs = b.build()?;
     let e = &b.e;
     let t = params.t;
     let is_final = range.to == step_count(params);
+    // the state indices the outputs hold
+    let live: Vec<usize> = boundary
+        .live
+        .clone()
+        .unwrap_or_else(|| (0..outputs.len()).collect());
 
     if !b.state_in_memory {
         // the outputs must sit on top in state order and be clean
         for (i, &out) in outputs.iter().enumerate() {
             if e.at(i) != Some(out) {
-                bail!("output {i} is not at slot {}", i + 1);
+                bail!("output {} is not at slot {}", live[i], i + 1);
             }
             if e.bound(out) >= PRIME {
-                bail!("output {i} is not clean");
+                bail!("output {} is not clean", live[i]);
             }
         }
-        if t <= 4 && e.at(t) != Some(e.p) {
+        if boundary.live.is_none() && t <= 4 && e.at(t) != Some(e.p) {
             bail!("PRIME expected under outputs");
         }
     } else if is_final {
         for (i, &out) in outputs.iter().enumerate() {
             if e.bound(out) >= PRIME {
-                bail!("output {i} is not clean");
+                bail!("output {} is not clean", live[i]);
             }
         }
     }
 
     // concrete check of the emitted stream against the reference permutation
     // (a part that hands over leaves lazy values, the next entry reduces
-    // them)
+    // them; the inputs may be lazy as well)
     for (k, want) in expected.iter().enumerate() {
         for (i, &out) in outputs.iter().enumerate() {
             let v = e.value(out).vals[k];
             let got = if is_final { v } else { crate::field::reduce(v) };
-            if got != want[i] {
-                bail!("vector {k} output {i} mismatch");
+            if got != want[live[i]] {
+                bail!("vector {k} output {} mismatch", live[i]);
             }
         }
     }
@@ -1487,9 +1851,24 @@ pub fn build_best(
     fork: Fork,
     range: Range,
 ) -> Result<Option<Best>> {
+    build_best_with(params, inputs, max_bytes, fork, range, &Boundary::default())
+}
+
+/// build_best from lazy inputs and for the outputs the caller reads.
+pub fn build_best_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    range: Range,
+    boundary: &Boundary,
+) -> Result<Option<Best>> {
     let expected = expected_outputs(params, inputs, range);
-    let build =
-        |opts: &BuildOptions| build_checked(params, inputs, &expected, opts, fork, range, false);
+    let build = |opts: &BuildOptions| {
+        build_checked(
+            params, inputs, &expected, opts, fork, range, false, boundary,
+        )
+    };
     let attempt = |opts: &BuildOptions| build(opts).ok();
     let evaluate = |opts: &BuildOptions| -> Outcome {
         let mut opts = *opts;
@@ -1587,7 +1966,9 @@ pub fn build_best(
     }
     match best {
         Some((opts, gas)) => {
-            let result = build_checked(params, inputs, &expected, &opts, fork, range, true)?;
+            let result = build_checked(
+                params, inputs, &expected, &opts, fork, range, true, boundary,
+            )?;
             assert_eq!(
                 result.gas, gas,
                 "the rebuilt winner costs what the search measured"

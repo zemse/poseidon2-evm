@@ -6,8 +6,8 @@
 // DeployParts.sol does, last to first, each initcode but the last with the
 // address of the part after it appended as a 32-byte word.
 //
-// Generated files come from memory, the others (Utils.huff, the hand-written
-// t4/Poseidon2.huff) from the repository, so nothing needs to be written.
+// Generated files come from memory, the others (Utils.huff, Eip8024.huff)
+// from the repository, so nothing needs to be written.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -316,7 +316,9 @@ pub struct Report {
     pub gas: Gas,
     /// a split width with every part in the access list
     pub warm: Option<Gas>,
-    /// t = 4 hash entry: the entry around the same permutation
+    /// t = 4 hash entry: hash_1, hash_2, hash_3 (`gas` is hash_2) and the
+    /// entry around the full permutation
+    pub hashes: Option<[Gas; 3]>,
     pub permutation: Option<Gas>,
 }
 
@@ -325,18 +327,25 @@ impl std::fmt::Display for Report {
         let bytes: Vec<String> = self.bytes.iter().map(|b| b.to_string()).collect();
         write!(
             f,
-            "t={} on {}: verified {} calls, {} runtime bytes, call gas {}",
+            "t={} on {}: verified {} calls, {} runtime bytes, ",
             self.t,
             self.fork,
             self.calls,
             bytes.join(" + "),
-            self.gas
         )?;
+        match self.hashes {
+            Some(hashes) => {
+                for (i, gas) in hashes.iter().enumerate() {
+                    write!(f, "hash_{} {gas}, ", i + 1)?;
+                }
+            }
+            None => write!(f, "call gas {}", self.gas)?,
+        }
         if let Some(warm) = self.warm {
             write!(f, " with cold hops, {warm} warm")?;
         }
         if let Some(perm) = self.permutation {
-            write!(f, ", permutation entry {perm}")?;
+            write!(f, "permutation entry {perm}")?;
         }
         Ok(())
     }
@@ -403,10 +412,10 @@ const HASH_SIGNATURES: [&str; 3] = [
 ];
 
 /// hash_1 / hash_2 / hash_3 on the first 1, 2, 3 words of every input
-/// against the reference sponge.
-fn check_hash(chain: &mut Chain, to: Address, what: &str) -> Result<Vec<u64>> {
+/// against the reference sponge; returns the gas of the calls per arity.
+fn check_hash(chain: &mut Chain, to: Address, what: &str) -> Result<[Vec<u64>; 3]> {
     let params = generate_params(4);
-    let mut gas = Vec::new();
+    let mut gas: [Vec<u64>; 3] = Default::default();
     for (i, input) in inputs(4).iter().enumerate() {
         for (n, signature) in HASH_SIGNATURES.iter().enumerate() {
             let args = &input[..n + 1];
@@ -420,7 +429,7 @@ fn check_hash(chain: &mut Chain, to: Address, what: &str) -> Result<Vec<u64>> {
                     hex::encode(&out)
                 );
             }
-            gas.push(g);
+            gas[n].push(g);
         }
     }
     Ok(gas)
@@ -446,6 +455,7 @@ fn verify_width(sources: &Arc<Sources>, fork: &Fork, width: &Width) -> Result<Re
                     model: *gas,
                 },
                 warm: None,
+                hashes: None,
                 permutation: None,
             })
         }
@@ -482,6 +492,7 @@ fn verify_width(sources: &Arc<Sources>, fork: &Fork, width: &Width) -> Result<Re
                     measured: same_gas(&warm, &label)?,
                     model: model - hops * (fork.cold_account - fork.warm_account),
                 }),
+                hashes: None,
                 permutation: None,
             })
         }
@@ -498,16 +509,24 @@ fn verify_width(sources: &Arc<Sources>, fork: &Fork, width: &Width) -> Result<Re
             let perm = compile(sources, entry, fork)?;
             let perm_to = chain.deploy(perm.initcode)?;
             let perm_gas = check_permutation(&mut chain, perm_to, &[], t, &label)?;
+            let mut hashes = [Gas {
+                measured: 0,
+                model: 0,
+            }; 3];
+            for (n, g) in measured.iter().enumerate() {
+                hashes[n] = Gas {
+                    measured: same_gas(g, &format!("{label} hash_{}", n + 1))?,
+                    model: gas[n],
+                };
+            }
             Ok(Report {
                 t,
                 fork: fork.name,
                 calls: 3 * calls + perm_gas.len(),
                 bytes: vec![code.runtime.len()],
-                gas: Gas {
-                    measured: same_gas(&measured, &label)?,
-                    model: *gas,
-                },
+                gas: hashes[1],
                 warm: None,
+                hashes: Some(hashes),
                 permutation: Some(Gas {
                     measured: same_gas(&perm_gas, &label)?,
                     model: *entry_gas,

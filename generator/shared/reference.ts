@@ -107,11 +107,17 @@ export function permutationSteps(
 // Sponge used by the deployed t = 4 contract: state [x0, x1, x2, n << 64],
 // output is state[0] after one permutation.
 export function hashSponge(params: Params, inputs: bigint[]): bigint {
+  return permutation(params, spongeState(params, inputs))[0];
+}
+
+// The state the sponge permutes for n inputs: the inputs reduced, zeros,
+// and n << 64 as the capacity element.
+export function spongeState(params: Params, inputs: bigint[]): bigint[] {
   const rate = params.t - 1;
   if (inputs.length > rate)
     throw new Error("too many inputs for one permutation");
   const state = new Array(params.t).fill(0n);
   for (let i = 0; i < inputs.length; i++) state[i] = mod(inputs[i]);
   state[params.t - 1] = BigInt(inputs.length) << 64n;
-  return permutation(params, state)[0];
+  return state;
 }

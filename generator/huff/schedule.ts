@@ -24,7 +24,7 @@
 import { Emitter, Value, inplace, make, type Operand } from "./emitter.ts";
 import { PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
-import { permutationSteps } from "../shared/reference.ts";
+import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 
 export type BuildOptions = {
@@ -89,6 +89,13 @@ export const DEFAULT_OPTIONS: BuildOptions = {
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
 export type Range = { from: number; to: number };
 
+// What a build takes and what its caller reads: the bound of every input
+// (clean, PRIME - 1, by default) and the outputs the caller uses (all by
+// default). The t = 4 hash entry starts its rounds from the lazy values of
+// its round 0 and reads s0' alone, so its last linear layer computes only
+// that row (finalRoundRow0).
+export type Boundary = { bounds?: bigint[]; live?: number[] };
+
 export function stepCount(params: Params): number {
   return 1 + params.roundsF + params.roundsP;
 }
@@ -139,6 +146,8 @@ class Builder {
   // dead values left near the top of the state by the previous round,
   // collected at the start of the next internal round when gcInternal is on
   dead: Value[] = [];
+  // the outputs the caller reads, in state order (all when undefined)
+  readonly live: number[] | undefined;
 
   constructor(
     params: Params,
@@ -148,11 +157,13 @@ class Builder {
     range: Range,
     shadow: ReadonlySet<string>,
     permissive: boolean,
+    boundary: Boundary = {},
   ) {
     this.params = params;
     this.t = params.t;
     this.opts = opts;
     this.range = range;
+    this.live = boundary.live;
     this.stateInMemory = opts.shadow || range.to < stepCount(params);
     this.e = new Emitter(inputs.length, fork, shadow, permissive);
     // the hand-off region [0, 32t) comes first, then the diag table and the
@@ -165,7 +176,7 @@ class Builder {
     this.state = [];
     for (let i = 0; i < this.t; i++) {
       const vals = inputs.map((inp) => inp[i]);
-      const v = new Value(`s${i}`, PRIME - 1n, vals);
+      const v = new Value(`s${i}`, boundary.bounds?.[i] ?? PRIME - 1n, vals);
       this.e.key(v, `in:${i}`);
       if (shadow.has(`in:${i}`)) this.inputSlots[i] = this.e.declare(v);
       this.state.push(v);
@@ -683,6 +694,169 @@ class Builder {
     this.state = out;
   }
 
+  // Last round when the caller reads s0' alone (t = 4): row 0 of M4 on the
+  // S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from the
+  // S-boxes instead of the M4 temporaries. A PRIME copy for the final MOD
+  // goes down first; each lane, last first, is S-boxed on top of its
+  // coefficient and a PRIME copy, MULMODed by the coefficient in place and
+  // ADDed to the row so far, which stays under 4p.
+  finalRoundRow0(round: number) {
+    const e = this.e;
+    if (this.t !== 4) throw new Error("finalRoundRow0 is t = 4 only");
+    const row = [5n, 7n, 1n, 3n];
+    e.pushPrime();
+    let acc: Value | undefined;
+    for (let i = 3; i >= 0; i--) {
+      const s = this.state[i];
+      const k = row[i];
+      let coeff: Value | undefined;
+      if (k !== 1n) {
+        e.pushPrime();
+        coeff = e.push(k);
+      }
+      const c = this.constant(this.params.roundConstants[round][i], "c");
+      e.pushPrime();
+      let y: Value;
+      if (e.fitsAdd(s, c)) {
+        y = e.compute("add", [c, s], `s${i}+c`);
+      } else {
+        y = e.compute("addmod", [c, s, this.P], `s${i}+c`);
+      }
+      let term = this.sbox(y, `s${i}'`);
+      if (coeff) {
+        term = e.compute(
+          "mulmod",
+          [inplace(term), inplace(coeff), inplace(this.P)],
+          `${k}s${i}'`,
+        );
+      }
+      acc = acc
+        ? e.compute("add", [inplace(term), inplace(acc)], "row0")
+        : term;
+      e.endLine();
+    }
+    const out = e.compute("mod", [inplace(acc!), inplace(this.P)], "s0'");
+    e.endLine();
+    this.state = [out];
+  }
+
+  // Round 0 of the hash entry for n inputs: the stack holds [s0, ...,
+  // s(n-1), PRIME] and the other lanes are the sponge constants (zeros, then
+  // the capacity n << 64), so the initial linear layer and the constant
+  // addition fold into one linear form per lane, y_i = sum_j M4[i][j] s_j +
+  // K_i with K_i = M4[i][3] (n << 64) + c_i. With the sums t0 = s0 + s1,
+  // w = 2 s1 + s2 (reduced), u = 4 s2 + t0 and t5 = 4 t0 + w, the rows
+  // M4 = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7], [1, 1, 4, 6]] give
+  // y3 = u + K3, y2 = w + u + K2, y1 = t5 + K1 and y0 = t5 + t0 + K0; a zero
+  // lane drops its terms, and a form that would not fit takes its multiple
+  // of t0 as a MULMOD. Each lane is then S-boxed, last first, and M4 follows
+  // as in any external round, leaving [s0', s1', s2', s3', PRIME] for the
+  // rounds after.
+  hashRound0(n: number) {
+    const e = this.e;
+    if (this.t !== 4) throw new Error("hashRound0 is t = 4 only");
+    if (n < 1 || n > 3) throw new Error(`hash arity ${n}`);
+    e.stack = [...this.state.slice(0, n), this.P];
+    e.maxDepth = e.stack.length;
+    e.endLine();
+    const iv = BigInt(n) << 64n;
+    const rows = [
+      [5n, 7n, 1n, 3n],
+      [4n, 6n, 1n, 1n],
+      [1n, 3n, 5n, 7n],
+      [1n, 1n, 4n, 6n],
+    ];
+    const K = rows.map((row, i) =>
+      this.constant(
+        (row[3] * iv + this.params.roundConstants[0][i]) % PRIME,
+        `K${i}`,
+      ),
+    );
+    const four = this.constant(4n);
+    const [a, b, c] = this.state;
+    // k s, as MUL when k s + K fits in uint256 (K is added right after)
+    const scale = (s: Value, k: bigint, K: Value, name: string): Value => {
+      const kv = this.constant(k);
+      if (k * s.bound + K.constant! <= UINT256_MAX) {
+        return e.compute("mul", [s, kv], name);
+      }
+      return e.compute("mulmod", [s, kv, this.P], name);
+    };
+    // lane i: y on top of a PRIME copy, then its S-box
+    const out: Value[] = new Array(4);
+    const lane = (i: number, makeY: () => Value) => {
+      e.pushPrime();
+      const y = makeY();
+      out[i] = this.sbox(y, `s${i}'`);
+      e.endLine();
+    };
+    const plus = (K: Value, v: Value, name: string) =>
+      e.compute("add", [K, inplace(v)], name);
+    if (n === 1) {
+      lane(3, () => e.compute("add", [K[3], a], "y3"));
+      lane(2, () => e.compute("add", [K[2], a], "y2"));
+      lane(1, () => plus(K[1], scale(a, 4n, K[1], "4s0"), "y1"));
+      lane(0, () => plus(K[0], scale(a, 5n, K[0], "5s0"), "y0"));
+    } else {
+      const t0 = e.compute("add", [a, b], "t0");
+      e.endLine();
+      let w: Value;
+      let u: Value;
+      if (n === 2) {
+        w = e.compute("add", [b, b], "w");
+        e.endLine();
+        u = t0;
+      } else {
+        w = this.addTo(() => e.compute("add", [b, b], "2s1"), c, "w", true);
+        e.endLine();
+        u = this.addTo(
+          () => e.compute("mulmod", [c, four, this.P], "4s2"),
+          t0,
+          "u",
+          false,
+        );
+        e.endLine();
+      }
+      lane(3, () => e.compute("add", [K[3], u], "y3"));
+      lane(2, () => plus(K[2], e.compute("add", [w, u], "w+u"), "y2"));
+      if (n === 2) {
+        // t5 + t0 would not fit: 5 t0 reduced, then w
+        const t5 = () =>
+          this.addTo(
+            () => e.compute("mulmod", [t0, four, this.P], "4t0"),
+            w,
+            "t5",
+            false,
+          );
+        lane(1, () => plus(K[1], t5(), "y1"));
+        lane(0, () =>
+          plus(
+            K[0],
+            this.addTo(
+              () => e.compute("mulmod", [t0, this.constant(5n), this.P], "5t0"),
+              w,
+              "5t0+w",
+              false,
+            ),
+            "y0",
+          ),
+        );
+      } else {
+        const t5 = this.addTo(
+          () => e.compute("mulmod", [t0, four, this.P], "4t0"),
+          w,
+          "t5",
+          false,
+        );
+        e.endLine();
+        lane(1, () => e.compute("add", [K[1], t5], "y1"));
+        lane(0, () => plus(K[0], e.compute("add", [t0, t5], "t5+t0"), "y0"));
+      }
+    }
+    this.state = out;
+    this.externalMatrix(false, undefined, true);
+  }
+
   // Writes the state to [0, 32t) for the next part or the caller. DUP and
   // MSTORE leave the stack as it was, so every element is fetched from the
   // same layout (shadowed ones with MLOAD).
@@ -1026,6 +1200,12 @@ class Builder {
         } else {
           this.internalRound(r, r < pEnd - 1 && next);
         }
+      } else if (r === total - 1 && this.live) {
+        e.comment(`Round ${r} (external, s0' only)`);
+        if (this.live.length !== 1 || this.live[0] !== 0) {
+          throw new Error("only s0' can be the live output");
+        }
+        this.finalRoundRow0(r);
       } else {
         e.comment(`Round ${r} (external)`);
         this.addConstantsAndSbox(r);
@@ -1041,6 +1221,91 @@ class Builder {
   }
 }
 
+// The round 0 the hash entry runs for n inputs (Builder.hashRound0) with its
+// gas, bytes, stack depth and lazy outputs, checked against the reference
+// before anything is written.
+export type Prologue = {
+  n: number;
+  lines: string[];
+  gas: number;
+  bytes: number;
+  // stack depth at the end: the rounds after run on top of it
+  depth: number;
+  // [s0', s1', s2', s3'] after round 0, lazy
+  outputs: Value[];
+};
+
+export function buildHashPrologue(
+  params: Params,
+  inputs: bigint[][],
+  fork: Fork,
+): Prologue {
+  const n = inputs[0].length;
+  const states = inputs.map((input) => spongeState(params, input));
+  const b = new Builder(
+    params,
+    states,
+    DEFAULT_OPTIONS,
+    fork,
+    { from: 0, to: 2 },
+    new Set(),
+    false,
+  );
+  b.hashRound0(n);
+  const e = b.e;
+  states.forEach((state, k) => {
+    const want = permutationSteps(params, state, 0, 2);
+    for (let i = 0; i < params.t; i++) {
+      if (b.state[i].vals[k] % PRIME !== want[i]) {
+        throw new Error(`hash_${n} round 0: vector ${k} output ${i} mismatch`);
+      }
+    }
+  });
+  if (e.stack.slice(0, params.t).some((v, i) => v !== b.state[i])) {
+    throw new Error(`hash_${n} round 0: outputs are not on top`);
+  }
+  return {
+    n,
+    lines: e.lines,
+    gas: e.gas,
+    bytes: e.bytes,
+    depth: e.depth,
+    outputs: b.state,
+  };
+}
+
+// The rounds after round 0 shared by the hash entry's arities, built from
+// the lazy values every prologue leaves (their bounds joined, their vectors
+// concatenated) and reading s0' alone.
+export function buildHashRounds(
+  params: Params,
+  prologues: Prologue[],
+  maxBytes: number,
+  fork: Fork,
+): Best {
+  const t = params.t;
+  const inputs: bigint[][] = [];
+  const bounds: bigint[] = new Array(t).fill(0n);
+  for (const p of prologues) {
+    for (let i = 0; i < t; i++) {
+      if (p.outputs[i].bound > bounds[i]) bounds[i] = p.outputs[i].bound;
+    }
+    for (let k = 0; k < p.outputs[0].vals.length; k++) {
+      inputs.push(p.outputs.map((v) => v.vals[k]));
+    }
+  }
+  const best = buildBest(
+    params,
+    inputs,
+    maxBytes,
+    fork,
+    { from: 2, to: stepCount(params) },
+    { bounds, live: [0] },
+  );
+  if (!best) throw new Error(`the hash rounds do not fit on ${fork.name}`);
+  return best;
+}
+
 // Builds steps [range.from, range.to) and checks the emitted stream against
 // the reference on every input. With shadow a permissive pass first finds
 // the values DUPed out of reach, then the real pass shadows them.
@@ -1050,47 +1315,70 @@ export function buildPermutation(
   opts: BuildOptions = DEFAULT_OPTIONS,
   fork: Fork = FORKS.shanghai,
   range: Range = { from: 0, to: stepCount(params) },
+  boundary: Boundary = {},
 ): BuildResult {
   let shadow: ReadonlySet<string> = new Set();
   if (opts.shadow) {
-    const probe = new Builder(params, inputs, opts, fork, range, shadow, true);
+    const probe = new Builder(
+      params,
+      inputs,
+      opts,
+      fork,
+      range,
+      shadow,
+      true,
+      boundary,
+    );
     probe.build();
     shadow = probe.e.needed;
   }
-  const b = new Builder(params, inputs, opts, fork, range, shadow, false);
+  const b = new Builder(
+    params,
+    inputs,
+    opts,
+    fork,
+    range,
+    shadow,
+    false,
+    boundary,
+  );
   const outputs = b.build();
   const e = b.e;
   const final = range.to === stepCount(params);
+  // the state indices the outputs hold
+  const live = boundary.live ?? outputs.map((_, i) => i);
 
   if (!b.stateInMemory) {
     // the outputs must sit on top in state order and be clean
-    for (let i = 0; i < params.t; i++) {
+    for (let i = 0; i < live.length; i++) {
       if (e.stack[i] !== outputs[i]) {
-        throw new Error(`output ${i} is not at slot ${i + 1}`);
+        throw new Error(`output ${live[i]} is not at slot ${i + 1}`);
       }
       if (outputs[i].bound >= PRIME) {
-        throw new Error(`output ${i} is not clean`);
+        throw new Error(`output ${live[i]} is not clean`);
       }
     }
-    if (params.t <= 4 && e.stack[params.t] !== e.P) {
+    if (!boundary.live && params.t <= 4 && e.stack[params.t] !== e.P) {
       throw new Error("PRIME expected under outputs");
     }
   } else if (final) {
-    for (let i = 0; i < params.t; i++) {
+    for (let i = 0; i < live.length; i++) {
       if (outputs[i].bound >= PRIME) {
-        throw new Error(`output ${i} is not clean`);
+        throw new Error(`output ${live[i]} is not clean`);
       }
     }
   }
 
   // concrete check of the emitted stream against the reference permutation
-  // (a part that hands over leaves lazy values, the next entry reduces them)
+  // (a part that hands over leaves lazy values, the next entry reduces them;
+  // the inputs may be lazy as well)
   inputs.forEach((input, k) => {
-    const want = permutationSteps(params, input, range.from, range.to);
-    for (let i = 0; i < params.t; i++) {
+    const clean = input.map((x) => x % PRIME);
+    const want = permutationSteps(params, clean, range.from, range.to);
+    for (let i = 0; i < live.length; i++) {
       const got = final ? outputs[i].vals[k] : outputs[i].vals[k] % PRIME;
-      if (got !== want[i]) {
-        throw new Error(`vector ${k} output ${i} mismatch`);
+      if (got !== want[live[i]]) {
+        throw new Error(`vector ${k} output ${live[i]} mismatch`);
       }
     }
   });
@@ -1143,6 +1431,7 @@ export function buildBest(
   maxBytes: number,
   fork: Fork = FORKS.shanghai,
   range: Range = { from: 0, to: stepCount(params) },
+  boundary: Boundary = {},
 ): Best | undefined {
   const bools = [false, true];
   const candidates = (shadow: boolean): BuildOptions[] => {
@@ -1194,7 +1483,7 @@ export function buildBest(
   };
   const attempt = (opts: BuildOptions): BuildResult | undefined => {
     try {
-      return buildPermutation(params, inputs, opts, fork, range);
+      return buildPermutation(params, inputs, opts, fork, range, boundary);
     } catch {
       return undefined;
     }
@@ -1205,7 +1494,14 @@ export function buildBest(
   const search = (list: BuildOptions[]) => {
     for (let opts of list) {
       try {
-        let result = buildPermutation(params, inputs, opts, fork, range);
+        let result = buildPermutation(
+          params,
+          inputs,
+          opts,
+          fork,
+          range,
+          boundary,
+        );
         built++;
         if (result.maxDepth <= 1000) {
           if (opts.gcInternal && fork.reach > 16) {
@@ -1214,7 +1510,14 @@ export function buildBest(
               return r !== undefined && r.maxDepth <= 1000;
             });
             opts = { ...opts, gcInternalFrom };
-            result = buildPermutation(params, inputs, opts, fork, range);
+            result = buildPermutation(
+              params,
+              inputs,
+              opts,
+              fork,
+              range,
+              boundary,
+            );
           }
           if (opts.diagInMemory && result.bytes <= maxBytes) {
             const diagPush32 = largest(params.t, (n) => {
@@ -1222,7 +1525,14 @@ export function buildBest(
               return r !== undefined && r.bytes <= maxBytes;
             });
             opts = { ...opts, diagPush32 };
-            result = buildPermutation(params, inputs, opts, fork, range);
+            result = buildPermutation(
+              params,
+              inputs,
+              opts,
+              fork,
+              range,
+              boundary,
+            );
           }
         }
         if (result.maxDepth > 1000) {

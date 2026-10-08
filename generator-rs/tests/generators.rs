@@ -84,6 +84,7 @@ fn huff_matches_checked_in() {
     let mut files = vec![
         "src/bn254/huff/Eip8024.huff".to_string(),
         "src/bn254/huff/t4/Permutation.huff".to_string(),
+        "src/bn254/huff/t4/Poseidon2.huff".to_string(),
     ];
     for t in [2, 3] {
         files.push(format!("src/bn254/huff/t{t}/Permutation.huff"));

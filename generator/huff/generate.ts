@@ -7,11 +7,13 @@
 // permutation before anything is written (schedule.ts). The hardfork
 // (fork.ts, default amsterdam) decides the opcodes the schedule may use and
 // the code size. Every width gets src/bn254/huff/t<t>/Permutation.huff,
-// and every width but t = 4 (whose hash entry t4/Poseidon2.huff is
-// hand-written) an entry contract and a Foundry test; a fork other than the
-// default gets src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation
-// over the fork's code size is split into parts (split.ts), Part0.huff being
-// the contract to call.
+// and every width but t = 4 an entry contract and a Foundry test; t = 4 gets
+// the hash_1 / hash_2 / hash_3 entry t4/Poseidon2.huff instead (its own
+// round 0 per arity and the rounds after it shared, tested by
+// test/Poseidon2.t.sol); a fork other than the default gets
+// src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation over the
+// fork's code size is split into parts (split.ts), Part0.huff being the
+// contract to call.
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { assertKnown } from "../round-constants/assert-known.ts";
@@ -21,6 +23,8 @@ import { testInputs } from "../shared/vectors.ts";
 import { DEFAULT_HARDFORK, fork as forkOf, type Fork } from "./fork.ts";
 import {
   buildBest,
+  buildHashPrologue,
+  buildHashRounds,
   describeOptions,
   type BuildOptions,
   type BuildResult,
@@ -28,21 +32,20 @@ import {
 import { splitPermutation } from "./split.ts";
 import {
   entryBytes,
+  hashEntry,
   huffDir,
   memoryGas,
   renderDeployParts,
   renderEip8024,
   renderEntry,
   renderForgeTest,
+  renderHashEntry,
   renderPart,
   renderPermutation,
   renderZero,
   testDir,
   type Vector,
 } from "./render.ts";
-
-// entry contract (calldata loads, stores, return) plus Utils.huff constants
-const ENTRY_OVERHEAD = 12 * 12 + 64;
 
 function describe(result: BuildResult, opts: BuildOptions): string {
   const e = result.emitter;
@@ -59,7 +62,7 @@ function generate(t: number, fork: Fork) {
   const params = generateParams(t);
   const inputs = testInputs(t);
   const legacy = fork.name === DEFAULT_HARDFORK;
-  const overhead = legacy && t === 4 ? ENTRY_OVERHEAD : entryBytes(fork, t);
+  const overhead = entryBytes(fork, t);
   const dir = `${huffDir(fork)}/t${t}`;
   const utilsPath = legacy ? "../Utils.huff" : "../../Utils.huff";
   const vectors: Vector[] = inputs.map((input) => ({
@@ -75,14 +78,33 @@ function generate(t: number, fork: Fork) {
     const { result, opts } = best;
     console.log(`${label}: ${describe(result, opts)}`);
     if (t === 4 && legacy) {
-      // t4/Poseidon2.huff is the hand-written hash_1 / hash_2 / hash_3 entry
-      const path = `${dir}/Permutation.huff`;
+      // t4/Poseidon2.huff is the hash_1 / hash_2 / hash_3 entry: round 0
+      // per arity, then the rounds after it shared, returning s0' alone
       writeForkFiles(fork);
       writeFileSync(
-        path,
+        `${dir}/Permutation.huff`,
         renderPermutation(params, result, opts, utilsPath, fork),
       );
-      console.log(`  wrote ${path}`);
+      const prologues = [1, 2, 3].map((n) =>
+        buildHashPrologue(
+          params,
+          inputs.map((input) => input.slice(0, n)),
+          fork,
+        ),
+      );
+      const budget = fork.codeSize - hashEntry(fork, prologues).bytes;
+      const rounds = buildHashRounds(params, prologues, budget, fork);
+      const entry = hashEntry(fork, prologues, rounds.result);
+      console.log(`  hash rounds: ${describe(rounds.result, rounds.opts)}`);
+      writeFileSync(
+        `${dir}/Poseidon2.huff`,
+        renderHashEntry(params, fork, rounds, prologues, utilsPath),
+      );
+      const gas = entry.gas.map((g, i) => `hash_${i + 1} ${g}`).join(", ");
+      console.log(
+        `  wrote ${dir}/Permutation.huff, ${dir}/Poseidon2.huff ` +
+          `(${gas} gas, ${entry.bytes} runtime bytes)`,
+      );
       return;
     }
     mkdirSync(dir, { recursive: true });

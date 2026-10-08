@@ -22,7 +22,10 @@ fn run(name: &str, widths: &[usize]) -> Vec<Report> {
 }
 
 fn within(report: &Report) {
-    let gas = [Some(report.gas), report.warm, report.permutation];
+    let mut gas = vec![Some(report.gas), report.warm, report.permutation];
+    if let Some(hashes) = report.hashes {
+        gas.extend(hashes.map(Some));
+    }
     for g in gas.into_iter().flatten() {
         assert!(g.diff().abs() <= GAS_TOLERANCE, "{report}");
     }
@@ -36,7 +39,8 @@ fn amsterdam_t2_t4() {
     }
     // forge: test/Poseidon2T2.t.sol and the hash_* of test/Poseidon2.t.sol
     assert_eq!(reports[0].gas.measured, 6133);
-    assert_eq!(reports[1].gas.measured, 12378);
+    let hashes = reports[1].hashes.expect("hash entry");
+    assert_eq!(hashes.map(|g| g.measured), [12176, 12198, 12271]);
 }
 
 #[test]

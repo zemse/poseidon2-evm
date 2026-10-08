@@ -1,10 +1,12 @@
 // Generates the Poseidon2 BN254 Huff permutation for a state width t
 // (huff/generate.ts). Every width gets src/bn254/huff/t<t>/Permutation.huff,
-// and every width but t = 4 on the default fork (whose hash entry
-// t4/Poseidon2.huff is hand-written) an entry contract and a Foundry test; a
-// fork other than the default gets src/bn254/huff/<fork>/t<t>/ and
-// test/<fork>/. A permutation over the fork's code size is split into parts
-// (split.rs), Part0.huff being the contract to call.
+// and every width but t = 4 on the default fork an entry contract and a
+// Foundry test; t = 4 gets the hash_1 / hash_2 / hash_3 entry
+// t4/Poseidon2.huff instead (its own round 0 per arity and the rounds after
+// it shared, tested by test/Poseidon2.t.sol). A fork other than the default
+// gets src/bn254/huff/<fork>/t<t>/ and test/<fork>/. A permutation over the
+// fork's code size is split into parts (split.rs), Part0.huff being the
+// contract to call.
 //
 // The widths are built in parallel; their files are written and their lines
 // logged in order once each is done, as the TS does one width at a time.
@@ -24,23 +26,21 @@ use std::path::Path;
 use rayon::prelude::*;
 
 use crate::error::Result;
+use crate::field::U256;
 use crate::reference::permutation;
 use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
-    Vector, entry_bytes, huff_dir, memory_gas, overhead, render_deploy_parts, render_eip8024,
-    render_entry, render_forge_test, render_part, render_permutation, render_zero, test_dir,
+    Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead, render_deploy_parts,
+    render_eip8024, render_entry, render_forge_test, render_hash_entry, render_part,
+    render_permutation, render_zero, test_dir,
 };
-use schedule::{BuildOptions, BuildResult, Range, build_best, describe_options, step_count};
+use schedule::{
+    BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
+    describe_options, step_count,
+};
 use split::split_permutation;
-
-/// entry contract (calldata loads, stores, return) plus Utils.huff constants
-const ENTRY_OVERHEAD: usize = 12 * 12 + 64;
-
-/// SETUP, ABSORB_CALLDATA and RETURN_ONE of the hand-written t4/Poseidon2.huff
-/// (memory expansion included)
-pub const HASH_ENTRY_GAS: u64 = 78;
 
 fn describe(result: &BuildResult, opts: &BuildOptions) -> String {
     let shadow = if result.stores + result.loads > 0 {
@@ -81,12 +81,12 @@ pub enum Target {
     /// Part0.huff .. Part<n-1>.huff, each part's gas with a cold hop to the
     /// next one but without the next one's own gas (nor the revert branch)
     Parts { paths: Vec<String>, gas: Vec<u64> },
-    /// the hand-written hash_1 / hash_2 / hash_3 of t4/Poseidon2.huff, and an
-    /// entry around the same permutation (`source`, never written) for the
-    /// permutation alone
+    /// hash_1 / hash_2 / hash_3 of t4/Poseidon2.huff with the gas of each,
+    /// and an entry around the full permutation (`source`, never written)
+    /// for the permutation alone
     Hash {
         path: String,
-        gas: u64,
+        gas: [u64; 3],
         entry: String,
         source: String,
         entry_gas: u64,
@@ -120,11 +120,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     let params = generate_params(t);
     let inputs = test_inputs(t);
     let legacy = fork.name == DEFAULT_HARDFORK;
-    let overhead = if legacy && t == 4 {
-        ENTRY_OVERHEAD
-    } else {
-        entry_bytes(*fork, t, &[], false)
-    };
+    let overhead = entry_bytes(*fork, t, &[], false);
     let dir = format!("{}/t{t}", huff_dir(fork));
     let utils_path = if legacy {
         "../Utils.huff"
@@ -154,18 +150,45 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         let (result, opts) = (&best.result, &best.opts);
         actions.push(Action::Log(format!("{label}: {}", describe(result, opts))));
         if t == 4 && legacy {
-            // t4/Poseidon2.huff is the hand-written hash_1 / hash_2 / hash_3
-            // entry
-            let path = format!("{dir}/Permutation.huff");
+            // t4/Poseidon2.huff is the hash_1 / hash_2 / hash_3 entry: round 0
+            // per arity, then the rounds after it shared, returning s0' alone
             fork_files(&mut actions, fork);
             actions.push(Action::Write(
-                path.clone(),
+                format!("{dir}/Permutation.huff"),
                 render_permutation(&params, result, opts, utils_path, fork),
             ));
-            actions.push(Action::Log(format!("  wrote {path}")));
+            let prologues = (1..=3)
+                .map(|n| {
+                    let words: Vec<Vec<U256>> =
+                        inputs.iter().map(|input| input[..n].to_vec()).collect();
+                    build_hash_prologue(&params, &words, *fork)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let budget = fork.code_size - hash_entry(*fork, &prologues, (0, 0))?.bytes;
+            let rounds = build_hash_rounds(&params, &prologues, budget, *fork)?;
+            let entry = hash_entry(*fork, &prologues, (rounds.result.gas, rounds.result.bytes))?;
+            actions.push(Action::Log(format!(
+                "  hash rounds: {}",
+                describe(&rounds.result, &rounds.opts)
+            )));
+            actions.push(Action::Write(
+                format!("{dir}/Poseidon2.huff"),
+                render_hash_entry(&params, fork, &rounds, &prologues, utils_path)?,
+            ));
+            let gas: Vec<String> = entry
+                .gas
+                .iter()
+                .enumerate()
+                .map(|(i, g)| format!("hash_{} {g}", i + 1))
+                .collect();
+            actions.push(Action::Log(format!(
+                "  wrote {dir}/Permutation.huff, {dir}/Poseidon2.huff ({} gas, {} runtime bytes)",
+                gas.join(", "),
+                entry.bytes
+            )));
             let target = Target::Hash {
                 path: format!("{dir}/Poseidon2.huff"),
-                gas: HASH_ENTRY_GAS + result.gas,
+                gas: entry.gas,
                 entry: format!("{dir}/Entry.huff"),
                 source: render_entry(&params, fork, result),
                 entry_gas: entry_gas(fork, t, result),

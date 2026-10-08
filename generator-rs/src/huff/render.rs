@@ -6,7 +6,9 @@
 
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
 use super::fork::{DEFAULT_HARDFORK, Fork, SHANGHAI};
-use super::schedule::{BuildOptions, BuildResult, describe_options};
+use super::schedule::{Best, BuildOptions, BuildResult, Prologue, describe_options};
+use crate::bail;
+use crate::error::Result;
 use crate::field::{PRIME, U256, hex, u256};
 use crate::round_constants::Params;
 
@@ -123,9 +125,9 @@ impl Code {
     }
 }
 
-/// t calldata words reduced mod PRIME onto the stack, shadowed inputs also
-/// stored to their slot
-fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>]) {
+/// t calldata words from `base` reduced mod PRIME onto the stack, shadowed
+/// inputs also stored to their slot
+fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize) {
     code.op("SETUP()", gas::PUSH, 33);
     code.end("[PRIME]");
     for i in (0..t).rev() {
@@ -136,7 +138,7 @@ fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>]) {
         } else {
             code.op("[PRIME]", gas::PUSH, 33);
         }
-        code.push(32 * i);
+        code.push(base + 32 * i);
         code.op("calldataload", 3, 1);
         code.op("mod", gas::MOD, 1);
         if let Some(Some(slot)) = input_slots.get(i) {
@@ -228,7 +230,7 @@ pub fn overhead(
     hands_over: bool,
 ) -> Overhead {
     let mut entry = Code::new(fork);
-    loads(&mut entry, t, input_slots);
+    loads(&mut entry, t, input_slots, 0);
     let mut tail = Code::new(fork);
     if hands_over {
         hand_over(&mut tail, t, 0);
@@ -397,7 +399,7 @@ pub fn render_zero() -> String {
 pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> String {
     let t = params.t;
     let mut code = Code::new(*fork);
-    loads(&mut code, t, &result.input_slots);
+    loads(&mut code, t, &result.input_slots, 0);
     code.blank();
     let in_memory = result.state_in_memory;
     code.op("POSEIDON2_PERMUTATION()", 0, 0);
@@ -419,6 +421,157 @@ pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> Strin
 ",
         code.lines.join("\n")
     )
+}
+
+// ---- the t = 4 hash entry --------------------------------------------------
+
+/// The code of MAIN around POSEIDON2_HASH_ROUNDS and what each arity's call
+/// costs. The arity comes from calldatasize (a selector and 1, 2 or 3
+/// words): hash_2 falls through the first test, hash_3 the second, hash_1
+/// branches twice, and the two that do not fall through to the rounds jump
+/// to them. Each arity loads its words and runs its own round 0 (its
+/// prologue, Builder::hash_round0); the rounds leave s0' on top.
+pub struct HashEntry {
+    pub lines: Vec<String>,
+    /// call gas of hash_1, hash_2, hash_3 (memory expansion included)
+    pub gas: [u64; 3],
+    /// runtime bytes
+    pub bytes: usize,
+}
+
+/// `rounds` is the gas and bytes of the rounds macro, 0 before it is built
+/// (the overhead decides its code size budget).
+pub fn hash_entry(fork: Fork, prologues: &[Prologue], rounds: (u64, usize)) -> Result<HashEntry> {
+    let by = |n: usize| -> Result<&Prologue> {
+        match prologues.iter().find(|p| p.n == n) {
+            Some(p) => Ok(p),
+            None => bail!("no prologue for hash_{n}"),
+        }
+    };
+    // calldatasize <op> 0x44 decides the branch
+    let test = |code: &mut Code, op: &str, label: &str| {
+        code.op("calldatasize", 2, 1);
+        code.push(0x44);
+        code.op(op, 3, 1);
+        code.op(label, 3, 3);
+        code.op("jumpi", 10, 1);
+        code.end("");
+    };
+    let label = |code: &mut Code, name: &str| {
+        code.op(&format!("{name}:"), 1, 1);
+        code.end("");
+    };
+    let branch = |code: &mut Code, p: &Prologue| {
+        loads(code, p.n, &[], 4);
+        for line in &p.lines {
+            code.text(line);
+        }
+        code.gas += p.gas;
+        code.bytes += p.bytes;
+    };
+    let jump = |code: &mut Code| {
+        code.op("rounds", 3, 3);
+        code.op("jump", 8, 1);
+        code.end("");
+    };
+
+    let mut dispatch = Code::new(fork);
+    dispatch.text(
+        "    // hash_2 (a selector and two words) falls through, the other arities branch on calldatasize",
+    );
+    test(&mut dispatch, "sub", "not_hash_2");
+    let mut b2 = Code::new(fork);
+    branch(&mut b2, by(2)?);
+    let mut tail = Code::new(fork);
+    label(&mut tail, "rounds");
+    tail.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
+    tail.end("[s0', ...]");
+    tail.push(0);
+    tail.op("mstore", gas::MSTORE, 1);
+    tail.end("");
+    tail.push(0x20);
+    tail.push(0);
+    tail.op("return", 0, 1);
+    tail.end("");
+    let mut gate = Code::new(fork);
+    gate.blank();
+    label(&mut gate, "not_hash_2");
+    test(&mut gate, "gt", "hash_1");
+    let mut b3 = Code::new(fork);
+    branch(&mut b3, by(3)?);
+    jump(&mut b3);
+    let mut b1 = Code::new(fork);
+    b1.blank();
+    label(&mut b1, "hash_1");
+    branch(&mut b1, by(1)?);
+    jump(&mut b1);
+
+    let memory = memory_gas(32);
+    let shared = dispatch.gas + tail.gas + memory;
+    let gas = [
+        shared + gate.gas + b1.gas,
+        shared + b2.gas,
+        shared + gate.gas + b3.gas,
+    ];
+    let parts = [dispatch, b2, tail, gate, b3, b1];
+    Ok(HashEntry {
+        bytes: parts.iter().map(|c| c.bytes).sum(),
+        lines: parts.into_iter().flat_map(|c| c.lines).collect(),
+        gas,
+    })
+}
+
+/// t4/Poseidon2.huff: the rounds after round 0 as POSEIDON2_HASH_ROUNDS and
+/// the hash_1 / hash_2 / hash_3 entry around them.
+pub fn render_hash_entry(
+    params: &Params,
+    fork: &Fork,
+    rounds: &Best,
+    prologues: &[Prologue],
+    utils_path: &str,
+) -> Result<String> {
+    let (t, rounds_f, rounds_p) = (params.t, params.rounds_f, params.rounds_p);
+    let (result, opts) = (&rounds.result, &rounds.opts);
+    let total = rounds_f + rounds_p;
+    let entry = hash_entry(*fork, prologues, (result.gas, result.bytes))?;
+    let inputs = state_names(t, "");
+    // the rounds run on top of a prologue's garbage
+    let depth = prologues.iter().map(|p| p.depth - t - 1).max().unwrap_or(0) + result.max_depth;
+    let gas: Vec<String> = entry
+        .gas
+        .iter()
+        .enumerate()
+        .map(|(i, g)| format!("hash_{} {g} gas", i + 1))
+        .collect();
+    Ok(format!(
+        "{HEADER}
+{includes}
+/// @notice Poseidon2 rounds 1 to {last} for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}: the hash entry's rounds after round 0, the last one as far as s0' needs
+/// @dev takes [{inputs}, PRIME] with the lazy values round 0 leaves (hashRound0 of any arity), returns [s0', ...garbage...] with s0' clean
+/// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
+{note}{stats}
+/// @dev schedule options: {options}
+#define macro POSEIDON2_HASH_ROUNDS() = {{
+{lines}
+}}
+
+/// @notice hash_1 / hash_2 / hash_3 of IPoseidon2 (the arity from calldatasize, the selector is not checked): the sponge state [x0, x1, x2, n << 64] permuted once, s0' returned
+/// @dev Each arity runs its own round 0, with the missing words and the capacity n << 64 folded into its constants, then the rounds above
+/// @dev {gas}, {bytes} runtime bytes, max stack depth {depth}
+#define macro MAIN() = {{
+{entry_lines}
+}}
+",
+        includes = includes(fork, utils_path),
+        last = total - 1,
+        note = fork_note(fork),
+        stats = stats(result),
+        options = describe_options(opts),
+        lines = result.lines.join("\n"),
+        gas = gas.join(", "),
+        bytes = entry.bytes,
+        entry_lines = entry.lines.join("\n"),
+    ))
 }
 
 /// Part `part` of `count` of a split permutation: the rounds of its range,
@@ -443,7 +596,7 @@ pub fn render_part(
         format!("rounds {} to {}", from - 1, to as i64 - 2)
     };
     let mut code = Code::new(*fork);
-    loads(&mut code, t, &result.input_slots);
+    loads(&mut code, t, &result.input_slots, 0);
     code.blank();
     code.op("POSEIDON2_PART()", 0, 0);
     code.end(&format!("state at memory [0, {})", hex_off(32 * t)));

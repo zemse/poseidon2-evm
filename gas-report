@@ -1,6 +1,6 @@
-Poseidon2Huff_BN254:hash_1: 12378 gas
-Poseidon2Huff_BN254:hash_2: 12378 gas
-Poseidon2Huff_BN254:hash_3: 12378 gas
+Poseidon2Huff_BN254:hash_1: 12176 gas
+Poseidon2Huff_BN254:hash_2: 12198 gas
+Poseidon2Huff_BN254:hash_3: 12271 gas
 Poseidon2Yul_BN254:fallback: 15127 gas
 Poseidon2_BN254:hash_1: 217702 gas
 Poseidon2_BN254:hash_2: 218222 gas
