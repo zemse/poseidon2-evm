@@ -6,7 +6,7 @@
 - `huff/`: `generate.ts` (CLI), `schedule.ts`, `emitter.ts`, `render.ts`.
 - `yul/`: `generate.ts` (CLI), `schedule.ts`, `program.ts`, `render.ts`.
 
-Both generators simulate what they emit: every value carries an exact upper bound (`value.ts`), an `ADD` / `MUL` / `SHL` is refused when the bound could exceed 2^256 - 1, and the outputs of the simulated code are compared with `reference.ts` on the inputs of `vectors.ts` before any file is written. The Huff emitter simulates the stack as well (reach, depth, gas, size); the Yul program emits nested expressions and lets and leaves the stack to solc, shaping the text for the legacy pipeline (see [src/bn254/README.md](../src/bn254/README.md#yul-generator)).
+Both generators simulate what they emit: every value carries an exact upper bound (`value.ts`), an `ADD` / `MUL` / `SHL` is refused when the bound could exceed 2^256 - 1, and the outputs of the simulated code are compared with `reference.ts` on the inputs of `vectors.ts` before any file is written. The Huff emitter simulates the stack as well (reach, depth, gas, size); the Yul program emits nested expressions and lets, models the reach of every local for the literal (optimizer off) legacy compile and leaves the rest to solc (see [src/bn254/README.md](../src/bn254/README.md#yul-generator)). `compat-check.sh` compiles a consumer of every Yul library in each compiler mode.
 
 ## Evidence that the output matches other implementations
 

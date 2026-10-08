@@ -23,981 +23,1623 @@ library LibPoseidon2Yul {
     function poseidon2_core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) internal pure returns (uint256 result) {
         assembly {
             // inputs reduced mod PRIME
+            let state0 := mod(s0, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            let state1 := mod(s1, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            let state2 := mod(s2, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            let state3 := mod(s3, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
-            let s0_in := mod(s0, PRIME)
-            let s1_in := mod(s1, PRIME)
-            let s2_in := mod(s2, PRIME)
-            let s3_in := mod(s3, PRIME)
 
             // initial linear layer
-            let t0_l := add(s1_in, s0_in)
-            let t1_l := add(s3_in, s2_in)
-            let t2_l := addmod(add(s1_in, s1_in), t1_l, PRIME)
-            let t3_l := addmod(add(s3_in, s3_in), t0_l, PRIME)
-            let s3_l := add(mulmod(t1_l, 4, PRIME), t3_l)
-            let s1_l := add(mulmod(t0_l, 4, PRIME), t2_l)
-            let s0_l := add(t3_l, s1_l)
-            let s2_l := add(t2_l, s3_l)
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 0 (external)
-            let y0_0 := add(s0_l, 0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26238b0878e269ed23e5)
-            let x2_0_0 := mulmod(y0_0, y0_0, PRIME)
-            let a0_0 := mulmod(mulmod(x2_0_0, x2_0_0, PRIME), y0_0, PRIME)
-            let y1_0 := add(s1_l, 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6)
-            let x2_1_0 := mulmod(y1_0, y1_0, PRIME)
-            let a1_0 := mulmod(mulmod(x2_1_0, x2_1_0, PRIME), y1_0, PRIME)
-            let y2_0 := add(s2_l, 0x199750ec472f1809e0f66a545e1e51624108ac845015c2aa3dfc36bab497d8aa)
-            let x2_2_0 := mulmod(y2_0, y2_0, PRIME)
-            let a2_0 := mulmod(mulmod(x2_2_0, x2_2_0, PRIME), y2_0, PRIME)
-            let y3_0 := add(s3_l, 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8)
-            let x2_3_0 := mulmod(y3_0, y3_0, PRIME)
-            let a3_0 := mulmod(mulmod(x2_3_0, x2_3_0, PRIME), y3_0, PRIME)
-            let t0_0 := add(a1_0, a0_0)
-            let t1_0 := add(a3_0, a2_0)
-            let t2_0 := addmod(add(a1_0, a1_0), t1_0, PRIME)
-            let t3_0 := addmod(add(a3_0, a3_0), t0_0, PRIME)
-            let s3_0 := add(mulmod(t1_0, 4, PRIME), t3_0)
-            let s1_0 := add(mulmod(t0_0, 4, PRIME), t2_0)
-            let s0_0 := add(t3_0, s1_0)
-            let s2_0 := add(t2_0, s3_0)
+            {
+                let y := add(state0, 0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26238b0878e269ed23e5)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x199750ec472f1809e0f66a545e1e51624108ac845015c2aa3dfc36bab497d8aa)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 1 (external)
-            let y0_1 := add(s0_0, 0x2e49c43c4569dd9c5fd35ac45fca33f10b15c590692f8beefe18f4896ac94902)
-            let x2_0_1 := mulmod(y0_1, y0_1, PRIME)
-            let a0_1 := mulmod(mulmod(x2_0_1, x2_0_1, PRIME), y0_1, PRIME)
-            let y1_1 := add(s1_0, 0x0e35fb89981890520d4aef2b6d6506c3cb2f0b6973c24fa82731345ffa2d1f1e)
-            let x2_1_1 := mulmod(y1_1, y1_1, PRIME)
-            let a1_1 := mulmod(mulmod(x2_1_1, x2_1_1, PRIME), y1_1, PRIME)
-            let y2_1 := add(s2_0, 0x251ad47cb15c4f1105f109ae5e944f1ba9d9e7806d667ffec6fe723002e0b996)
-            let x2_2_1 := mulmod(y2_1, y2_1, PRIME)
-            let a2_1 := mulmod(mulmod(x2_2_1, x2_2_1, PRIME), y2_1, PRIME)
-            let y3_1 := add(s3_0, 0x13da07dc64d428369873e97160234641f8beb56fdd05e5f3563fa39d9c22df4e)
-            let x2_3_1 := mulmod(y3_1, y3_1, PRIME)
-            let a3_1 := mulmod(mulmod(x2_3_1, x2_3_1, PRIME), y3_1, PRIME)
-            let t0_1 := add(a1_1, a0_1)
-            let t1_1 := add(a3_1, a2_1)
-            let t2_1 := addmod(add(a1_1, a1_1), t1_1, PRIME)
-            let t3_1 := addmod(add(a3_1, a3_1), t0_1, PRIME)
-            let s3_1 := add(mulmod(t1_1, 4, PRIME), t3_1)
-            let s1_1 := add(mulmod(t0_1, 4, PRIME), t2_1)
-            let s0_1 := add(t3_1, s1_1)
-            let s2_1 := add(t2_1, s3_1)
+            {
+                let y := add(state0, 0x2e49c43c4569dd9c5fd35ac45fca33f10b15c590692f8beefe18f4896ac94902)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x0e35fb89981890520d4aef2b6d6506c3cb2f0b6973c24fa82731345ffa2d1f1e)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x251ad47cb15c4f1105f109ae5e944f1ba9d9e7806d667ffec6fe723002e0b996)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x13da07dc64d428369873e97160234641f8beb56fdd05e5f3563fa39d9c22df4e)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 2 (external)
-            let y0_2 := add(s0_1, 0x0c009b84e650e6d23dc00c7dccef7483a553939689d350cd46e7b89055fd4738)
-            let x2_0_2 := mulmod(y0_2, y0_2, PRIME)
-            let a0_2 := mulmod(mulmod(x2_0_2, x2_0_2, PRIME), y0_2, PRIME)
-            let y1_2 := add(s1_1, 0x011f16b1c63a854f01992e3956f42d8b04eb650c6d535eb0203dec74befdca06)
-            let x2_1_2 := mulmod(y1_2, y1_2, PRIME)
-            let a1_2 := mulmod(mulmod(x2_1_2, x2_1_2, PRIME), y1_2, PRIME)
-            let y2_2 := add(s2_1, 0x0ed69e5e383a688f209d9a561daa79612f3f78d0467ad45485df07093f367549)
-            let x2_2_2 := mulmod(y2_2, y2_2, PRIME)
-            let a2_2 := mulmod(mulmod(x2_2_2, x2_2_2, PRIME), y2_2, PRIME)
-            let y3_2 := add(s3_1, 0x04dba94a7b0ce9e221acad41472b6bbe3aec507f5eb3d33f463672264c9f789b)
-            let x2_3_2 := mulmod(y3_2, y3_2, PRIME)
-            let a3_2 := mulmod(mulmod(x2_3_2, x2_3_2, PRIME), y3_2, PRIME)
-            let t0_2 := add(a1_2, a0_2)
-            let t1_2 := add(a3_2, a2_2)
-            let t2_2 := addmod(add(a1_2, a1_2), t1_2, PRIME)
-            let t3_2 := addmod(add(a3_2, a3_2), t0_2, PRIME)
-            let s3_2 := add(mulmod(t1_2, 4, PRIME), t3_2)
-            let s1_2 := add(mulmod(t0_2, 4, PRIME), t2_2)
-            let s0_2 := add(t3_2, s1_2)
-            let s2_2 := add(t2_2, s3_2)
+            {
+                let y := add(state0, 0x0c009b84e650e6d23dc00c7dccef7483a553939689d350cd46e7b89055fd4738)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x011f16b1c63a854f01992e3956f42d8b04eb650c6d535eb0203dec74befdca06)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x0ed69e5e383a688f209d9a561daa79612f3f78d0467ad45485df07093f367549)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x04dba94a7b0ce9e221acad41472b6bbe3aec507f5eb3d33f463672264c9f789b)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 3 (external)
-            let y0_3 := add(s0_2, 0x0a3f2637d840f3a16eb094271c9d237b6036757d4bb50bf7ce732ff1d4fa28e8)
-            let x2_0_3 := mulmod(y0_3, y0_3, PRIME)
-            let a0_3 := mulmod(mulmod(x2_0_3, x2_0_3, PRIME), y0_3, PRIME)
-            let y1_3 := add(s1_2, 0x259a666f129eea198f8a1c502fdb38fa39b1f075569564b6e54a485d1182323f)
-            let x2_1_3 := mulmod(y1_3, y1_3, PRIME)
-            let a1_3 := mulmod(mulmod(x2_1_3, x2_1_3, PRIME), y1_3, PRIME)
-            let y2_3 := add(s2_2, 0x28bf7459c9b2f4c6d8e7d06a4ee3a47f7745d4271038e5157a32fdf7ede0d6a1)
-            let x2_2_3 := mulmod(y2_3, y2_3, PRIME)
-            let a2_3 := mulmod(mulmod(x2_2_3, x2_2_3, PRIME), y2_3, PRIME)
-            let y3_3 := add(s3_2, 0x0a1ca941f057037526ea200f489be8d4c37c85bbcce6a2aeec91bd6941432447)
-            let x2_3_3 := mulmod(y3_3, y3_3, PRIME)
-            let a3_3 := mulmod(mulmod(x2_3_3, x2_3_3, PRIME), y3_3, PRIME)
-            let t0_3 := add(a1_3, a0_3)
-            let t1_3 := add(a3_3, a2_3)
-            let t2_3 := addmod(add(a1_3, a1_3), t1_3, PRIME)
-            let t3_3 := addmod(add(a3_3, a3_3), t0_3, PRIME)
-            let s3_3 := addmod(mulmod(t1_3, 4, PRIME), t3_3, PRIME)
-            let s1_3 := addmod(mulmod(t0_3, 4, PRIME), t2_3, PRIME)
-            let s0_3 := addmod(t3_3, s1_3, PRIME)
-            let s2_3 := addmod(t2_3, s3_3, PRIME)
+            {
+                let y := add(state0, 0x0a3f2637d840f3a16eb094271c9d237b6036757d4bb50bf7ce732ff1d4fa28e8)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x259a666f129eea198f8a1c502fdb38fa39b1f075569564b6e54a485d1182323f)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x28bf7459c9b2f4c6d8e7d06a4ee3a47f7745d4271038e5157a32fdf7ede0d6a1)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x0a1ca941f057037526ea200f489be8d4c37c85bbcce6a2aeec91bd6941432447)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := addmod(mulmod(t1, 4, PRIME), t3, PRIME)
+                state1 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                state0 := addmod(t3, state1, PRIME)
+                state2 := addmod(t2, state3, PRIME)
+            }
 
             // round 4 (internal)
-            let y_4 := add(s0_3, 0x0c6f8f958be0e93053d7fd4fc54512855535ed1539f051dcb43a26fd926361cf)
-            let x2_4 := mulmod(y_4, y_4, PRIME)
-            let x5_4 := mulmod(mulmod(x2_4, x2_4, PRIME), y_4, PRIME)
-            let sum_4 := addmod(add(add(x5_4, s3_3), s2_3), s1_3, PRIME)
-            let s0_4 :=
-                add(sum_4, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_4, PRIME))
-            let s1_4 :=
-                add(sum_4, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_3, PRIME))
-            let s2_4 :=
-                add(sum_4, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_3, PRIME))
-            let s3_4 :=
-                add(sum_4, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_3, PRIME))
+            {
+                let y := add(state0, 0x0c6f8f958be0e93053d7fd4fc54512855535ed1539f051dcb43a26fd926361cf)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 5 (internal)
-            let y_5 := add(s0_4, 0x123106a93cd17578d426e8128ac9d90aa9e8a00708e296e084dd57e69caaf811)
-            let x2_5 := mulmod(y_5, y_5, PRIME)
-            let x5_5 := mulmod(mulmod(x2_5, x2_5, PRIME), y_5, PRIME)
-            let sum_5 := addmod(add(add(x5_5, s3_4), s2_4), s1_4, PRIME)
-            let s0_5 :=
-                add(sum_5, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_5, PRIME))
-            let s1_5 :=
-                add(sum_5, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_4, PRIME))
-            let s2_5 :=
-                add(sum_5, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_4, PRIME))
-            let s3_5 :=
-                add(sum_5, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_4, PRIME))
+            {
+                let y := add(state0, 0x123106a93cd17578d426e8128ac9d90aa9e8a00708e296e084dd57e69caaf811)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 6 (internal)
-            let y_6 := add(s0_5, 0x26e1ba52ad9285d97dd3ab52f8e840085e8fa83ff1e8f1877b074867cd2dee75)
-            let x2_6 := mulmod(y_6, y_6, PRIME)
-            let x5_6 := mulmod(mulmod(x2_6, x2_6, PRIME), y_6, PRIME)
-            let sum_6 := addmod(add(add(x5_6, s3_5), s2_5), s1_5, PRIME)
-            let s0_6 :=
-                add(sum_6, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_6, PRIME))
-            let s1_6 :=
-                add(sum_6, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_5, PRIME))
-            let s2_6 :=
-                add(sum_6, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_5, PRIME))
-            let s3_6 :=
-                add(sum_6, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_5, PRIME))
+            {
+                let y := add(state0, 0x26e1ba52ad9285d97dd3ab52f8e840085e8fa83ff1e8f1877b074867cd2dee75)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 7 (internal)
-            let y_7 := add(s0_6, 0x1cb55cad7bd133de18a64c5c47b9c97cbe4d8b7bf9e095864471537e6a4ae2c5)
-            let x2_7 := mulmod(y_7, y_7, PRIME)
-            let x5_7 := mulmod(mulmod(x2_7, x2_7, PRIME), y_7, PRIME)
-            let sum_7 := addmod(add(add(x5_7, s3_6), s2_6), s1_6, PRIME)
-            let s0_7 :=
-                add(sum_7, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_7, PRIME))
-            let s1_7 :=
-                add(sum_7, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_6, PRIME))
-            let s2_7 :=
-                add(sum_7, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_6, PRIME))
-            let s3_7 :=
-                add(sum_7, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_6, PRIME))
+            {
+                let y := add(state0, 0x1cb55cad7bd133de18a64c5c47b9c97cbe4d8b7bf9e095864471537e6a4ae2c5)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 8 (internal)
-            let y_8 := add(s0_7, 0x1dcd73e46acd8f8e0e2c7ce04bde7f6d2a53043d5060a41c7143f08e6e9055d0)
-            let x2_8 := mulmod(y_8, y_8, PRIME)
-            let x5_8 := mulmod(mulmod(x2_8, x2_8, PRIME), y_8, PRIME)
-            let sum_8 := addmod(add(add(x5_8, s3_7), s2_7), s1_7, PRIME)
-            let s0_8 :=
-                add(sum_8, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_8, PRIME))
-            let s1_8 :=
-                add(sum_8, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_7, PRIME))
-            let s2_8 :=
-                add(sum_8, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_7, PRIME))
-            let s3_8 :=
-                add(sum_8, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_7, PRIME))
+            {
+                let y := add(state0, 0x1dcd73e46acd8f8e0e2c7ce04bde7f6d2a53043d5060a41c7143f08e6e9055d0)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 9 (internal)
-            let y_9 := add(s0_8, 0x011003e32f6d9c66f5852f05474a4def0cda294a0eb4e9b9b12b9bb4512e5574)
-            let x2_9 := mulmod(y_9, y_9, PRIME)
-            let x5_9 := mulmod(mulmod(x2_9, x2_9, PRIME), y_9, PRIME)
-            let sum_9 := addmod(add(add(x5_9, s3_8), s2_8), s1_8, PRIME)
-            let s0_9 :=
-                add(sum_9, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_9, PRIME))
-            let s1_9 :=
-                add(sum_9, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_8, PRIME))
-            let s2_9 :=
-                add(sum_9, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_8, PRIME))
-            let s3_9 :=
-                add(sum_9, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_8, PRIME))
+            {
+                let y := add(state0, 0x011003e32f6d9c66f5852f05474a4def0cda294a0eb4e9b9b12b9bb4512e5574)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 10 (internal)
-            let y_10 := add(s0_9, 0x2b1e809ac1d10ab29ad5f20d03a57dfebadfe5903f58bafed7c508dd2287ae8c)
-            let x2_10 := mulmod(y_10, y_10, PRIME)
-            let x5_10 := mulmod(mulmod(x2_10, x2_10, PRIME), y_10, PRIME)
-            let sum_10 := addmod(add(add(x5_10, s3_9), s2_9), s1_9, PRIME)
-            let s0_10 :=
-                add(sum_10, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_10, PRIME))
-            let s1_10 :=
-                add(sum_10, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_9, PRIME))
-            let s2_10 :=
-                add(sum_10, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_9, PRIME))
-            let s3_10 :=
-                add(sum_10, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_9, PRIME))
+            {
+                let y := add(state0, 0x2b1e809ac1d10ab29ad5f20d03a57dfebadfe5903f58bafed7c508dd2287ae8c)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 11 (internal)
-            let y_11 := add(s0_10, 0x2539de1785b735999fb4dac35ee17ed0ef995d05ab2fc5faeaa69ae87bcec0a5)
-            let x2_11 := mulmod(y_11, y_11, PRIME)
-            let x5_11 := mulmod(mulmod(x2_11, x2_11, PRIME), y_11, PRIME)
-            let sum_11 := addmod(add(add(x5_11, s3_10), s2_10), s1_10, PRIME)
-            let s0_11 :=
-                add(sum_11, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_11, PRIME))
-            let s1_11 :=
-                add(sum_11, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_10, PRIME))
-            let s2_11 :=
-                add(sum_11, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_10, PRIME))
-            let s3_11 :=
-                add(sum_11, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_10, PRIME))
+            {
+                let y := add(state0, 0x2539de1785b735999fb4dac35ee17ed0ef995d05ab2fc5faeaa69ae87bcec0a5)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 12 (internal)
-            let y_12 := add(s0_11, 0x0c246c5a2ef8ee0126497f222b3e0a0ef4e1c3d41c86d46e43982cb11d77951d)
-            let x2_12 := mulmod(y_12, y_12, PRIME)
-            let x5_12 := mulmod(mulmod(x2_12, x2_12, PRIME), y_12, PRIME)
-            let sum_12 := addmod(add(add(x5_12, s3_11), s2_11), s1_11, PRIME)
-            let s0_12 :=
-                add(sum_12, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_12, PRIME))
-            let s1_12 :=
-                add(sum_12, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_11, PRIME))
-            let s2_12 :=
-                add(sum_12, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_11, PRIME))
-            let s3_12 :=
-                add(sum_12, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_11, PRIME))
+            {
+                let y := add(state0, 0x0c246c5a2ef8ee0126497f222b3e0a0ef4e1c3d41c86d46e43982cb11d77951d)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 13 (internal)
-            let y_13 := add(s0_12, 0x192089c4974f68e95408148f7c0632edbb09e6a6ad1a1c2f3f0305f5d03b527b)
-            let x2_13 := mulmod(y_13, y_13, PRIME)
-            let x5_13 := mulmod(mulmod(x2_13, x2_13, PRIME), y_13, PRIME)
-            let sum_13 := addmod(add(add(x5_13, s3_12), s2_12), s1_12, PRIME)
-            let s0_13 :=
-                add(sum_13, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_13, PRIME))
-            let s1_13 :=
-                add(sum_13, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_12, PRIME))
-            let s2_13 :=
-                add(sum_13, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_12, PRIME))
-            let s3_13 :=
-                add(sum_13, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_12, PRIME))
+            {
+                let y := add(state0, 0x192089c4974f68e95408148f7c0632edbb09e6a6ad1a1c2f3f0305f5d03b527b)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 14 (internal)
-            let y_14 := add(s0_13, 0x1eae0ad8ab68b2f06a0ee36eeb0d0c058529097d91096b756d8fdc2fb5a60d85)
-            let x2_14 := mulmod(y_14, y_14, PRIME)
-            let x5_14 := mulmod(mulmod(x2_14, x2_14, PRIME), y_14, PRIME)
-            let sum_14 := addmod(add(add(x5_14, s3_13), s2_13), s1_13, PRIME)
-            let s0_14 :=
-                add(sum_14, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_14, PRIME))
-            let s1_14 :=
-                add(sum_14, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_13, PRIME))
-            let s2_14 :=
-                add(sum_14, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_13, PRIME))
-            let s3_14 :=
-                add(sum_14, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_13, PRIME))
+            {
+                let y := add(state0, 0x1eae0ad8ab68b2f06a0ee36eeb0d0c058529097d91096b756d8fdc2fb5a60d85)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 15 (internal)
-            let y_15 := add(s0_14, 0x179190e5d0e22179e46f8282872abc88db6e2fdc0dee99e69768bd98c5d06bfb)
-            let x2_15 := mulmod(y_15, y_15, PRIME)
-            let x5_15 := mulmod(mulmod(x2_15, x2_15, PRIME), y_15, PRIME)
-            let sum_15 := addmod(add(add(x5_15, s3_14), s2_14), s1_14, PRIME)
-            let s0_15 :=
-                add(sum_15, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_15, PRIME))
-            let s1_15 :=
-                add(sum_15, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_14, PRIME))
-            let s2_15 :=
-                add(sum_15, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_14, PRIME))
-            let s3_15 :=
-                add(sum_15, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_14, PRIME))
+            {
+                let y := add(state0, 0x179190e5d0e22179e46f8282872abc88db6e2fdc0dee99e69768bd98c5d06bfb)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 16 (internal)
-            let y_16 := add(s0_15, 0x29bb9e2c9076732576e9a81c7ac4b83214528f7db00f31bf6cafe794a9b3cd1c)
-            let x2_16 := mulmod(y_16, y_16, PRIME)
-            let x5_16 := mulmod(mulmod(x2_16, x2_16, PRIME), y_16, PRIME)
-            let sum_16 := addmod(add(add(x5_16, s3_15), s2_15), s1_15, PRIME)
-            let s0_16 :=
-                add(sum_16, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_16, PRIME))
-            let s1_16 :=
-                add(sum_16, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_15, PRIME))
-            let s2_16 :=
-                add(sum_16, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_15, PRIME))
-            let s3_16 :=
-                add(sum_16, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_15, PRIME))
+            {
+                let y := add(state0, 0x29bb9e2c9076732576e9a81c7ac4b83214528f7db00f31bf6cafe794a9b3cd1c)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 17 (internal)
-            let y_17 := add(s0_16, 0x225d394e42207599403efd0c2464a90d52652645882aac35b10e590e6e691e08)
-            let x2_17 := mulmod(y_17, y_17, PRIME)
-            let x5_17 := mulmod(mulmod(x2_17, x2_17, PRIME), y_17, PRIME)
-            let sum_17 := addmod(add(add(x5_17, s3_16), s2_16), s1_16, PRIME)
-            let s0_17 :=
-                add(sum_17, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_17, PRIME))
-            let s1_17 :=
-                add(sum_17, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_16, PRIME))
-            let s2_17 :=
-                add(sum_17, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_16, PRIME))
-            let s3_17 :=
-                add(sum_17, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_16, PRIME))
+            {
+                let y := add(state0, 0x225d394e42207599403efd0c2464a90d52652645882aac35b10e590e6e691e08)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 18 (internal)
-            let y_18 := add(s0_17, 0x064760623c25c8cf753d238055b444532be13557451c087de09efd454b23fd59)
-            let x2_18 := mulmod(y_18, y_18, PRIME)
-            let x5_18 := mulmod(mulmod(x2_18, x2_18, PRIME), y_18, PRIME)
-            let sum_18 := addmod(add(add(x5_18, s3_17), s2_17), s1_17, PRIME)
-            let s0_18 :=
-                add(sum_18, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_18, PRIME))
-            let s1_18 :=
-                add(sum_18, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_17, PRIME))
-            let s2_18 :=
-                add(sum_18, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_17, PRIME))
-            let s3_18 :=
-                add(sum_18, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_17, PRIME))
+            {
+                let y := add(state0, 0x064760623c25c8cf753d238055b444532be13557451c087de09efd454b23fd59)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 19 (internal)
-            let y_19 := add(s0_18, 0x10ba3a0e01df92e87f301c4b716d8a394d67f4bf42a75c10922910a78f6b5b87)
-            let x2_19 := mulmod(y_19, y_19, PRIME)
-            let x5_19 := mulmod(mulmod(x2_19, x2_19, PRIME), y_19, PRIME)
-            let sum_19 := addmod(add(add(x5_19, s3_18), s2_18), s1_18, PRIME)
-            let s0_19 :=
-                add(sum_19, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_19, PRIME))
-            let s1_19 :=
-                add(sum_19, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_18, PRIME))
-            let s2_19 :=
-                add(sum_19, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_18, PRIME))
-            let s3_19 :=
-                add(sum_19, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_18, PRIME))
+            {
+                let y := add(state0, 0x10ba3a0e01df92e87f301c4b716d8a394d67f4bf42a75c10922910a78f6b5b87)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 20 (internal)
-            let y_20 := add(s0_19, 0x0e070bf53f8451b24f9c6e96b0c2a801cb511bc0c242eb9d361b77693f21471c)
-            let x2_20 := mulmod(y_20, y_20, PRIME)
-            let x5_20 := mulmod(mulmod(x2_20, x2_20, PRIME), y_20, PRIME)
-            let sum_20 := addmod(add(add(x5_20, s3_19), s2_19), s1_19, PRIME)
-            let s0_20 :=
-                add(sum_20, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_20, PRIME))
-            let s1_20 :=
-                add(sum_20, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_19, PRIME))
-            let s2_20 :=
-                add(sum_20, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_19, PRIME))
-            let s3_20 :=
-                add(sum_20, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_19, PRIME))
+            {
+                let y := add(state0, 0x0e070bf53f8451b24f9c6e96b0c2a801cb511bc0c242eb9d361b77693f21471c)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 21 (internal)
-            let y_21 := add(s0_20, 0x1b94cd61b051b04dd39755ff93821a73ccd6cb11d2491d8aa7f921014de252fb)
-            let x2_21 := mulmod(y_21, y_21, PRIME)
-            let x5_21 := mulmod(mulmod(x2_21, x2_21, PRIME), y_21, PRIME)
-            let sum_21 := addmod(add(add(x5_21, s3_20), s2_20), s1_20, PRIME)
-            let s0_21 :=
-                add(sum_21, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_21, PRIME))
-            let s1_21 :=
-                add(sum_21, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_20, PRIME))
-            let s2_21 :=
-                add(sum_21, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_20, PRIME))
-            let s3_21 :=
-                add(sum_21, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_20, PRIME))
+            {
+                let y := add(state0, 0x1b94cd61b051b04dd39755ff93821a73ccd6cb11d2491d8aa7f921014de252fb)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 22 (internal)
-            let y_22 := add(s0_21, 0x1d7cb39bafb8c744e148787a2e70230f9d4e917d5713bb050487b5aa7d74070b)
-            let x2_22 := mulmod(y_22, y_22, PRIME)
-            let x5_22 := mulmod(mulmod(x2_22, x2_22, PRIME), y_22, PRIME)
-            let sum_22 := addmod(add(add(x5_22, s3_21), s2_21), s1_21, PRIME)
-            let s0_22 :=
-                add(sum_22, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_22, PRIME))
-            let s1_22 :=
-                add(sum_22, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_21, PRIME))
-            let s2_22 :=
-                add(sum_22, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_21, PRIME))
-            let s3_22 :=
-                add(sum_22, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_21, PRIME))
+            {
+                let y := add(state0, 0x1d7cb39bafb8c744e148787a2e70230f9d4e917d5713bb050487b5aa7d74070b)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 23 (internal)
-            let y_23 := add(s0_22, 0x2ec93189bd1ab4f69117d0fe980c80ff8785c2961829f701bb74ac1f303b17db)
-            let x2_23 := mulmod(y_23, y_23, PRIME)
-            let x5_23 := mulmod(mulmod(x2_23, x2_23, PRIME), y_23, PRIME)
-            let sum_23 := addmod(add(add(x5_23, s3_22), s2_22), s1_22, PRIME)
-            let s0_23 :=
-                add(sum_23, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_23, PRIME))
-            let s1_23 :=
-                add(sum_23, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_22, PRIME))
-            let s2_23 :=
-                add(sum_23, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_22, PRIME))
-            let s3_23 :=
-                add(sum_23, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_22, PRIME))
+            {
+                let y := add(state0, 0x2ec93189bd1ab4f69117d0fe980c80ff8785c2961829f701bb74ac1f303b17db)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 24 (internal)
-            let y_24 := add(s0_23, 0x2db366bfdd36d277a692bb825b86275beac404a19ae07a9082ea46bd83517926)
-            let x2_24 := mulmod(y_24, y_24, PRIME)
-            let x5_24 := mulmod(mulmod(x2_24, x2_24, PRIME), y_24, PRIME)
-            let sum_24 := addmod(add(add(x5_24, s3_23), s2_23), s1_23, PRIME)
-            let s0_24 :=
-                add(sum_24, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_24, PRIME))
-            let s1_24 :=
-                add(sum_24, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_23, PRIME))
-            let s2_24 :=
-                add(sum_24, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_23, PRIME))
-            let s3_24 :=
-                add(sum_24, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_23, PRIME))
+            {
+                let y := add(state0, 0x2db366bfdd36d277a692bb825b86275beac404a19ae07a9082ea46bd83517926)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 25 (internal)
-            let y_25 := add(s0_24, 0x062100eb485db06269655cf186a68532985275428450359adc99cec6960711b8)
-            let x2_25 := mulmod(y_25, y_25, PRIME)
-            let x5_25 := mulmod(mulmod(x2_25, x2_25, PRIME), y_25, PRIME)
-            let sum_25 := addmod(add(add(x5_25, s3_24), s2_24), s1_24, PRIME)
-            let s0_25 :=
-                add(sum_25, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_25, PRIME))
-            let s1_25 :=
-                add(sum_25, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_24, PRIME))
-            let s2_25 :=
-                add(sum_25, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_24, PRIME))
-            let s3_25 :=
-                add(sum_25, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_24, PRIME))
+            {
+                let y := add(state0, 0x062100eb485db06269655cf186a68532985275428450359adc99cec6960711b8)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 26 (internal)
-            let y_26 := add(s0_25, 0x0761d33c66614aaa570e7f1e8244ca1120243f92fa59e4f900c567bf41f5a59b)
-            let x2_26 := mulmod(y_26, y_26, PRIME)
-            let x5_26 := mulmod(mulmod(x2_26, x2_26, PRIME), y_26, PRIME)
-            let sum_26 := addmod(add(add(x5_26, s3_25), s2_25), s1_25, PRIME)
-            let s0_26 :=
-                add(sum_26, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_26, PRIME))
-            let s1_26 :=
-                add(sum_26, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_25, PRIME))
-            let s2_26 :=
-                add(sum_26, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_25, PRIME))
-            let s3_26 :=
-                add(sum_26, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_25, PRIME))
+            {
+                let y := add(state0, 0x0761d33c66614aaa570e7f1e8244ca1120243f92fa59e4f900c567bf41f5a59b)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 27 (internal)
-            let y_27 := add(s0_26, 0x20fc411a114d13992c2705aa034e3f315d78608a0f7de4ccf7a72e494855ad0d)
-            let x2_27 := mulmod(y_27, y_27, PRIME)
-            let x5_27 := mulmod(mulmod(x2_27, x2_27, PRIME), y_27, PRIME)
-            let sum_27 := addmod(add(add(x5_27, s3_26), s2_26), s1_26, PRIME)
-            let s0_27 :=
-                add(sum_27, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_27, PRIME))
-            let s1_27 :=
-                add(sum_27, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_26, PRIME))
-            let s2_27 :=
-                add(sum_27, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_26, PRIME))
-            let s3_27 :=
-                add(sum_27, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_26, PRIME))
+            {
+                let y := add(state0, 0x20fc411a114d13992c2705aa034e3f315d78608a0f7de4ccf7a72e494855ad0d)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 28 (internal)
-            let y_28 := add(s0_27, 0x25b5c004a4bdfcb5add9ec4e9ab219ba102c67e8b3effb5fc3a30f317250bc5a)
-            let x2_28 := mulmod(y_28, y_28, PRIME)
-            let x5_28 := mulmod(mulmod(x2_28, x2_28, PRIME), y_28, PRIME)
-            let sum_28 := addmod(add(add(x5_28, s3_27), s2_27), s1_27, PRIME)
-            let s0_28 :=
-                add(sum_28, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_28, PRIME))
-            let s1_28 :=
-                add(sum_28, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_27, PRIME))
-            let s2_28 :=
-                add(sum_28, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_27, PRIME))
-            let s3_28 :=
-                add(sum_28, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_27, PRIME))
+            {
+                let y := add(state0, 0x25b5c004a4bdfcb5add9ec4e9ab219ba102c67e8b3effb5fc3a30f317250bc5a)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 29 (internal)
-            let y_29 := add(s0_28, 0x23b1822d278ed632a494e58f6df6f5ed038b186d8474155ad87e7dff62b37f4b)
-            let x2_29 := mulmod(y_29, y_29, PRIME)
-            let x5_29 := mulmod(mulmod(x2_29, x2_29, PRIME), y_29, PRIME)
-            let sum_29 := addmod(add(add(x5_29, s3_28), s2_28), s1_28, PRIME)
-            let s0_29 :=
-                add(sum_29, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_29, PRIME))
-            let s1_29 :=
-                add(sum_29, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_28, PRIME))
-            let s2_29 :=
-                add(sum_29, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_28, PRIME))
-            let s3_29 :=
-                add(sum_29, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_28, PRIME))
+            {
+                let y := add(state0, 0x23b1822d278ed632a494e58f6df6f5ed038b186d8474155ad87e7dff62b37f4b)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 30 (internal)
-            let y_30 := add(s0_29, 0x22734b4c5c3f9493606c4ba9012499bf0f14d13bfcfcccaa16102a29cc2f69e0)
-            let x2_30 := mulmod(y_30, y_30, PRIME)
-            let x5_30 := mulmod(mulmod(x2_30, x2_30, PRIME), y_30, PRIME)
-            let sum_30 := addmod(add(add(x5_30, s3_29), s2_29), s1_29, PRIME)
-            let s0_30 :=
-                add(sum_30, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_30, PRIME))
-            let s1_30 :=
-                add(sum_30, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_29, PRIME))
-            let s2_30 :=
-                add(sum_30, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_29, PRIME))
-            let s3_30 :=
-                add(sum_30, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_29, PRIME))
+            {
+                let y := add(state0, 0x22734b4c5c3f9493606c4ba9012499bf0f14d13bfcfcccaa16102a29cc2f69e0)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 31 (internal)
-            let y_31 := add(s0_30, 0x26c0c8fe09eb30b7e27a74dc33492347e5bdff409aa3610254413d3fad795ce5)
-            let x2_31 := mulmod(y_31, y_31, PRIME)
-            let x5_31 := mulmod(mulmod(x2_31, x2_31, PRIME), y_31, PRIME)
-            let sum_31 := addmod(add(add(x5_31, s3_30), s2_30), s1_30, PRIME)
-            let s0_31 :=
-                add(sum_31, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_31, PRIME))
-            let s1_31 :=
-                add(sum_31, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_30, PRIME))
-            let s2_31 :=
-                add(sum_31, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_30, PRIME))
-            let s3_31 :=
-                add(sum_31, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_30, PRIME))
+            {
+                let y := add(state0, 0x26c0c8fe09eb30b7e27a74dc33492347e5bdff409aa3610254413d3fad795ce5)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 32 (internal)
-            let y_32 := add(s0_31, 0x070dd0ccb6bd7bbae88eac03fa1fbb26196be3083a809829bbd626df348ccad9)
-            let x2_32 := mulmod(y_32, y_32, PRIME)
-            let x5_32 := mulmod(mulmod(x2_32, x2_32, PRIME), y_32, PRIME)
-            let sum_32 := addmod(add(add(x5_32, s3_31), s2_31), s1_31, PRIME)
-            let s0_32 :=
-                add(sum_32, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_32, PRIME))
-            let s1_32 :=
-                add(sum_32, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_31, PRIME))
-            let s2_32 :=
-                add(sum_32, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_31, PRIME))
-            let s3_32 :=
-                add(sum_32, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_31, PRIME))
+            {
+                let y := add(state0, 0x070dd0ccb6bd7bbae88eac03fa1fbb26196be3083a809829bbd626df348ccad9)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 33 (internal)
-            let y_33 := add(s0_32, 0x12b6595bdb329b6fb043ba78bb28c3bec2c0a6de46d8c5ad6067c4ebfd4250da)
-            let x2_33 := mulmod(y_33, y_33, PRIME)
-            let x5_33 := mulmod(mulmod(x2_33, x2_33, PRIME), y_33, PRIME)
-            let sum_33 := addmod(add(add(x5_33, s3_32), s2_32), s1_32, PRIME)
-            let s0_33 :=
-                add(sum_33, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_33, PRIME))
-            let s1_33 :=
-                add(sum_33, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_32, PRIME))
-            let s2_33 :=
-                add(sum_33, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_32, PRIME))
-            let s3_33 :=
-                add(sum_33, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_32, PRIME))
+            {
+                let y := add(state0, 0x12b6595bdb329b6fb043ba78bb28c3bec2c0a6de46d8c5ad6067c4ebfd4250da)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 34 (internal)
-            let y_34 := add(s0_33, 0x248d97d7f76283d63bec30e7a5876c11c06fca9b275c671c5e33d95bb7e8d729)
-            let x2_34 := mulmod(y_34, y_34, PRIME)
-            let x5_34 := mulmod(mulmod(x2_34, x2_34, PRIME), y_34, PRIME)
-            let sum_34 := addmod(add(add(x5_34, s3_33), s2_33), s1_33, PRIME)
-            let s0_34 :=
-                add(sum_34, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_34, PRIME))
-            let s1_34 :=
-                add(sum_34, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_33, PRIME))
-            let s2_34 :=
-                add(sum_34, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_33, PRIME))
-            let s3_34 :=
-                add(sum_34, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_33, PRIME))
+            {
+                let y := add(state0, 0x248d97d7f76283d63bec30e7a5876c11c06fca9b275c671c5e33d95bb7e8d729)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 35 (internal)
-            let y_35 := add(s0_34, 0x1a306d439d463b0816fc6fd64cc939318b45eb759ddde4aa106d15d9bd9baaaa)
-            let x2_35 := mulmod(y_35, y_35, PRIME)
-            let x5_35 := mulmod(mulmod(x2_35, x2_35, PRIME), y_35, PRIME)
-            let sum_35 := addmod(add(add(x5_35, s3_34), s2_34), s1_34, PRIME)
-            let s0_35 :=
-                add(sum_35, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_35, PRIME))
-            let s1_35 :=
-                add(sum_35, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_34, PRIME))
-            let s2_35 :=
-                add(sum_35, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_34, PRIME))
-            let s3_35 :=
-                add(sum_35, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_34, PRIME))
+            {
+                let y := add(state0, 0x1a306d439d463b0816fc6fd64cc939318b45eb759ddde4aa106d15d9bd9baaaa)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 36 (internal)
-            let y_36 := add(s0_35, 0x28a8f8372e3c38daced7c00421cb4621f4f1b54ddc27821b0d62d3d6ec7c56cf)
-            let x2_36 := mulmod(y_36, y_36, PRIME)
-            let x5_36 := mulmod(mulmod(x2_36, x2_36, PRIME), y_36, PRIME)
-            let sum_36 := addmod(add(add(x5_36, s3_35), s2_35), s1_35, PRIME)
-            let s0_36 :=
-                add(sum_36, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_36, PRIME))
-            let s1_36 :=
-                add(sum_36, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_35, PRIME))
-            let s2_36 :=
-                add(sum_36, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_35, PRIME))
-            let s3_36 :=
-                add(sum_36, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_35, PRIME))
+            {
+                let y := add(state0, 0x28a8f8372e3c38daced7c00421cb4621f4f1b54ddc27821b0d62d3d6ec7c56cf)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 37 (internal)
-            let y_37 := add(s0_36, 0x0094975717f9a8a8bb35152f24d43294071ce320c829f388bc852183e1e2ce7e)
-            let x2_37 := mulmod(y_37, y_37, PRIME)
-            let x5_37 := mulmod(mulmod(x2_37, x2_37, PRIME), y_37, PRIME)
-            let sum_37 := addmod(add(add(x5_37, s3_36), s2_36), s1_36, PRIME)
-            let s0_37 :=
-                add(sum_37, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_37, PRIME))
-            let s1_37 :=
-                add(sum_37, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_36, PRIME))
-            let s2_37 :=
-                add(sum_37, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_36, PRIME))
-            let s3_37 :=
-                add(sum_37, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_36, PRIME))
+            {
+                let y := add(state0, 0x0094975717f9a8a8bb35152f24d43294071ce320c829f388bc852183e1e2ce7e)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 38 (internal)
-            let y_38 := add(s0_37, 0x04d5ee4c3aa78f7d80fde60d716480d3593f74d4f653ae83f4103246db2e8d65)
-            let x2_38 := mulmod(y_38, y_38, PRIME)
-            let x5_38 := mulmod(mulmod(x2_38, x2_38, PRIME), y_38, PRIME)
-            let sum_38 := addmod(add(add(x5_38, s3_37), s2_37), s1_37, PRIME)
-            let s0_38 :=
-                add(sum_38, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_38, PRIME))
-            let s1_38 :=
-                add(sum_38, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_37, PRIME))
-            let s2_38 :=
-                add(sum_38, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_37, PRIME))
-            let s3_38 :=
-                add(sum_38, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_37, PRIME))
+            {
+                let y := add(state0, 0x04d5ee4c3aa78f7d80fde60d716480d3593f74d4f653ae83f4103246db2e8d65)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 39 (internal)
-            let y_39 := add(s0_38, 0x2a6cf5e9aa03d4336349ad6fb8ed2269c7bef54b8822cc76d08495c12efde187)
-            let x2_39 := mulmod(y_39, y_39, PRIME)
-            let x5_39 := mulmod(mulmod(x2_39, x2_39, PRIME), y_39, PRIME)
-            let sum_39 := addmod(add(add(x5_39, s3_38), s2_38), s1_38, PRIME)
-            let s0_39 :=
-                add(sum_39, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_39, PRIME))
-            let s1_39 :=
-                add(sum_39, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_38, PRIME))
-            let s2_39 :=
-                add(sum_39, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_38, PRIME))
-            let s3_39 :=
-                add(sum_39, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_38, PRIME))
+            {
+                let y := add(state0, 0x2a6cf5e9aa03d4336349ad6fb8ed2269c7bef54b8822cc76d08495c12efde187)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 40 (internal)
-            let y_40 := add(s0_39, 0x2304d31eaab960ba9274da43e19ddeb7f792180808fd6e43baae48d7efcba3f3)
-            let x2_40 := mulmod(y_40, y_40, PRIME)
-            let x5_40 := mulmod(mulmod(x2_40, x2_40, PRIME), y_40, PRIME)
-            let sum_40 := addmod(add(add(x5_40, s3_39), s2_39), s1_39, PRIME)
-            let s0_40 :=
-                add(sum_40, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_40, PRIME))
-            let s1_40 :=
-                add(sum_40, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_39, PRIME))
-            let s2_40 :=
-                add(sum_40, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_39, PRIME))
-            let s3_40 :=
-                add(sum_40, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_39, PRIME))
+            {
+                let y := add(state0, 0x2304d31eaab960ba9274da43e19ddeb7f792180808fd6e43baae48d7efcba3f3)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 41 (internal)
-            let y_41 := add(s0_40, 0x03fd9ac865a4b2a6d5e7009785817249bff08a7e0726fcb4e1c11d39d199f0b0)
-            let x2_41 := mulmod(y_41, y_41, PRIME)
-            let x5_41 := mulmod(mulmod(x2_41, x2_41, PRIME), y_41, PRIME)
-            let sum_41 := addmod(add(add(x5_41, s3_40), s2_40), s1_40, PRIME)
-            let s0_41 :=
-                add(sum_41, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_41, PRIME))
-            let s1_41 :=
-                add(sum_41, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_40, PRIME))
-            let s2_41 :=
-                add(sum_41, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_40, PRIME))
-            let s3_41 :=
-                add(sum_41, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_40, PRIME))
+            {
+                let y := add(state0, 0x03fd9ac865a4b2a6d5e7009785817249bff08a7e0726fcb4e1c11d39d199f0b0)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 42 (internal)
-            let y_42 := add(s0_41, 0x00b7258ded52bbda2248404d55ee5044798afc3a209193073f7954d4d63b0b64)
-            let x2_42 := mulmod(y_42, y_42, PRIME)
-            let x5_42 := mulmod(mulmod(x2_42, x2_42, PRIME), y_42, PRIME)
-            let sum_42 := addmod(add(add(x5_42, s3_41), s2_41), s1_41, PRIME)
-            let s0_42 :=
-                add(sum_42, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_42, PRIME))
-            let s1_42 :=
-                add(sum_42, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_41, PRIME))
-            let s2_42 :=
-                add(sum_42, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_41, PRIME))
-            let s3_42 :=
-                add(sum_42, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_41, PRIME))
+            {
+                let y := add(state0, 0x00b7258ded52bbda2248404d55ee5044798afc3a209193073f7954d4d63b0b64)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 43 (internal)
-            let y_43 := add(s0_42, 0x159f81ada0771799ec38fca2d4bf65ebb13d3a74f3298db36272c5ca65e92d9a)
-            let x2_43 := mulmod(y_43, y_43, PRIME)
-            let x5_43 := mulmod(mulmod(x2_43, x2_43, PRIME), y_43, PRIME)
-            let sum_43 := addmod(add(add(x5_43, s3_42), s2_42), s1_42, PRIME)
-            let s0_43 :=
-                add(sum_43, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_43, PRIME))
-            let s1_43 :=
-                add(sum_43, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_42, PRIME))
-            let s2_43 :=
-                add(sum_43, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_42, PRIME))
-            let s3_43 :=
-                add(sum_43, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_42, PRIME))
+            {
+                let y := add(state0, 0x159f81ada0771799ec38fca2d4bf65ebb13d3a74f3298db36272c5ca65e92d9a)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 44 (internal)
-            let y_44 := add(s0_43, 0x1ef90e67437fbc8550237a75bc28e3bb9000130ea25f0c5471e144cf4264431f)
-            let x2_44 := mulmod(y_44, y_44, PRIME)
-            let x5_44 := mulmod(mulmod(x2_44, x2_44, PRIME), y_44, PRIME)
-            let sum_44 := addmod(add(add(x5_44, s3_43), s2_43), s1_43, PRIME)
-            let s0_44 :=
-                add(sum_44, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_44, PRIME))
-            let s1_44 :=
-                add(sum_44, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_43, PRIME))
-            let s2_44 :=
-                add(sum_44, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_43, PRIME))
-            let s3_44 :=
-                add(sum_44, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_43, PRIME))
+            {
+                let y := add(state0, 0x1ef90e67437fbc8550237a75bc28e3bb9000130ea25f0c5471e144cf4264431f)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 45 (internal)
-            let y_45 := add(s0_44, 0x1e65f838515e5ff0196b49aa41a2d2568df739bc176b08ec95a79ed82932e30d)
-            let x2_45 := mulmod(y_45, y_45, PRIME)
-            let x5_45 := mulmod(mulmod(x2_45, x2_45, PRIME), y_45, PRIME)
-            let sum_45 := addmod(add(add(x5_45, s3_44), s2_44), s1_44, PRIME)
-            let s0_45 :=
-                add(sum_45, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_45, PRIME))
-            let s1_45 :=
-                add(sum_45, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_44, PRIME))
-            let s2_45 :=
-                add(sum_45, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_44, PRIME))
-            let s3_45 :=
-                add(sum_45, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_44, PRIME))
+            {
+                let y := add(state0, 0x1e65f838515e5ff0196b49aa41a2d2568df739bc176b08ec95a79ed82932e30d)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 46 (internal)
-            let y_46 := add(s0_45, 0x2b1b045def3a166cec6ce768d079ba74b18c844e570e1f826575c1068c94c33f)
-            let x2_46 := mulmod(y_46, y_46, PRIME)
-            let x5_46 := mulmod(mulmod(x2_46, x2_46, PRIME), y_46, PRIME)
-            let sum_46 := addmod(add(add(x5_46, s3_45), s2_45), s1_45, PRIME)
-            let s0_46 :=
-                add(sum_46, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_46, PRIME))
-            let s1_46 :=
-                add(sum_46, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_45, PRIME))
-            let s2_46 :=
-                add(sum_46, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_45, PRIME))
-            let s3_46 :=
-                add(sum_46, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_45, PRIME))
+            {
+                let y := add(state0, 0x2b1b045def3a166cec6ce768d079ba74b18c844e570e1f826575c1068c94c33f)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 47 (internal)
-            let y_47 := add(s0_46, 0x0832e5753ceb0ff6402543b1109229c165dc2d73bef715e3f1c6e07c168bb173)
-            let x2_47 := mulmod(y_47, y_47, PRIME)
-            let x5_47 := mulmod(mulmod(x2_47, x2_47, PRIME), y_47, PRIME)
-            let sum_47 := addmod(add(add(x5_47, s3_46), s2_46), s1_46, PRIME)
-            let s0_47 :=
-                add(sum_47, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_47, PRIME))
-            let s1_47 :=
-                add(sum_47, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_46, PRIME))
-            let s2_47 :=
-                add(sum_47, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_46, PRIME))
-            let s3_47 :=
-                add(sum_47, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_46, PRIME))
+            {
+                let y := add(state0, 0x0832e5753ceb0ff6402543b1109229c165dc2d73bef715e3f1c6e07c168bb173)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 48 (internal)
-            let y_48 := add(s0_47, 0x02f614e9cedfb3dc6b762ae0a37d41bab1b841c2e8b6451bc5a8e3c390b6ad16)
-            let x2_48 := mulmod(y_48, y_48, PRIME)
-            let x5_48 := mulmod(mulmod(x2_48, x2_48, PRIME), y_48, PRIME)
-            let sum_48 := addmod(add(add(x5_48, s3_47), s2_47), s1_47, PRIME)
-            let s0_48 :=
-                add(sum_48, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_48, PRIME))
-            let s1_48 :=
-                add(sum_48, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_47, PRIME))
-            let s2_48 :=
-                add(sum_48, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_47, PRIME))
-            let s3_48 :=
-                add(sum_48, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_47, PRIME))
+            {
+                let y := add(state0, 0x02f614e9cedfb3dc6b762ae0a37d41bab1b841c2e8b6451bc5a8e3c390b6ad16)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 49 (internal)
-            let y_49 := add(s0_48, 0x0e2427d38bd46a60dd640b8e362cad967370ebb777bedff40f6a0be27e7ed705)
-            let x2_49 := mulmod(y_49, y_49, PRIME)
-            let x5_49 := mulmod(mulmod(x2_49, x2_49, PRIME), y_49, PRIME)
-            let sum_49 := addmod(add(add(x5_49, s3_48), s2_48), s1_48, PRIME)
-            let s0_49 :=
-                add(sum_49, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_49, PRIME))
-            let s1_49 :=
-                add(sum_49, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_48, PRIME))
-            let s2_49 :=
-                add(sum_49, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_48, PRIME))
-            let s3_49 :=
-                add(sum_49, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_48, PRIME))
+            {
+                let y := add(state0, 0x0e2427d38bd46a60dd640b8e362cad967370ebb777bedff40f6a0be27e7ed705)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 50 (internal)
-            let y_50 := add(s0_49, 0x0493630b7c670b6deb7c84d414e7ce79049f0ec098c3c7c50768bbe29214a53a)
-            let x2_50 := mulmod(y_50, y_50, PRIME)
-            let x5_50 := mulmod(mulmod(x2_50, x2_50, PRIME), y_50, PRIME)
-            let sum_50 := addmod(add(add(x5_50, s3_49), s2_49), s1_49, PRIME)
-            let s0_50 :=
-                add(sum_50, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_50, PRIME))
-            let s1_50 :=
-                add(sum_50, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_49, PRIME))
-            let s2_50 :=
-                add(sum_50, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_49, PRIME))
-            let s3_50 :=
-                add(sum_50, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_49, PRIME))
+            {
+                let y := add(state0, 0x0493630b7c670b6deb7c84d414e7ce79049f0ec098c3c7c50768bbe29214a53a)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 51 (internal)
-            let y_51 := add(s0_50, 0x22ead100e8e482674decdab17066c5a26bb1515355d5461a3dc06cc85327cea9)
-            let x2_51 := mulmod(y_51, y_51, PRIME)
-            let x5_51 := mulmod(mulmod(x2_51, x2_51, PRIME), y_51, PRIME)
-            let sum_51 := addmod(add(add(x5_51, s3_50), s2_50), s1_50, PRIME)
-            let s0_51 :=
-                add(sum_51, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_51, PRIME))
-            let s1_51 :=
-                add(sum_51, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_50, PRIME))
-            let s2_51 :=
-                add(sum_51, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_50, PRIME))
-            let s3_51 :=
-                add(sum_51, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_50, PRIME))
+            {
+                let y := add(state0, 0x22ead100e8e482674decdab17066c5a26bb1515355d5461a3dc06cc85327cea9)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 52 (internal)
-            let y_52 := add(s0_51, 0x25b3e56e655b42cdaae2626ed2554d48583f1ae35626d04de5084e0b6d2a6f16)
-            let x2_52 := mulmod(y_52, y_52, PRIME)
-            let x5_52 := mulmod(mulmod(x2_52, x2_52, PRIME), y_52, PRIME)
-            let sum_52 := addmod(add(add(x5_52, s3_51), s2_51), s1_51, PRIME)
-            let s0_52 :=
-                add(sum_52, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_52, PRIME))
-            let s1_52 :=
-                add(sum_52, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_51, PRIME))
-            let s2_52 :=
-                add(sum_52, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_51, PRIME))
-            let s3_52 :=
-                add(sum_52, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_51, PRIME))
+            {
+                let y := add(state0, 0x25b3e56e655b42cdaae2626ed2554d48583f1ae35626d04de5084e0b6d2a6f16)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 53 (internal)
-            let y_53 := add(s0_52, 0x1e32752ada8836ef5837a6cde8ff13dbb599c336349e4c584b4fdc0a0cf6f9d0)
-            let x2_53 := mulmod(y_53, y_53, PRIME)
-            let x5_53 := mulmod(mulmod(x2_53, x2_53, PRIME), y_53, PRIME)
-            let sum_53 := addmod(add(add(x5_53, s3_52), s2_52), s1_52, PRIME)
-            let s0_53 :=
-                add(sum_53, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_53, PRIME))
-            let s1_53 :=
-                add(sum_53, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_52, PRIME))
-            let s2_53 :=
-                add(sum_53, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_52, PRIME))
-            let s3_53 :=
-                add(sum_53, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_52, PRIME))
+            {
+                let y := add(state0, 0x1e32752ada8836ef5837a6cde8ff13dbb599c336349e4c584b4fdc0a0cf6f9d0)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 54 (internal)
-            let y_54 := add(s0_53, 0x2fa2a871c15a387cc50f68f6f3c3455b23c00995f05078f672a9864074d412e5)
-            let x2_54 := mulmod(y_54, y_54, PRIME)
-            let x5_54 := mulmod(mulmod(x2_54, x2_54, PRIME), y_54, PRIME)
-            let sum_54 := addmod(add(add(x5_54, s3_53), s2_53), s1_53, PRIME)
-            let s0_54 :=
-                add(sum_54, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_54, PRIME))
-            let s1_54 :=
-                add(sum_54, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_53, PRIME))
-            let s2_54 :=
-                add(sum_54, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_53, PRIME))
-            let s3_54 :=
-                add(sum_54, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_53, PRIME))
+            {
+                let y := add(state0, 0x2fa2a871c15a387cc50f68f6f3c3455b23c00995f05078f672a9864074d412e5)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 55 (internal)
-            let y_55 := add(s0_54, 0x2f569b8a9a4424c9278e1db7311e889f54ccbf10661bab7fcd18e7c7a7d83505)
-            let x2_55 := mulmod(y_55, y_55, PRIME)
-            let x5_55 := mulmod(mulmod(x2_55, x2_55, PRIME), y_55, PRIME)
-            let sum_55 := addmod(add(add(x5_55, s3_54), s2_54), s1_54, PRIME)
-            let s0_55 :=
-                add(sum_55, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_55, PRIME))
-            let s1_55 :=
-                add(sum_55, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_54, PRIME))
-            let s2_55 :=
-                add(sum_55, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_54, PRIME))
-            let s3_55 :=
-                add(sum_55, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_54, PRIME))
+            {
+                let y := add(state0, 0x2f569b8a9a4424c9278e1db7311e889f54ccbf10661bab7fcd18e7c7a7d83505)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 56 (internal)
-            let y_56 := add(s0_55, 0x044cb455110a8fdd531ade530234c518a7df93f7332ffd2144165374b246b43d)
-            let x2_56 := mulmod(y_56, y_56, PRIME)
-            let x5_56 := mulmod(mulmod(x2_56, x2_56, PRIME), y_56, PRIME)
-            let sum_56 := addmod(add(add(x5_56, s3_55), s2_55), s1_55, PRIME)
-            let s0_56 :=
-                add(sum_56, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_56, PRIME))
-            let s1_56 :=
-                add(sum_56, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_55, PRIME))
-            let s2_56 :=
-                add(sum_56, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_55, PRIME))
-            let s3_56 :=
-                add(sum_56, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_55, PRIME))
+            {
+                let y := add(state0, 0x044cb455110a8fdd531ade530234c518a7df93f7332ffd2144165374b246b43d)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 57 (internal)
-            let y_57 := add(s0_56, 0x227808de93906d5d420246157f2e42b191fe8c90adfe118178ddc723a5319025)
-            let x2_57 := mulmod(y_57, y_57, PRIME)
-            let x5_57 := mulmod(mulmod(x2_57, x2_57, PRIME), y_57, PRIME)
-            let sum_57 := addmod(add(add(x5_57, s3_56), s2_56), s1_56, PRIME)
-            let s0_57 :=
-                add(sum_57, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_57, PRIME))
-            let s1_57 :=
-                add(sum_57, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_56, PRIME))
-            let s2_57 :=
-                add(sum_57, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_56, PRIME))
-            let s3_57 :=
-                add(sum_57, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_56, PRIME))
+            {
+                let y := add(state0, 0x227808de93906d5d420246157f2e42b191fe8c90adfe118178ddc723a5319025)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 58 (internal)
-            let y_58 := add(s0_57, 0x02fcca2934e046bc623adead873579865d03781ae090ad4a8579d2e7a6800355)
-            let x2_58 := mulmod(y_58, y_58, PRIME)
-            let x5_58 := mulmod(mulmod(x2_58, x2_58, PRIME), y_58, PRIME)
-            let sum_58 := addmod(add(add(x5_58, s3_57), s2_57), s1_57, PRIME)
-            let s0_58 :=
-                add(sum_58, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_58, PRIME))
-            let s1_58 :=
-                add(sum_58, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_57, PRIME))
-            let s2_58 :=
-                add(sum_58, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_57, PRIME))
-            let s3_58 :=
-                add(sum_58, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_57, PRIME))
+            {
+                let y := add(state0, 0x02fcca2934e046bc623adead873579865d03781ae090ad4a8579d2e7a6800355)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 59 (internal)
-            let y_59 := add(s0_58, 0x0ef915f0ac120b876abccceb344a1d36bad3f3c5ab91a8ddcbec2e060d8befac)
-            let x2_59 := mulmod(y_59, y_59, PRIME)
-            let x5_59 := mulmod(mulmod(x2_59, x2_59, PRIME), y_59, PRIME)
-            let sum_59 := addmod(add(add(x5_59, s3_58), s2_58), s1_58, PRIME)
-            let s0_59 :=
-                add(sum_59, mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5_59, PRIME))
-            let s1_59 :=
-                add(sum_59, mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, s1_58, PRIME))
-            let s2_59 :=
-                add(sum_59, mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, s2_58, PRIME))
-            let s3_59 :=
-                add(sum_59, mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, s3_58, PRIME))
+            {
+                let y := add(state0, 0x0ef915f0ac120b876abccceb344a1d36bad3f3c5ab91a8ddcbec2e060d8befac)
+                let x2 := mulmod(y, y, PRIME)
+                let x5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+                let sum := addmod(add(add(x5, state3), state2), state1, PRIME)
+                state0 := add(
+                    sum,
+                    mulmod(0x10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7, x5, PRIME)
+                )
+                state1 := add(
+                    sum,
+                    mulmod(0x0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b, state1, PRIME)
+                )
+                state2 := add(
+                    sum,
+                    mulmod(0x00544b8338791518b2c7645a50392798b21f75bb60e3596170067d00141cac15, state2, PRIME)
+                )
+                state3 := add(
+                    sum,
+                    mulmod(0x222c01175718386f2e2e82eb122789e352e105a3b8fa852613bc534433ee428b, state3, PRIME)
+                )
+            }
 
             // round 60 (external)
-            let y0_60 := add(s0_59, 0x1797130f4b7a3e1777eb757bc6f287f6ab0fb85f6be63b09f3b16ef2b1405d38)
-            let x2_0_60 := mulmod(y0_60, y0_60, PRIME)
-            let a0_60 := mulmod(mulmod(x2_0_60, x2_0_60, PRIME), y0_60, PRIME)
-            let y1_60 := add(s1_59, 0x0a76225dc04170ae3306c85abab59e608c7f497c20156d4d36c668555decc6e5)
-            let x2_1_60 := mulmod(y1_60, y1_60, PRIME)
-            let a1_60 := mulmod(mulmod(x2_1_60, x2_1_60, PRIME), y1_60, PRIME)
-            let y2_60 := add(s2_59, 0x1fffb9ec1992d66ba1e77a7b93209af6f8fa76d48acb664796174b5326a31a5c)
-            let x2_2_60 := mulmod(y2_60, y2_60, PRIME)
-            let a2_60 := mulmod(mulmod(x2_2_60, x2_2_60, PRIME), y2_60, PRIME)
-            let y3_60 := add(s3_59, 0x25721c4fc15a3f2853b57c338fa538d85f8fbba6c6b9c6090611889b797b9c5f)
-            let x2_3_60 := mulmod(y3_60, y3_60, PRIME)
-            let a3_60 := mulmod(mulmod(x2_3_60, x2_3_60, PRIME), y3_60, PRIME)
-            let t0_60 := add(a1_60, a0_60)
-            let t1_60 := add(a3_60, a2_60)
-            let t2_60 := addmod(add(a1_60, a1_60), t1_60, PRIME)
-            let t3_60 := addmod(add(a3_60, a3_60), t0_60, PRIME)
-            let s3_60 := add(mulmod(t1_60, 4, PRIME), t3_60)
-            let s1_60 := add(mulmod(t0_60, 4, PRIME), t2_60)
-            let s0_60 := add(t3_60, s1_60)
-            let s2_60 := add(t2_60, s3_60)
+            {
+                let y := add(state0, 0x1797130f4b7a3e1777eb757bc6f287f6ab0fb85f6be63b09f3b16ef2b1405d38)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x0a76225dc04170ae3306c85abab59e608c7f497c20156d4d36c668555decc6e5)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x1fffb9ec1992d66ba1e77a7b93209af6f8fa76d48acb664796174b5326a31a5c)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x25721c4fc15a3f2853b57c338fa538d85f8fbba6c6b9c6090611889b797b9c5f)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 61 (external)
-            let y0_61 := add(s0_60, 0x0c817fd42d5f7a41215e3d07ba197216adb4c3790705da95eb63b982bfcaf75a)
-            let x2_0_61 := mulmod(y0_61, y0_61, PRIME)
-            let a0_61 := mulmod(mulmod(x2_0_61, x2_0_61, PRIME), y0_61, PRIME)
-            let y1_61 := add(s1_60, 0x13abe3f5239915d39f7e13c2c24970b6df8cf86ce00a22002bc15866e52b5a96)
-            let x2_1_61 := mulmod(y1_61, y1_61, PRIME)
-            let a1_61 := mulmod(mulmod(x2_1_61, x2_1_61, PRIME), y1_61, PRIME)
-            let y2_61 := add(s2_60, 0x2106feea546224ea12ef7f39987a46c85c1bc3dc29bdbd7a92cd60acb4d391ce)
-            let x2_2_61 := mulmod(y2_61, y2_61, PRIME)
-            let a2_61 := mulmod(mulmod(x2_2_61, x2_2_61, PRIME), y2_61, PRIME)
-            let y3_61 := add(s3_60, 0x21ca859468a746b6aaa79474a37dab49f1ca5a28c748bc7157e1b3345bb0f959)
-            let x2_3_61 := mulmod(y3_61, y3_61, PRIME)
-            let a3_61 := mulmod(mulmod(x2_3_61, x2_3_61, PRIME), y3_61, PRIME)
-            let t0_61 := add(a1_61, a0_61)
-            let t1_61 := add(a3_61, a2_61)
-            let t2_61 := addmod(add(a1_61, a1_61), t1_61, PRIME)
-            let t3_61 := addmod(add(a3_61, a3_61), t0_61, PRIME)
-            let s3_61 := add(mulmod(t1_61, 4, PRIME), t3_61)
-            let s1_61 := add(mulmod(t0_61, 4, PRIME), t2_61)
-            let s0_61 := add(t3_61, s1_61)
-            let s2_61 := add(t2_61, s3_61)
+            {
+                let y := add(state0, 0x0c817fd42d5f7a41215e3d07ba197216adb4c3790705da95eb63b982bfcaf75a)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x13abe3f5239915d39f7e13c2c24970b6df8cf86ce00a22002bc15866e52b5a96)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x2106feea546224ea12ef7f39987a46c85c1bc3dc29bdbd7a92cd60acb4d391ce)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x21ca859468a746b6aaa79474a37dab49f1ca5a28c748bc7157e1b3345bb0f959)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 62 (external)
-            let y0_62 := add(s0_61, 0x05ccd6255c1e6f0c5cf1f0df934194c62911d14d0321662a8f1a48999e34185b)
-            let x2_0_62 := mulmod(y0_62, y0_62, PRIME)
-            let a0_62 := mulmod(mulmod(x2_0_62, x2_0_62, PRIME), y0_62, PRIME)
-            let y1_62 := add(s1_61, 0x0f0e34a64b70a626e464d846674c4c8816c4fb267fe44fe6ea28678cb09490a4)
-            let x2_1_62 := mulmod(y1_62, y1_62, PRIME)
-            let a1_62 := mulmod(mulmod(x2_1_62, x2_1_62, PRIME), y1_62, PRIME)
-            let y2_62 := add(s2_61, 0x0558531a4e25470c6157794ca36d0e9647dbfcfe350d64838f5b1a8a2de0d4bf)
-            let x2_2_62 := mulmod(y2_62, y2_62, PRIME)
-            let a2_62 := mulmod(mulmod(x2_2_62, x2_2_62, PRIME), y2_62, PRIME)
-            let y3_62 := add(s3_61, 0x09d3dca9173ed2faceea125157683d18924cadad3f655a60b72f5864961f1455)
-            let x2_3_62 := mulmod(y3_62, y3_62, PRIME)
-            let a3_62 := mulmod(mulmod(x2_3_62, x2_3_62, PRIME), y3_62, PRIME)
-            let t0_62 := add(a1_62, a0_62)
-            let t1_62 := add(a3_62, a2_62)
-            let t2_62 := addmod(add(a1_62, a1_62), t1_62, PRIME)
-            let t3_62 := addmod(add(a3_62, a3_62), t0_62, PRIME)
-            let s3_62 := add(mulmod(t1_62, 4, PRIME), t3_62)
-            let s1_62 := add(mulmod(t0_62, 4, PRIME), t2_62)
-            let s0_62 := add(t3_62, s1_62)
-            let s2_62 := add(t2_62, s3_62)
+            {
+                let y := add(state0, 0x05ccd6255c1e6f0c5cf1f0df934194c62911d14d0321662a8f1a48999e34185b)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x0f0e34a64b70a626e464d846674c4c8816c4fb267fe44fe6ea28678cb09490a4)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x0558531a4e25470c6157794ca36d0e9647dbfcfe350d64838f5b1a8a2de0d4bf)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x09d3dca9173ed2faceea125157683d18924cadad3f655a60b72f5864961f1455)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                state3 := add(mulmod(t1, 4, PRIME), t3)
+                state1 := add(mulmod(t0, 4, PRIME), t2)
+                state0 := add(t3, state1)
+                state2 := add(t2, state3)
+            }
 
             // round 63 (external)
-            let y0_63 := add(s0_62, 0x0328cbd54e8c0913493f866ed03d218bf23f92d68aaec48617d4c722e5bd4335)
-            let x2_0_63 := mulmod(y0_63, y0_63, PRIME)
-            let a0_63 := mulmod(mulmod(x2_0_63, x2_0_63, PRIME), y0_63, PRIME)
-            let y1_63 := add(s1_62, 0x2bf07216e2aff0a223a487b1a7094e07e79e7bcc9798c648ee3347dd5329d34b)
-            let x2_1_63 := mulmod(y1_63, y1_63, PRIME)
-            let a1_63 := mulmod(mulmod(x2_1_63, x2_1_63, PRIME), y1_63, PRIME)
-            let y2_63 := add(s2_62, 0x1daf345a58006b736499c583cb76c316d6f78ed6a6dffc82111e11a63fe412df)
-            let x2_2_63 := mulmod(y2_63, y2_63, PRIME)
-            let a2_63 := mulmod(mulmod(x2_2_63, x2_2_63, PRIME), y2_63, PRIME)
-            let y3_63 := add(s3_62, 0x176563472456aaa746b694c60e1823611ef39039b2edc7ff391e6f2293d2c404)
-            let x2_3_63 := mulmod(y3_63, y3_63, PRIME)
-            let a3_63 := mulmod(mulmod(x2_3_63, x2_3_63, PRIME), y3_63, PRIME)
-            let t0_63 := add(a1_63, a0_63)
-            let t1_63 := add(a3_63, a2_63)
-            let t2_63 := addmod(add(a1_63, a1_63), t1_63, PRIME)
-            let t3_63 := addmod(add(a3_63, a3_63), t0_63, PRIME)
-            let t5_63 := addmod(mulmod(t0_63, 4, PRIME), t2_63, PRIME)
-            let s0_63 := addmod(t3_63, t5_63, PRIME)
+            {
+                let y := add(state0, 0x0328cbd54e8c0913493f866ed03d218bf23f92d68aaec48617d4c722e5bd4335)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state1, 0x2bf07216e2aff0a223a487b1a7094e07e79e7bcc9798c648ee3347dd5329d34b)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state2, 0x1daf345a58006b736499c583cb76c316d6f78ed6a6dffc82111e11a63fe412df)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let y := add(state3, 0x176563472456aaa746b694c60e1823611ef39039b2edc7ff391e6f2293d2c404)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
+            }
+            {
+                let t0 := add(state1, state0)
+                let t1 := add(state3, state2)
+                let t2 := addmod(add(state1, state1), t1, PRIME)
+                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t5 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                state0 := addmod(t3, t5, PRIME)
+            }
 
-            result := s0_63
+            result := state0
         }
     }
 }

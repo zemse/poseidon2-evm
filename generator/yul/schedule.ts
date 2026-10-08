@@ -7,11 +7,13 @@
 // they buy laziness later: the M4 temporaries t2 / t3, the internal round sum
 // and the column sums of the t = 4k linear layer.
 //
-// The legacy solc pipeline compiles inline assembly almost literally, so the
-// text is shaped for it: results are written once per statement as nested
-// expressions, temporaries live in blocks that end right after their last
-// use, and in a nested expression the deepest local is the outermost operand
-// because solc evaluates arguments right to left.
+// The legacy solc pipeline compiles inline assembly almost literally, with
+// or without the optimizer, so the text is shaped for it: results are
+// written once per statement as nested expressions, temporaries live in
+// blocks that end right after their last use, and in a nested expression
+// the deepest local is the outermost operand because solc evaluates
+// arguments right to left. Every local is kept within DUP16 / SWAP16 by the
+// reach model below, which assumes the literal compile.
 
 import { PRIME, UINT256_MAX } from "../field.ts";
 import type { Params } from "../params.ts";
@@ -30,11 +32,9 @@ export type Layout = {
   // recomputed (two extra ADDs per M4) so that a block of locals sitting 12
   // deep can still be assigned within SWAP16
   m4Temps: 2 | 4;
-  // every value is a fresh `let` and nothing is ever assigned: dead values
-  // stay on the stack until the assembly block ends, where a POP (2 gas)
-  // replaces the SWAP + POP (5 gas) of an assignment. Only possible while
-  // the whole permutation leaves fewer than 1024 slots behind (t <= 4).
-  ssa: boolean;
+  // keep the internal round's x^5 in a `let` that lives through the round
+  // instead of writing it back to state0 first; costs one slot of reach
+  internalLet: boolean;
 };
 
 export type Mode =
@@ -57,8 +57,6 @@ class Builder {
   readonly mode: Mode;
   readonly inputs: bigint[][];
   state: Value[] = [];
-  // name suffix of the values written by the current round (ssa only)
-  suffix = "";
 
   constructor(
     params: Params,
@@ -77,8 +75,6 @@ class Builder {
       throw new Error("hash mode is the t = 4 library with all locals");
     if (layout.stackElements > params.t || layout.diagInMemory > params.t)
       throw new Error("layout exceeds t");
-    if (layout.ssa && layout.diagInMemory > 0)
-      throw new Error("the diag table block would pop ssa values");
   }
 
   get P(): Value {
@@ -91,21 +87,8 @@ class Builder {
     return i < this.layout.stackElements;
   }
 
-  name(i: number, base = "s"): string {
-    if (this.layout.ssa) return `${base}${i}_${this.suffix}`;
+  name(i: number): string {
     return `state${i}`;
-  }
-
-  // temporaries get the round suffix in ssa mode, where blocks are not used
-  tmp(base: string): string {
-    return this.layout.ssa ? `${base}_${this.suffix}` : base;
-  }
-
-  // temporaries live in a block unless ssa, where a block would also pop
-  // the state values declared in it
-  scope(f: () => void) {
-    if (this.layout.ssa) f();
-    else this.p.block(f);
   }
 
   // address of element i in the state array; `mem` aliases `state` once
@@ -119,14 +102,10 @@ class Builder {
     return this.t - this.layout.stackElements;
   }
 
-  set(i: number, v: Value, base = "s"): Value {
-    if (!this.isLocal(i)) {
-      this.state[i] = this.p.mstore(this.addr(i), v);
-    } else if (this.layout.ssa) {
-      this.state[i] = this.p.let(this.name(i, base), v);
-    } else {
-      this.state[i] = this.p.assign(this.name(i), v);
-    }
+  set(i: number, v: Value): Value {
+    this.state[i] = this.isLocal(i)
+      ? this.p.assign(this.name(i), v)
+      : this.p.mstore(this.addr(i), v);
     return this.state[i];
   }
 
@@ -134,7 +113,7 @@ class Builder {
   // then the `mem` pointer that loads of memory elements go through.
   // Anything else (temporaries, expressions) is within easy reach.
   rank(v: Value): number {
-    const m = /^(?:state|s)(\d+)/.exec(v.name);
+    const m = /^state(\d+)$/.exec(v.name);
     if (m && this.isLocal(Number(m[1]))) return Number(m[1]);
     if (v.name.startsWith("mload(mem") || v.name.startsWith("mload(add(mem"))
       return this.layout.stackElements;
@@ -144,10 +123,10 @@ class Builder {
   // Whether v can be DUPed with `intermediates` values pushed above the
   // live lets. Locals sit under every later let (PRIME, the diag table
   // pointer, temporaries); a memory element also pushes its offset before
-  // `mem` is read; ssa values are always recent.
+  // `mem` is read.
   reachable(v: Value, intermediates: number): boolean {
     const i = this.rank(v);
-    if (this.layout.ssa || i === Infinity) return true;
+    if (i === Infinity) return true;
     const offset = i === this.layout.stackElements ? 1 : 0;
     const above = this.p.live - 1 - i;
     return above + intermediates + offset + 1 <= 16;
@@ -247,18 +226,14 @@ class Builder {
   }
 
   // (s_i + c)^5 written back to element i; y and x2 are popped with the block
-  sbox(i: number, c: bigint, base = "s") {
+  sbox(i: number, c: bigint) {
     const p = this.p;
-    this.scope(() => {
-      const y = p.let(
-        this.tmp(`y${i}`),
-        this.add(this.state[i], p.constant(c)),
-      );
-      const x2 = p.let(this.tmp(`x2_${i}`), p.expr("mulmod", y, y, this.P));
+    p.block(() => {
+      const y = p.let("y", this.add(this.state[i], p.constant(c)));
+      const x2 = p.let("x2", p.expr("mulmod", y, y, this.P));
       this.set(
         i,
         p.expr("mulmod", p.expr("mulmod", x2, x2, this.P), y, this.P),
-        base,
       );
     });
   }
@@ -278,19 +253,17 @@ class Builder {
   m4(idx: number[], clean: boolean, needed = [true, true, true, true]) {
     const p = this.p;
     const v = idx.map((i) => this.state[i]);
-    const tmp = (base: string) =>
-      this.tmp(idx[0] === 0 ? base : `${base}_${idx[0]}`);
     const one = p.constant(1n);
     const four = p.constant(4n);
-    this.scope(() => {
+    p.block(() => {
       // t0 and t1 as locals, or recomputed where they are used
       const t0 = () => p.expr("add", v[1], v[0]);
       const t1 = () => p.expr("add", v[3], v[2]);
       let T0 = t0;
       let T1 = t1;
       if (this.layout.m4Temps === 4) {
-        const l0 = p.let(tmp("t0"), t0());
-        const l1 = p.let(tmp("t1"), t1());
+        const l0 = p.let("t0", t0());
+        const l1 = p.let("t1", t1());
         T0 = () => l0;
         T1 = () => l1;
       }
@@ -298,8 +271,8 @@ class Builder {
         this.layout.m4Temps === 4
           ? p.expr("addmod", p.expr("add", x, x), t(), this.P)
           : p.expr("addmod", t(), p.expr("shl", one, x), this.P);
-      const t2 = p.let(tmp("t2"), two(v[1], T1));
-      const t3 = p.let(tmp("t3"), two(v[3], T0));
+      const t2 = p.let("t2", two(v[1], T1));
+      const t3 = p.let("t3", two(v[3], T0));
       // the deep operands of the recomputed sums go innermost so they are
       // read before the modulus and the other summand are on the stack
       const quad = (t: () => Value) =>
@@ -313,14 +286,14 @@ class Builder {
           this.layout.m4Temps === 4
             ? this.add(quad(T1), t3, clean)
             : this.add(t3, quad(T1), clean);
-        t4 = needed[3] ? this.set(idx[3], e) : p.let(tmp("t4"), e);
+        t4 = needed[3] ? this.set(idx[3], e) : p.let("t4", e);
       }
       if (needed[1] || needed[0]) {
         const e =
           this.layout.m4Temps === 4
             ? this.add(quad(T0), t2, clean)
             : this.add(t2, quad(T0), clean);
-        t5 = needed[1] ? this.set(idx[1], e) : p.let(tmp("t5"), e);
+        t5 = needed[1] ? this.set(idx[1], e) : p.let("t5", e);
       }
       if (needed[0]) this.set(idx[0], this.add(t3, t5!, clean));
       if (needed[2]) this.set(idx[2], this.add(t2, t4!, clean));
@@ -332,8 +305,8 @@ class Builder {
     const t = this.t;
     if (t === 2 || t === 3) {
       // circ(2, 1[, 1]): out_i = s_i + sum
-      this.scope(() => {
-        const sum = this.chainSum(this.state, this.tmp("sum"));
+      p.block(() => {
+        const sum = this.chainSum(this.state, "sum");
         for (let i = 0; i < t; i++) {
           this.set(i, this.add(sum, this.state[i], clean));
         }
@@ -355,14 +328,14 @@ class Builder {
       );
     }
     for (let i = 0; i < 4; i++) {
-      this.scope(() => {
+      p.block(() => {
         const column = Array.from(
           { length: k },
           (_, b) => this.state[4 * b + i],
         );
         const widest = column.reduce((m, y) => (y.bound > m ? y.bound : m), 0n);
         const cap = clean ? UINT256_MAX : UINT256_MAX - widest;
-        const z = this.chainSum(column, this.tmp(`z${i}`), cap);
+        const z = this.chainSum(column, "z", cap);
         for (let b = 0; b < k; b++) {
           this.set(4 * b + i, this.add(z, this.state[4 * b + i], clean));
         }
@@ -374,37 +347,39 @@ class Builder {
 
   externalRound(round: number, clean: boolean, needed?: boolean[]) {
     const rc = this.params.roundConstants[round];
-    for (let i = 0; i < this.t; i++) this.sbox(i, rc[i], "a");
+    for (let i = 0; i < this.t; i++) this.sbox(i, rc[i]);
     this.externalMatrix(clean, needed);
   }
 
   // s0 = (s0 + c)^5, then s_i = d_i s_i + sum with the sum reduced so that
-  // every output stays within 2p. In ssa form x^5 is a value of its own; with
-  // locals it goes through state0 so that the S-box temporaries are popped
-  // before the sum is built (one slot of reach for the deepest locals).
+  // every output stays within 2p. Without internalLet x^5 goes through
+  // state0 so that the S-box temporaries are popped before the sum is built
+  // (one slot of reach for the deepest locals).
   internalRound(round: number) {
     const p = this.p;
     const t = this.t;
     const c = this.params.roundConstants[round][0];
     const outputs = (x5: Value) => {
       const old = [x5, ...this.state.slice(1)];
-      const sum = this.chainSum(old, this.tmp("sum"), PRIME - 1n);
+      const sum = this.chainSum(old, "sum", PRIME - 1n);
       for (let i = 0; i < t; i++) {
         this.set(i, this.add(sum, this.scaled(old[i], i)));
       }
     };
-    if (this.layout.ssa) {
-      const y = p.let(this.tmp("y"), this.add(this.state[0], p.constant(c)));
-      const x2 = p.let(this.tmp("x2"), p.expr("mulmod", y, y, this.P));
+    if (!this.layout.internalLet) {
+      this.sbox(0, c);
+      p.block(() => outputs(this.state[0]));
+      return;
+    }
+    p.block(() => {
+      const y = p.let("y", this.add(this.state[0], p.constant(c)));
+      const x2 = p.let("x2", p.expr("mulmod", y, y, this.P));
       const x5 = p.let(
-        this.tmp("x5"),
+        "x5",
         p.expr("mulmod", p.expr("mulmod", x2, x2, this.P), y, this.P),
       );
       outputs(x5);
-      return;
-    }
-    this.sbox(0, c);
-    p.block(() => outputs(this.state[0]));
+    });
   }
 
   // ---- whole permutation ---------------------------------------------------
@@ -417,15 +392,10 @@ class Builder {
     const pEnd = rfHalf + roundsP;
     const total = roundsF + roundsP;
 
-    // with locals in fixed slots PRIME is declared after them so that the
-    // locals, which are read with temporaries on top, are the deeper slots;
-    // in ssa form the recent values are on top anyway and the optimizer does
-    // better with PRIME first
+    // PRIME is declared after the state locals so that the locals, which
+    // are read with temporaries on top, are the deeper slots
     p.comment("inputs reduced mod PRIME");
-    this.suffix = "in";
-    const prime = this.layout.ssa
-      ? p.let("PRIME", p.constant(PRIME))
-      : p.constant(PRIME);
+    const prime = p.constant(PRIME);
     const raw = (i: number) =>
       p.input(
         this.mode.kind === "hash" ? `s${i}` : `mload(${this.addr(i, "state")})`,
@@ -435,20 +405,18 @@ class Builder {
       this.state[i] = p.let(this.name(i), p.expr("mod", raw(i), prime));
     }
     if (this.inMemory > 0) p.let("mem", p.input("state", []));
-    if (!this.layout.ssa) p.let("PRIME", prime);
+    p.let("PRIME", prime);
     for (let i = this.layout.stackElements; i < t; i++) {
       this.state[i] = p.mstore(this.addr(i), p.expr("mod", raw(i), this.P));
     }
     p.blank();
 
     p.comment("initial linear layer");
-    this.suffix = "l";
     this.externalMatrix(false);
     p.blank();
 
     for (let r = 0; r < rfHalf; r++) {
       p.comment(`round ${r} (external)`);
-      this.suffix = `${r}`;
       this.externalRound(r, r === rfHalf - 1);
       p.blank();
     }
@@ -456,7 +424,6 @@ class Builder {
     const internal = () => {
       for (let r = rfHalf; r < pEnd; r++) {
         p.comment(`round ${r} (internal)`);
-        this.suffix = `${r}`;
         this.internalRound(r);
         p.blank();
       }
@@ -485,7 +452,6 @@ class Builder {
     for (let r = pEnd; r < total; r++) {
       p.comment(`round ${r} (external)`);
       const last = r === total - 1;
-      this.suffix = `${r}`;
       this.externalRound(r, last, last ? needed : undefined);
       if (!last) p.blank();
     }
@@ -498,13 +464,6 @@ class Builder {
         const base = this.inMemory > 0 ? "mem" : "state";
         p.line(`mstore(${this.addr(i, base)}, ${this.state[i].name})`);
       }
-    }
-
-    // without the optimizer every ssa `let` stays on the stack until the
-    // block ends, so the whole permutation must fit the 1024 slot limit with
-    // room for the caller's frame
-    if (this.layout.ssa && p.lets > 768) {
-      throw new Error(`ssa layout leaves ${p.lets} slots on the stack`);
     }
 
     // outputs must be clean and match the reference permutation

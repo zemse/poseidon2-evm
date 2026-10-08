@@ -22,7 +22,7 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 | Implementation  | hash_1  | hash_2  | hash_3  |
 | --------------- | ------- | ------- | ------- |
 | Pure Solidity   | 217,702 | 218,222 | 218,801 |
-| Yul (contract)  | 14,858  | 14,858  | 14,858  |
+| Yul (contract)  | 15,127  | 15,127  | 15,127  |
 | Huff (contract) | 12,558  | 12,558  | 12,558  |
 
 ## Recommendation
@@ -83,19 +83,19 @@ The constants and permutation outputs for every generated t match other implemen
 `generator/yul/generate.ts` builds the Yul libraries from the same `params.ts`, `reference.ts` and `value.ts`:
 
 - `yul/program.ts` emits straight-line Yul. Every operand is a bound-tracked value whose name is the Yul text producing it (a local, a literal, an `mload` or a nested expression), so an `add` is only written where the bound allows it and the whole permutation is checked against the reference before the file is written.
-- `yul/schedule.ts` orders the field operations and places the state. Internal round outputs stay lazy (below 2p) with one reduced sum per round, M4 reduces only its two inner temporaries, and the text is shaped for the legacy solc pipeline: nested expressions instead of assignments, fresh `let`s for t <= 4 (dead values are popped once at the end instead of swapped out per assignment), and for t = 12 a two-temporary M4 and sum chains cut so that the deepest local stays within `DUP16` / `SWAP16`.
+- `yul/schedule.ts` orders the field operations and places the state. Internal round outputs stay lazy (below 2p) with one reduced sum per round, M4 reduces only its two inner temporaries, and the text is shaped for the legacy solc pipeline, which compiles inline assembly literally with the optimizer off: nested expressions instead of assignments, temporaries in blocks that end right after their last use, and for t = 12 a two-temporary M4 and sum chains cut so that the deepest local stays within `DUP16` / `SWAP16` (the generator models the reach of every local). The libraries are inlined into the consumer's contract with the consumer's settings, so `compat-check.sh` compiles a consumer of each library with the legacy pipeline (optimizer off, 200 runs, 1,000,000 runs) and via-IR (200 and 1,000,000 runs, t <= 4 only); CI runs it. From t = 8 a via-IR compile of the single straight-line function needs tens of GB of memory (t = 12 passed 69 GB with solc 0.8.37 before it was stopped), so t = 8 and t = 12 are for the legacy pipeline.
 
 t = 4 keeps `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3` / `poseidon2_core`) and only computes the first output of the last round. Other widths get `yul/t<t>/LibPoseidon2YulT<t>.sol` with `permute(uint256[t] memory state)`, which permutes the array in place after reducing it mod PRIME, and a test in `test/Poseidon2YulT<t>.t.sol` with the reference vectors, input sanitisation and a fuzz against the Huff permutation of the same width.
 
 | t   | Rf  | Rp  | call gas | runtime bytes | state placement                                   |
 | --- | --- | --- | -------- | ------------- | ------------------------------------------------- |
-| 2   | 8   | 56  | 8,869    | 5,002         | locals, fresh lets                                |
-| 3   | 8   | 56  | 11,210   | 5,893         | locals, fresh lets                                |
-| 4   | 8   | 56  | 14,858   | 14,236        | locals, fresh lets                                |
+| 2   | 8   | 56  | 9,103    | 5,141         | locals                                            |
+| 3   | 8   | 56  | 11,403   | 6,092         | locals                                            |
+| 4   | 8   | 56  | 15,127   | 14,483        | locals                                            |
 | 8   | 8   | 57  | 31,833   | 24,130        | 8 locals, 2 diag constants in memory              |
 | 12  | 8   | 57  | 49,892   | 24,105        | 12 locals, 10 diag constants in memory, 2-temp M4 |
 
-Call gas and runtime bytes are those of a contract that inlines the library: `Poseidon2Yul_BN254` for t = 4 (one `hash_*` call) and the `permute(uint256[t])` wrapper deployed by each test otherwise, so they include the ABI decoding and encoding of t words. The gas is above the Huff table because solc inserts a `SWAP` + `POP` per assignment and `DUP`s every operand, and because the diag constants that do not fit the code size as `PUSH32` are loaded from memory (9 gas more each). t = 12 is the largest shipped width: the 2-temporary M4 and the split sum chains are already at the `DUP16` limit, and the code is at the 24,576 byte limit with 10 of 12 diag constants in memory. t = 16 generates and passes its vectors with 11 locals and 5 elements kept in the state array (78,287 gas), but its permutation alone is 33 KB of runtime code, so it is not shipped.
+Call gas and runtime bytes are those of a contract that inlines the library: `Poseidon2Yul_BN254` for t = 4 (one `hash_*` call) and the `permute(uint256[t])` wrapper deployed by each test otherwise, so they include the ABI decoding and encoding of t words. The gas is above the Huff table because solc inserts a `SWAP` + `POP` per assignment and `DUP`s every operand, and because the diag constants that do not fit the code size as `PUSH32` are loaded from memory (9 gas more each). t = 12 is the largest shipped width: the 2-temporary M4 and the split sum chains are already at the `DUP16` limit, and the code is at the 24,576 byte limit with 10 of 12 diag constants in memory (a consumer of t = 8 or t = 12 built with the optimizer off lands about 200 bytes above it, so such a deployment needs the optimizer). t = 16 generates and passes its vectors with 11 locals and 5 elements kept in the state array (78,287 gas), but its permutation alone is 33 KB of runtime code, so it is not shipped.
 
 ## Security Considerations
 

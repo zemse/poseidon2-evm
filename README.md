@@ -14,7 +14,7 @@ See impl-specific documentation:
 
 | Implementation | hash_1 | hash_2 | hash_3 |
 | -------------- | ------ | ------ | ------ |
-| Yul            | 14,858 | 14,858 | 14,858 |
+| Yul            | 15,127 | 15,127 | 15,127 |
 | Huff           | 12,558 | 12,558 | 12,558 |
 
 It is recommended to use Yul implementation. Huff is experimental. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
@@ -59,6 +59,7 @@ contract MyContract {
 
 - Run tests: forge test
 - Generate gas report: ./gas-report.sh
+- Check the yul libraries compile for consumers with every compiler mode: ./compat-check.sh
 - Generate yul code: npm run generate:yul (or `node generator/yul/generate.ts <t>` for one state width, node 24+)
 - Generate huff code: npm run generate:huff (or `node generator/huff/generate.ts <t>` for one state width)
 

@@ -32,15 +32,25 @@ import {
 // against).
 function layoutFor(t: number): Layout {
   if (t <= 4) {
-    return { stackElements: t, diagInMemory: 0, m4Temps: 4, ssa: true };
+    return { stackElements: t, diagInMemory: 0, m4Temps: 4, internalLet: true };
   }
   if (t === 8) {
-    return { stackElements: 8, diagInMemory: 2, m4Temps: 4, ssa: false };
+    return {
+      stackElements: 8,
+      diagInMemory: 2,
+      m4Temps: 4,
+      internalLet: false,
+    };
   }
   if (t === 12) {
-    return { stackElements: 12, diagInMemory: 10, m4Temps: 2, ssa: false };
+    return {
+      stackElements: 12,
+      diagInMemory: 10,
+      m4Temps: 2,
+      internalLet: false,
+    };
   }
-  return { stackElements: 11, diagInMemory: t, m4Temps: 2, ssa: false };
+  return { stackElements: 11, diagInMemory: t, m4Temps: 2, internalLet: false };
 }
 
 function generate(t: number) {

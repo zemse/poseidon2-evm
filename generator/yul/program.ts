@@ -21,9 +21,7 @@ function rename(v: Value, name: string): Value {
 
 export class Program {
   lines: string[] = [];
-  // every `let` is a stack slot until its block ends: total count, and the
-  // count per open block
-  lets = 0;
+  // every `let` is a stack slot until its block ends: the count per open block
   private frames: number[] = [0];
   readonly vectors: number;
   readonly P: Value;
@@ -84,7 +82,6 @@ export class Program {
   }
 
   let(name: string, v: Value): Value {
-    this.lets++;
     this.frames[this.frames.length - 1]++;
     this.line(`let ${name} := ${v.name}`);
     return rename(v, name);

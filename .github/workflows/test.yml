@@ -49,6 +49,10 @@ jobs:
           forge build --sizes
         id: build
 
+      - name: Check the yul libraries compile for consumers in every compiler mode
+        run: ./compat-check.sh
+        id: compat
+
       - name: Run Forge tests
         run: |
           forge test -vvv
