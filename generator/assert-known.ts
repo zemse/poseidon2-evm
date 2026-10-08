@@ -1,8 +1,9 @@
 // Known values from sources independent of params.ts and reference.ts. Both
 // generators run every assertion here before building any width, so a change
 // to the parameter derivation or the reference permutation that no longer
-// reproduces them stops the generation. Every value outside this repository is
-// pinned to a commit permalink: the Poseidon2 paper round-number table, the
+// reproduces them stops the generation. Nothing is fetched: the values are
+// hardcoded, and the comment above each assertion is the commit permalink to
+// compare them with: the Poseidon2 paper round-number table, the
 // HorizenLabs t = 3 instance, Barretenberg t = 4 (constants.ts, its KAT and
 // the sponge vectors in test/Poseidon2.t.sol), TACEO KATs for t = 2, 4, 8, 12,
 // 16 and gnark-crypto constants for t = 8, 12, 16. Nothing pins t = 20, 24 or
@@ -13,21 +14,8 @@ import { calcRoundNumbers, generateParams } from "./params.ts";
 import { hashSponge, permutation } from "./reference.ts";
 import { internal_matrix_diagonal, round_constant } from "../constants.ts";
 
-const HORIZEN =
-  "https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2";
-const BARRETENBERG =
-  "https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp";
-const TACEO_CO_SNARKS =
-  "https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs";
-const TACEO_NOIR =
-  "https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/permutation.nr";
-const GNARK =
-  "https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go";
-
-function assert(name: string, ok: boolean, source: string) {
-  if (!ok) {
-    throw new Error(`${name} does not match the known value (${source})`);
-  }
+function assert(name: string, ok: boolean) {
+  if (!ok) throw new Error(`${name} does not match the known value`);
 }
 
 // permutation of [0, 1, ..., t - 1], or of the given inputs reduced mod PRIME
@@ -57,7 +45,6 @@ export function assertKnownRounds() {
     assert(
       `t=${t} rounds (${r.roundsF}, ${r.roundsP})`,
       r.roundsF === rf && r.roundsP === rp,
-      "https://eprint.iacr.org/2023/323",
     );
   }
 }
@@ -65,23 +52,24 @@ export function assertKnownRounds() {
 // HorizenLabs t = 3 instance
 export function assertKnownT3() {
   const p = generateParams(3);
+  // https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2/poseidon2_instance_bn256.rs#L11-L15
   assert(
     "t=3 internal diag [1, 1, 2]",
     p.internalDiagMinusOne.join() === "1,1,2",
-    `${HORIZEN}/poseidon2_instance_bn256.rs#L11-L15`,
   );
+  // https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2/poseidon2_instance_bn256.rs#L33
   assert(
     "t=3 round constant [0][0]",
     hex(p.roundConstants[0][0]) ===
       "0x1d066a255517b7fd8bddd3a93f7804ef7f8fcde48bb4c37a59a09a1a97052816",
-    `${HORIZEN}/poseidon2_instance_bn256.rs#L33`,
   );
+  // https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2/poseidon2_instance_bn256.rs#L287
   assert(
     "t=3 round constant [63][2]",
     hex(p.roundConstants[63][2]) ===
       "0x0fc1bbceba0590f5abbdffa6d3b35e3297c021a3a409926d0e2d54dc1c84fda6",
-    `${HORIZEN}/poseidon2_instance_bn256.rs#L287`,
   );
+  // https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2/poseidon2.rs#L493-L502
   assert(
     "t=3 HorizenLabs KAT",
     kat(3).join() ===
@@ -90,28 +78,28 @@ export function assertKnownT3() {
         "0x303b6f7c86d043bfcbcc80214f26a30277a15d3f74ca654992defe7ff8d03570",
         "0x1ed25194542b12eef8617361c3ba7c52e660b145994427cc86296242cf766ec8",
       ].join(),
-    `${HORIZEN}/poseidon2.rs#L493-L502`,
   );
 }
 
 // Barretenberg t = 4: constants.ts, the KAT and the sponge vectors
 export function assertKnownT4() {
   const p = generateParams(4);
+  // constants.ts, copied from https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp
   assert(
     "t=4 round constants",
     p.roundConstants.length === round_constant.length &&
       p.roundConstants.every((rc, r) =>
         rc.every((c, i) => hex(c) === round_constant[r][i]),
       ),
-    `constants.ts, from ${BARRETENBERG}`,
   );
+  // constants.ts, copied from https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp
   assert(
     "t=4 internal diag",
     p.internalDiagMinusOne.every(
       (d, i) => hex(d) === internal_matrix_diagonal[i],
     ),
-    `constants.ts, from ${BARRETENBERG}`,
   );
+  // https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp#L447-L458
   assert(
     "t=4 Barretenberg KAT",
     kat(4).join() ===
@@ -121,20 +109,20 @@ export function assertKnownT4() {
         "0x04cbb44c61d928ed06808456bf758cbf0c18d1e15a7b6dbc8245fa7515d5e3cb",
         "0x2e11c5cff2a22c64d01304b778d78f6998eff1ab73163a35603f54794c30847a",
       ].join(),
-    `${BARRETENBERG}#L447-L458`,
   );
+  // test/Poseidon2.t.sol
   assert(
     "t=4 hash_1(0)",
     hex(hashSponge(p, [0n])) ===
       "0x2710144414c3a5f2354f4c08d52ed655b9fe253b4bf12cb9ad3de693d9b1db11",
-    "test/Poseidon2.t.sol",
   );
+  // test/Poseidon2.t.sol
   assert(
     "t=4 hash_2(0, 0)",
     hex(hashSponge(p, [0n, 0n])) ===
       "0x0b63a53787021a4a962a452c2921b3663aff1ffd8d5510540f8e659e782956f1",
-    "test/Poseidon2.t.sol",
   );
+  // test/Poseidon2.t.sol
   assert(
     "t=4 hash_3(x, y, z)",
     hex(
@@ -144,13 +132,13 @@ export function assertKnownT4() {
         0x2f08443953fc54fb351e41a46da99bbec1d290dae2907d2baf5174ed28eee9ean,
       ]),
     ) === "0x27e4cf07e4bf24219f6a2da9be19cea601313a95f8a1360cf8f15d474826bf49",
-    "test/Poseidon2.t.sol",
   );
 }
 
 // TACEO KATs: co-snarks for t = 2, 4 (an input above PRIME) and 8,
 // noir-poseidon for t = 12 and 16
 export function assertKnownTaceo() {
+  // https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L334-L348
   assert(
     "t=2 TACEO KAT",
     kat(2).join() ===
@@ -158,10 +146,10 @@ export function assertKnownTaceo() {
         "0x1d01e56f49579cec72319e145f06f6177f6c5253206e78c2689781452a31878b",
         "0x0d189ec589c41b8cffa88cfc523618a055abe8192c70f75aa72fc514560f6c61",
       ].join(),
-    `${TACEO_CO_SNARKS}#L334-L348`,
   );
   const x =
     0x9a807b615c4d3e2fa0b1c2d3e4f56789fedcba9876543210abcdef0123456789n;
+  // https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L410-L451
   assert(
     "t=4 TACEO KAT 2",
     kat(4, [x, x, x, x]).join() ===
@@ -171,8 +159,8 @@ export function assertKnownTaceo() {
         "0x018555a8eb50cf07f64b019ebaf3af3c925c93e631f3ecd455db07bbb52bbdd3",
         "0x0cbea457c91c22c6c31fd89afd2541efc2edf31736b9f721e823b2165c90fd41",
       ].join(),
-    `${TACEO_CO_SNARKS}#L410-L451`,
   );
+  // https://github.com/TaceoLabs/co-snarks/blob/f6c5a16dff0c5978496f3c2511115c9b8654e7d0/mpc-core/src/gadgets/poseidon2/poseidon2_permutation.rs#L454-L500
   assert(
     "t=8 TACEO KAT",
     kat(8).join() ===
@@ -186,8 +174,8 @@ export function assertKnownTaceo() {
         "0x1431250baf36fb61a07618caee4dd2f500da339a05c553e8f529a3349e617aa2",
         "0x0b19bfa00c8f1d505074130e7f8b49a8624b1905e280ceca5ba11099b081b265",
       ].join(),
-    `${TACEO_CO_SNARKS}#L454-L500`,
   );
+  // https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/permutation.nr#L741-L757
   assert(
     "t=12 TACEO KAT",
     kat(12).join() ===
@@ -205,8 +193,8 @@ export function assertKnownTaceo() {
         "0x1fcdcee218d5a0101bd233d572f184964854d445ca08d2bd6df6ceba5651e322",
         "0x0905469a776b7d5a3f18841edb90fa0d8c6de479c2789c042dafefb367ad1a2b",
       ].join(),
-    `${TACEO_NOIR}#L741-L757`,
   );
+  // https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/permutation.nr#L1062-L1082
   assert(
     "t=16 TACEO KAT",
     kat(16).join() ===
@@ -228,35 +216,49 @@ export function assertKnownTaceo() {
         "0x0ef50c2615882523c6c73a69b4371332a066b2dc4b9630f186db47e3bfca88c8",
         "0x0e2ceb1f8fde5f80be1f41bd239fabdc2f6133a6a98920a55c42891c3a925152",
       ].join(),
-    `${TACEO_NOIR}#L1062-L1082`,
   );
 }
 
 // gnark-crypto constants: the first and last internal diag entry, the first
 // round constant, the first constant of the first partial round and the last
-// round constant, with the line of each in the gnark-crypto table
+// round constant
 export function assertKnownGnark() {
-  const known: Record<number, [string, number][]> = {
+  const known: Record<number, string[]> = {
     8: [
-      ["0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d", 424],
-      ["0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53", 431],
-      ["0x0dad22d08a6b8d81d4a5ffc34b9677a7c5254c85e953551f9eba9a0a97590c10", 435],
-      ["0x0da23df12d0bf47bb92f15ee189386c20f552d0bc66ae492b92d69556b2fe75a", 475],
-      ["0x28bfc4dc9594e9add687744b79f4feb979e2143d742d4e4d1d5bb64bb799a02a", 1082],
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L424
+      "0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L431
+      "0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L435
+      "0x0dad22d08a6b8d81d4a5ffc34b9677a7c5254c85e953551f9eba9a0a97590c10",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L475
+      "0x0da23df12d0bf47bb92f15ee189386c20f552d0bc66ae492b92d69556b2fe75a",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L1082
+      "0x28bfc4dc9594e9add687744b79f4feb979e2143d742d4e4d1d5bb64bb799a02a",
     ],
     12: [
-      ["0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa", 1090],
-      ["0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37", 1101],
-      ["0x0f43621f15c4af9c4e52180b3ab6fbc9cf57863dc34e6190232841eb8b085634", 1105],
-      ["0x2fcd24c963827617cdce5a14014ea5af93e46190242697ea182ff72b0479d09e", 1161],
-      ["0x11ea79fb35b1a82c8bb6a9e1a17cc058975d8953279f362fc4c64944ea6c0b3d", 2012],
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L1090
+      "0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L1101
+      "0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L1105
+      "0x0f43621f15c4af9c4e52180b3ab6fbc9cf57863dc34e6190232841eb8b085634",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L1161
+      "0x2fcd24c963827617cdce5a14014ea5af93e46190242697ea182ff72b0479d09e",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L2012
+      "0x11ea79fb35b1a82c8bb6a9e1a17cc058975d8953279f362fc4c64944ea6c0b3d",
     ],
     16: [
-      ["0x269aaf7c0e0ae1a709c1b7cd137c366a3ef21c0ca7d9fb2b33b5a1ae235768e4", 2020],
-      ["0x1ba0b493c987b9c1424ede9239ba100dc005e717aa71ca6d6a605561e379bdce", 2035],
-      ["0x11a8c50ae2baf9f5e8b3c672c7326f002cdec557448fdfa263f0adfbaaceacff", 2039],
-      ["0x0f1139934f4fb0ff2f4bd0b7d28544a1c8938de92dcf965e1a1781c86aa8e6c2", 2111],
-      ["0x115107e62902f6facbd8a1caa2a2f67a15301e5c034cb99c764f6402ca331781", 3206],
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L2020
+      "0x269aaf7c0e0ae1a709c1b7cd137c366a3ef21c0ca7d9fb2b33b5a1ae235768e4",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L2035
+      "0x1ba0b493c987b9c1424ede9239ba100dc005e717aa71ca6d6a605561e379bdce",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L2039
+      "0x11a8c50ae2baf9f5e8b3c672c7326f002cdec557448fdfa263f0adfbaaceacff",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L2111
+      "0x0f1139934f4fb0ff2f4bd0b7d28544a1c8938de92dcf965e1a1781c86aa8e6c2",
+      // https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go#L3206
+      "0x115107e62902f6facbd8a1caa2a2f67a15301e5c034cb99c764f6402ca331781",
     ],
   };
   for (const [width, values] of Object.entries(known)) {
@@ -271,11 +273,7 @@ export function assertKnownGnark() {
       ["last rc", rc[rc.length - 1][t - 1]],
     ];
     actual.forEach(([name, value], i) =>
-      assert(
-        `t=${t} ${name}`,
-        hex(value) === values[i][0],
-        `${GNARK}#L${values[i][1]}`,
-      ),
+      assert(`t=${t} ${name}`, hex(value) === values[i]),
     );
   }
 }
