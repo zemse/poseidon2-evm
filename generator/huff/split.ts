@@ -33,10 +33,14 @@ export function splitPermutation(
 ): Part[] {
   const t = params.t;
   const steps = stepCount(params);
-  // entry and tail at their largest (every input shadowed, PUSH2 offsets)
+  // entry and tail at their largest (every input shadowed, PUSH2 offsets),
+  // and the address word a part that hands over keeps behind its code
   const allSlots = new Array(t).fill(0xffff);
+  const word = (to: number) => (to < steps ? 32 : 0);
   const budget = (to: number) =>
-    fork.codeSize - overhead(fork, t, allSlots, true, to < steps).bytes;
+    fork.codeSize -
+    overhead(fork, t, allSlots, true, to < steps).bytes -
+    word(to);
 
   // options for the size probes: the cheapest schedule of a short range,
   // which also decides whether the state needs shadowing
@@ -125,7 +129,7 @@ export function splitPermutation(
         range.to < steps,
       );
       const runtime = result.bytes + o.bytes;
-      if (runtime > fork.codeSize) {
+      if (runtime + word(range.to) > fork.codeSize) {
         throw new Error(`part ${range.from}..${range.to}: ${runtime} bytes`);
       }
       if (CONSTRUCTOR_BYTES + runtime + 32 > fork.initcodeSize) {

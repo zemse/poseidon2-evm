@@ -30,9 +30,13 @@ const CONSTRUCTOR_BYTES: usize = 11;
 pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> Result<Vec<Part>> {
     let t = params.t;
     let steps = step_count(params);
-    // entry and tail at their largest (every input shadowed, PUSH2 offsets)
+    // entry and tail at their largest (every input shadowed, PUSH2 offsets),
+    // and the address word a part that hands over keeps behind its code
     let all_slots = vec![Some(0xffff); t];
-    let budget = |to: usize| fork.code_size - overhead(fork, t, &all_slots, true, to < steps).bytes;
+    let word = |to: usize| if to < steps { 32 } else { 0 };
+    let budget = |to: usize| {
+        fork.code_size - overhead(fork, t, &all_slots, true, to < steps).bytes - word(to)
+    };
 
     // options for the size probes: the cheapest schedule of a short range,
     // which also decides whether the state needs shadowing
@@ -140,7 +144,7 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
                 range.to < steps,
             );
             let runtime = result.bytes + o.bytes;
-            if runtime > fork.code_size {
+            if runtime + word(range.to) > fork.code_size {
                 bail!("part {}..{}: {runtime} bytes", range.from, range.to);
             }
             if CONSTRUCTOR_BYTES + runtime + 32 > fork.initcode_size {
