@@ -38,7 +38,7 @@ fn amsterdam_t2_t4() {
         within(report);
     }
     // forge: test/Poseidon2T2.t.sol and the hash_* of test/Poseidon2.t.sol
-    assert_eq!(reports[0].gas.measured, 6133);
+    assert_eq!(reports[0].gas.measured, 6027);
     let hashes = reports[1].hashes.expect("hash entry");
     assert_eq!(hashes.map(|g| g.measured), [12176, 12198, 12271]);
 }
@@ -49,7 +49,7 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 55667);
+    assert_eq!(reports[0].gas.measured, 54194);
 }
 
 #[test]
@@ -58,5 +58,5 @@ fn osaka_split_t20() {
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 2);
     // forge, with every part cold
-    assert_eq!(reports[0].gas.measured, 74055);
+    assert_eq!(reports[0].gas.measured, 72368);
 }

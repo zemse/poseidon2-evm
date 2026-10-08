@@ -49,6 +49,12 @@ import { PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
 import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
+import {
+  BLOCKS,
+  TEMPLATES,
+  type Template,
+  type TemplateKind,
+} from "./templates.ts";
 
 export type BuildOptions = {
   // keep the internal diag constants in memory instead of PUSH32 (t >= 4)
@@ -108,6 +114,15 @@ export type BuildOptions = {
   // another in sub-chains of consumeGroup slots (the last takes the rest),
   // each rotating on its own, for a shorter body (0: one chain)
   consumeGroup: number;
+  // external rounds (t <= 4) and, with externalD, the M4 of every block as
+  // the stack programs of templates.ts, found by exhaustive search: the
+  // lanes are S-boxed in place and the linear layer consumes its operands,
+  // so a round leaves at most one dead value and a block none
+  externalTemplate: boolean;
+  // t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3 and
+  // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op less per
+  // round, once s1 is clean)
+  internalMul3: boolean;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -129,6 +144,8 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   sharedBody: false,
   bodyInline: 0,
   consumeGroup: 0,
+  externalTemplate: false,
+  internalMul3: false,
 };
 
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
@@ -538,10 +555,141 @@ class Builder {
     );
   }
 
+  // x^5 for y on top without a PRIME copy under it: the copies are DUPed
+  // and SWAPped under the operands instead, same gas as sbox with its copy
+  // pre-placed.
+  sboxNoPrime(y: Value, name: string): Value {
+    const e = this.e;
+    if (e.top(0) !== y) throw new Error("sboxNoPrime expects y on top");
+    e.pushPrime();
+    const x2 = e.compute("mulmod", [y, y, inplace(this.P)], "x2");
+    e.pushPrime();
+    e.swap(1);
+    const x4 = e.compute("mulmod", [x2, inplace(x2), inplace(this.P)], "x4");
+    e.pushPrime();
+    e.swap(2);
+    return e.compute(
+      "mulmod",
+      [inplace(y), inplace(x4), inplace(this.P)],
+      name,
+    );
+  }
+
   // Keeps a PRIME copy near the top so later copies stay within reach.
   floatPrime() {
     const n = this.e.findPrime();
     if (n === 0 || n > this.e.maxReach / 2) this.e.pushPrime();
+  }
+
+  // ---- external rounds from templates -----------------------------------------
+
+  // The template of a list whose layout the stack holds for `inputs` (the
+  // s<i> of the layout), or undefined.
+  template(list: Template[], inputs: Value[]): Template | undefined {
+    const e = this.e;
+    return list.find((tpl) =>
+      tpl.init.every((name, k) => {
+        if (k >= e.depth) return false;
+        const v = e.top(k);
+        return name === "P" ? v.isPrime : v === inputs[Number(name.slice(1))];
+      }),
+    );
+  }
+
+  // Replays the stack program of a template (templates.ts) on `inputs`;
+  // `round` names the round constants of its lanes. Returns the values its
+  // moves name s<i>', as names[i], which end in the template's final layout.
+  runTemplate(
+    list: Template[],
+    inputs: Value[],
+    names: string[],
+    round?: number,
+  ): Value[] {
+    const e = this.e;
+    const tpl = this.template(list, inputs);
+    if (!tpl) throw new Error("no template fits the layout");
+    const out: Value[] = new Array(names.length);
+    for (const move of tpl.ops.split(" ")) {
+      let m: RegExpExecArray | null;
+      if ((m = /^dup(\d+)$/.exec(move))) {
+        e.dup(e.top(Number(m[1]) - 1));
+      } else if ((m = /^swap(\d+)$/.exec(move))) {
+        e.swap(Number(m[1]));
+      } else if (move === "P") {
+        e.pushPrime();
+      } else if (move === "4") {
+        e.push(4n);
+      } else if (move === "pop") {
+        e.pop();
+      } else if ((m = /^(add|addmod|mulmod)=(.+)$/.exec(move))) {
+        const op = m[1] as "add" | "addmod" | "mulmod";
+        const operands = [inplace(e.top(0)), inplace(e.top(1))];
+        if (op !== "add") operands.push(inplace(this.P));
+        const index = /^s(\d+)'$/.exec(m[2]);
+        const v = e.compute(
+          op,
+          operands,
+          index ? names[Number(index[1])] : m[2],
+        );
+        if (index) out[Number(index[1])] = v;
+        e.endLine();
+      } else if ((m = /^sbox(\d+)(n?)$/.exec(move))) {
+        if (round === undefined) throw new Error("sbox needs a round");
+        this.templateLane(inputs, Number(m[1]), round, m[2] === "");
+        e.endLine();
+      } else {
+        throw new Error(`unknown template move ${move}`);
+      }
+    }
+    e.endLine();
+    for (let i = 0; i < names.length; i++) {
+      if (!out[i]) throw new Error(`template leaves s${i}' unnamed`);
+    }
+    return out;
+  }
+
+  // An external round of t <= 4 from its template. t = 4 has no round
+  // program (the search did not finish): its lanes go as usual and its M4
+  // takes the block program, which consumes the S-box outputs.
+  externalTemplate(kind: TemplateKind, round?: number) {
+    const names = Array.from({ length: this.t }, (_, i) => `s${i}'`);
+    if (this.t === 4) {
+      if (round !== undefined) this.addConstantsAndSbox(round);
+      const list =
+        kind === "final"
+          ? TEMPLATES[4].final
+          : BLOCKS[kind === "exit" ? "exit" : "block"];
+      this.state = this.runTemplate(list, this.state, names);
+      return;
+    }
+    const list = TEMPLATES[this.t]?.[kind] ?? [];
+    this.state = this.runTemplate(list, this.state, names, round);
+  }
+
+  // s_i + c then x^5 for lane i on top, consumed in place; with primeUnder
+  // the PRIME copy under it is consumed as well. A lazy input that does not
+  // fit the ADD takes an ADDMOD with that copy (or a swapped-in one) and
+  // the S-box without it, leaving the same stack.
+  templateLane(inputs: Value[], i: number, round: number, primeUnder: boolean) {
+    const e = this.e;
+    const s = inputs[i];
+    if (e.top(0) !== s) throw new Error(`template expects s${i} on top`);
+    if (primeUnder && e.top(1) !== this.P) {
+      throw new Error(`template expects PRIME under s${i}`);
+    }
+    const c = this.constant(this.params.roundConstants[round][i], "c");
+    let y: Value;
+    if (e.fitsAdd(s, c)) {
+      y = e.compute("add", [c, inplace(s)], `s${i}+c`);
+    } else {
+      if (!primeUnder) {
+        e.pushPrime();
+        e.swap(1);
+      }
+      y = e.compute("addmod", [c, inplace(s), inplace(this.P)], `s${i}+c`);
+      primeUnder = false;
+    }
+    return primeUnder ? this.sbox(y, `x${i}`) : this.sboxNoPrime(y, `x${i}`);
   }
 
   // ---- external rounds ------------------------------------------------------
@@ -765,6 +913,25 @@ class Builder {
         const u: Value[] = new Array(4);
         if (b === 0 && beforeOutputs) beforeOutputs();
         const block = this.state.slice(4 * b, 4 * b + 4);
+        if (this.opts.externalTemplate) {
+          // the block's inputs on top in order, consumed by its template
+          for (let i = 3; i >= 0; i--) {
+            u[i] = this.pairAdd(block[i], S[i], `u${4 * b + i}`, false);
+            e.endLine();
+          }
+          const kind = clean
+            ? "final"
+            : b === 0 && beforeLast
+              ? "exit"
+              : "block";
+          const res = this.runTemplate(
+            BLOCKS[kind],
+            u,
+            names.slice(4 * b, 4 * b + 4),
+          );
+          for (let i = 0; i < 4; i++) out[4 * b + i] = res[i];
+          continue;
+        }
         for (const i of this.byDepth(block)) {
           u[i] = this.pairAdd(block[i], S[i], `u${4 * b + i}`, false);
           e.endLine();
@@ -1031,6 +1198,35 @@ class Builder {
       e.endLine();
     }
     this.dead = [];
+
+    const s1 = this.state[1];
+    if (
+      this.opts.internalMul3 &&
+      t === 2 &&
+      !collect &&
+      3n * s1.bound <= UINT256_MAX
+    ) {
+      // s1' = (3 s1 + s0^5) mod P on the PRIME copy for the next round,
+      // s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
+      if (this.opts.floatPrimeInternal) this.floatPrime();
+      else e.pushPrime();
+      e.pushPrime();
+      e.dup(x5);
+      const m = e.compute("mul", [this.constant(3n), s1], "3s1");
+      const out1 = e.compute(
+        "addmod",
+        [inplace(m), inplace(x5), inplace(this.P)],
+        "s1'",
+      );
+      e.endLine();
+      if (nextInternal) e.pushPrime();
+      const d = e.compute("add", [x5, x5], "2s0^5");
+      const out0 = e.compute("add", [s1, inplace(d)], "s0'");
+      e.endLine();
+      this.dead.push(x5);
+      this.state = [out0, out1];
+      return;
+    }
 
     const old = [x5, ...this.state.slice(1)];
     // the sum is reduced, or with internalReduceOutputs lazy as far as the
@@ -1477,7 +1673,9 @@ class Builder {
     if (from === 0) {
       e.nextRound();
       e.comment("Initial linear layer");
-      this.externalMatrix(false, undefined, true);
+      if (this.opts.externalTemplate && this.t <= 4)
+        this.externalTemplate("entry");
+      else this.externalMatrix(false, undefined, true);
       e.comment("");
       this.stepBytes.push(e.bytes);
     }
@@ -1502,13 +1700,17 @@ class Builder {
       const next = r + 2 < to;
       if (r < rfHalf) {
         e.comment(`Round ${r} (external)`);
-        this.addConstantsAndSbox(r);
         const last = r === rfHalf - 1;
-        this.externalMatrix(
-          false,
-          last && next ? () => e.pushPrime() : undefined,
-          !last,
-        );
+        if (this.opts.externalTemplate && this.t <= 4) {
+          this.externalTemplate(last && next ? "exit" : "round", r);
+        } else {
+          this.addConstantsAndSbox(r);
+          this.externalMatrix(
+            false,
+            last && next ? () => e.pushPrime() : undefined,
+            !last,
+          );
+        }
       } else if (r < pEnd) {
         e.comment(`Round ${r} (internal)`);
         if (from === r + 1) {
@@ -1517,10 +1719,14 @@ class Builder {
           e.pushPrime();
           e.swap(1);
         }
+        // the round programs of t <= 3 expect the PRIME copy under s0 as
+        // well
+        const primeUnder =
+          (r < pEnd - 1 || (this.opts.externalTemplate && this.t <= 3)) && next;
         if (this.opts.internalConsume) {
           this.internalRoundConsume(r, r < pEnd - 1 && next);
         } else {
-          this.internalRound(r, r < pEnd - 1 && next);
+          this.internalRound(r, primeUnder);
         }
       } else if (r === total - 1 && this.live) {
         e.comment(`Round ${r} (external, s0' only)`);
@@ -1530,8 +1736,12 @@ class Builder {
         this.finalRoundRow0(r);
       } else {
         e.comment(`Round ${r} (external)`);
-        this.addConstantsAndSbox(r);
-        this.externalMatrix(r === total - 1, undefined, true);
+        if (this.opts.externalTemplate && this.t <= 4) {
+          this.externalTemplate(r === total - 1 ? "final" : "round", r);
+        } else {
+          this.addConstantsAndSbox(r);
+          this.externalMatrix(r === total - 1, undefined, true);
+        }
       }
       e.comment("");
       this.stepBytes.push(e.bytes);
@@ -1792,26 +2002,44 @@ export function buildBest(
                           for (const sharedBody of internalConsume
                             ? bools
                             : [false]) {
-                            list.push({
-                              diagInMemory,
-                              gcExternal,
-                              gcM4,
-                              gcInternal,
-                              chainSwapMod,
-                              externalD,
-                              primeUnderExternal,
-                              internalReduceOutputs,
-                              floatPrimeInternal,
-                              internalConsume,
-                              primeStack,
-                              gcInternalFrom: 0,
-                              gcM4From: 0,
-                              diagPush32: 0,
-                              shadow,
-                              sharedBody,
-                              bodyInline: 0,
-                              consumeGroup: 0,
-                            });
+                            // the templates replace the external rounds (t <= 4)
+                            // or the M4 of every block (with externalD), so the
+                            // options those would collect or pre-place are moot
+                            const templated =
+                              params.t <= 4
+                                ? !gcExternal && !gcM4 && !primeUnderExternal
+                                : externalD && !gcM4;
+                            for (const externalTemplate of templated
+                              ? bools
+                              : [false]) {
+                              for (const internalMul3 of params.t === 2 &&
+                              internalReduceOutputs
+                                ? bools
+                                : [false]) {
+                                list.push({
+                                  diagInMemory,
+                                  gcExternal,
+                                  gcM4,
+                                  gcInternal,
+                                  chainSwapMod,
+                                  externalD,
+                                  primeUnderExternal,
+                                  internalReduceOutputs,
+                                  floatPrimeInternal,
+                                  internalConsume,
+                                  primeStack,
+                                  gcInternalFrom: 0,
+                                  gcM4From: 0,
+                                  diagPush32: 0,
+                                  shadow,
+                                  sharedBody,
+                                  bodyInline: 0,
+                                  consumeGroup: 0,
+                                  externalTemplate,
+                                  internalMul3,
+                                });
+                              }
+                            }
                           }
                         }
                       }
@@ -1881,7 +2109,14 @@ export function buildBest(
               return r !== undefined && r.maxDepth <= 1000;
             });
             opts = { ...opts, gcM4From };
-            result = buildPermutation(params, inputs, opts, fork, range);
+            result = buildPermutation(
+              params,
+              inputs,
+              opts,
+              fork,
+              range,
+              boundary,
+            );
           }
           if (opts.sharedBody && result.bytes > maxBytes) {
             // a body too large for the code size: sub-chains shorten it,

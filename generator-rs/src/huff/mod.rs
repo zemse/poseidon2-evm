@@ -19,6 +19,7 @@ pub mod fork;
 pub mod render;
 pub mod schedule;
 pub mod split;
+pub mod templates;
 pub mod verify;
 
 use std::fs;

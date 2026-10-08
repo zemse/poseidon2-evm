@@ -4,7 +4,7 @@
 
 - `round-constants/`: the Poseidon2 parameters and their tests. `round-constants.ts` derives the round numbers, round constants and internal diagonal (the sage port), `assert-known.ts` checks `round-constants.ts` and the reference permutation against published values.
 - `shared/`: what both code generators use. `reference.ts` is the BigInt reference permutation every generated file is checked against, `vectors.ts` the test inputs, `field.ts` the GF(p) arithmetic, `value.ts` the bound-tracked values with the opcode semantics.
-- `huff/`: `generate.ts` (CLI), `fork.ts`, `schedule.ts`, `split.ts`, `emitter.ts`, `render.ts`.
+- `huff/`: `generate.ts` (CLI), `fork.ts`, `schedule.ts`, `templates.ts`, `split.ts`, `emitter.ts`, `render.ts`.
 - `yul/`: `generate.ts` (CLI), `schedule.ts`, `program.ts`, `render.ts`.
 
 Both generators first run `round-constants/assert-known.ts` (the paper round numbers, `assertKnownT3`, `assertKnownT4`, `assertKnownTaceo`, `assertKnownGnark`), whatever width they build, so a change to `round-constants.ts` or `reference.ts` must still reproduce the known values; a failure names the value and the commit permalink it comes from.

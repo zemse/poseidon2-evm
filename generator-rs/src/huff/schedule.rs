@@ -30,6 +30,7 @@ use rayon::prelude::*;
 use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
+use super::templates::{BlockKind, Template, TemplateKind, blocks, templates};
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
@@ -90,6 +91,15 @@ pub struct BuildOptions {
     /// another in sub-chains of consume_group slots (the last takes the
     /// rest), each rotating on its own, for a shorter body (0: one chain)
     pub consume_group: usize,
+    /// external rounds (t <= 4) and, with external_d, the M4 of every block
+    /// as the stack programs of templates.rs, found by exhaustive search:
+    /// the lanes are S-boxed in place and the linear layer consumes its
+    /// operands, so a round leaves at most one dead value and a block none
+    pub external_template: bool,
+    /// t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3
+    /// and s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op
+    /// less per round, once s1 is clean)
+    pub internal_mul3: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -111,6 +121,8 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     shared_body: false,
     body_inline: 0,
     consume_group: 0,
+    external_template: false,
+    internal_mul3: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -200,6 +212,12 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.consume_group > 0 {
         enabled.push(format!("consumeGroup={}", opts.consume_group));
+    }
+    if opts.external_template {
+        enabled.push("externalTemplate".to_string());
+    }
+    if opts.internal_mul3 {
+        enabled.push("internalMul3".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -708,6 +726,29 @@ impl<'a> Builder<'a> {
             .compute(Op::Mulmod, &[inplace(x4), inplace(y), inplace(p)], name)
     }
 
+    /// x^5 for y on top without a PRIME copy under it: the copies are DUPed
+    /// and SWAPped under the operands instead, same gas as sbox with its
+    /// copy pre-placed.
+    fn sbox_no_prime(&mut self, y: Id, name: &str) -> Result<Id> {
+        let p = self.p();
+        if self.e.top(0)? != y {
+            bail!("sboxNoPrime expects y on top");
+        }
+        self.e.push_prime()?;
+        let x2 = self
+            .e
+            .compute(Op::Mulmod, &[val(y), val(y), inplace(p)], "x2")?;
+        self.e.push_prime()?;
+        self.e.swap(1)?;
+        let x4 = self
+            .e
+            .compute(Op::Mulmod, &[val(x2), inplace(x2), inplace(p)], "x4")?;
+        self.e.push_prime()?;
+        self.e.swap(2)?;
+        self.e
+            .compute(Op::Mulmod, &[inplace(y), inplace(x4), inplace(p)], name)
+    }
+
     /// Keeps a PRIME copy near the top so later copies stay within reach.
     fn float_prime(&mut self) -> Result<()> {
         let n = self.e.find_prime();
@@ -716,6 +757,178 @@ impl<'a> Builder<'a> {
             self.e.push_prime()?;
         }
         Ok(())
+    }
+
+    // ---- external rounds from templates ------------------------------------
+
+    /// The template of a list whose layout the stack holds for `inputs` (the
+    /// s<i> of the layout), if any.
+    fn template(&self, list: &'static [Template], inputs: &[Id]) -> Option<&'static Template> {
+        let p = self.p();
+        list.iter().find(|tpl| {
+            tpl.init
+                .split(',')
+                .enumerate()
+                .all(|(k, name)| match self.e.at(k) {
+                    None => false,
+                    Some(v) => {
+                        if name == "P" {
+                            v == p
+                        } else {
+                            let i: usize = name[1..].parse().expect("state index");
+                            v == inputs[i]
+                        }
+                    }
+                })
+        })
+    }
+
+    /// Replays the stack program of a template (templates.rs) on `inputs`;
+    /// `round` names the round constants of its lanes. Returns the values
+    /// its moves name s<i>', as names[i], which end in the template's final
+    /// layout.
+    fn run_template(
+        &mut self,
+        list: &'static [Template],
+        inputs: &[Id],
+        names: &[String],
+        round: Option<usize>,
+    ) -> Result<Vec<Id>> {
+        let Some(tpl) = self.template(list, inputs) else {
+            bail!("no template fits the layout");
+        };
+        let p = self.p();
+        let mut out: Vec<Option<Id>> = vec![None; names.len()];
+        for mv in tpl.ops.split(' ') {
+            if let Some(n) = mv.strip_prefix("dup") {
+                let n: usize = n.parse().expect("dup slot");
+                let v = self.e.top(n - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(n) = mv.strip_prefix("swap") {
+                let n: usize = n.parse().expect("swap slot");
+                self.e.swap(n)?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if mv == "4" {
+                self.e.push(u256(4), None)?;
+            } else if mv == "pop" {
+                self.e.pop()?;
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => Op::Addmod,
+                    "mulmod" => Op::Mulmod,
+                    _ => bail!("unknown template move {mv}"),
+                };
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                if op != Op::Add {
+                    operands.push(inplace(p));
+                }
+                let index = name
+                    .strip_prefix('s')
+                    .and_then(|r| r.strip_suffix('\''))
+                    .and_then(|i| i.parse::<usize>().ok());
+                let name = match index {
+                    Some(i) => names[i].as_str(),
+                    None => name,
+                };
+                let v = self.e.compute(op, &operands, name)?;
+                if let Some(i) = index {
+                    out[i] = Some(v);
+                }
+                self.e.end_line();
+            } else if let Some(lane) = mv.strip_prefix("sbox") {
+                let Some(round) = round else {
+                    bail!("sbox needs a round");
+                };
+                let (i, prime_under) = match lane.strip_suffix('n') {
+                    Some(i) => (i, false),
+                    None => (lane, true),
+                };
+                let i: usize = i.parse().expect("lane");
+                self.template_lane(inputs, i, round, prime_under)?;
+                self.e.end_line();
+            } else {
+                bail!("unknown template move {mv}");
+            }
+        }
+        self.e.end_line();
+        let mut res = Vec::with_capacity(names.len());
+        for (i, v) in out.into_iter().enumerate() {
+            match v {
+                Some(v) => res.push(v),
+                None => bail!("template leaves s{i}' unnamed"),
+            }
+        }
+        Ok(res)
+    }
+
+    /// An external round of t <= 4 from its template. t = 4 has no round
+    /// program (the search did not finish): its lanes go as usual and its
+    /// M4 takes the block program, which consumes the S-box outputs.
+    fn external_template(&mut self, kind: TemplateKind, round: Option<usize>) -> Result<()> {
+        let names: Vec<String> = (0..self.t).map(|i| format!("s{i}'")).collect();
+        if self.t == 4 {
+            if let Some(round) = round {
+                self.add_constants_and_sbox(round)?;
+            }
+            let list = match kind {
+                TemplateKind::Final => templates(4, kind),
+                TemplateKind::Exit => blocks(BlockKind::Exit),
+                _ => blocks(BlockKind::Block),
+            };
+            let inputs = self.state.clone();
+            self.state = self.run_template(list, &inputs, &names, None)?;
+            return Ok(());
+        }
+        let inputs = self.state.clone();
+        self.state = self.run_template(templates(self.t, kind), &inputs, &names, round)?;
+        Ok(())
+    }
+
+    /// s_i + c then x^5 for lane i on top, consumed in place; with
+    /// prime_under the PRIME copy under it is consumed as well. A lazy input
+    /// that does not fit the ADD takes an ADDMOD with that copy (or a
+    /// swapped-in one) and the S-box without it, leaving the same stack.
+    fn template_lane(
+        &mut self,
+        inputs: &[Id],
+        i: usize,
+        round: usize,
+        prime_under: bool,
+    ) -> Result<Id> {
+        let p = self.p();
+        let s = inputs[i];
+        if self.e.top(0)? != s {
+            bail!("template expects s{i} on top");
+        }
+        if prime_under && self.e.top(1)? != p {
+            bail!("template expects PRIME under s{i}");
+        }
+        let c = self.params.round_constants[round][i];
+        let name = format!("s{i}+c");
+        let mut prime_under = prime_under;
+        let y = if self.e.fits_add(self.bound(s), c) {
+            self.e
+                .compute(Op::Add, &[constant(c, "c"), inplace(s)], &name)?
+        } else {
+            if !prime_under {
+                self.e.push_prime()?;
+                self.e.swap(1)?;
+            }
+            prime_under = false;
+            self.e.compute(
+                Op::Addmod,
+                &[constant(c, "c"), inplace(s), inplace(p)],
+                &name,
+            )?
+        };
+        let xname = format!("x{i}");
+        if prime_under {
+            self.sbox(y, &xname)
+        } else {
+            self.sbox_no_prime(y, &xname)
+        }
     }
 
     // ---- external rounds ---------------------------------------------------
@@ -965,6 +1178,26 @@ impl<'a> Builder<'a> {
                     self.e.push_prime()?;
                 }
                 let block: Vec<Id> = self.state[4 * b..4 * b + 4].to_vec();
+                if self.opts.external_template {
+                    // the block's inputs on top in order, consumed by its
+                    // template
+                    for i in (0..4).rev() {
+                        u[i] =
+                            self.pair_add(block[i], sums[i], &format!("u{}", 4 * b + i), false)?;
+                        self.e.end_line();
+                    }
+                    let kind = if clean {
+                        BlockKind::Final
+                    } else if b == 0 && before_last {
+                        BlockKind::Exit
+                    } else {
+                        BlockKind::Block
+                    };
+                    let res =
+                        self.run_template(blocks(kind), &u, &names[4 * b..4 * b + 4], None)?;
+                    out[4 * b..4 * b + 4].copy_from_slice(&res);
+                    continue;
+                }
                 for i in self.by_depth(&block) {
                     u[i] = self.pair_add(block[i], sums[i], &format!("u{}", 4 * b + i), false)?;
                     self.e.end_line();
@@ -1325,6 +1558,40 @@ impl<'a> Builder<'a> {
         }
         self.dead.clear();
 
+        let p = self.p();
+        let s1 = self.state[1];
+        if self.opts.internal_mul3
+            && t == 2
+            && !collect
+            && wide(self.bound(s1)) * U512::from(3u64) <= wmax()
+        {
+            // s1' = (3 s1 + s0^5) mod P on the PRIME copy for the next
+            // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
+            if self.opts.float_prime_internal {
+                self.float_prime()?;
+            } else {
+                self.e.push_prime()?;
+            }
+            self.e.push_prime()?;
+            self.e.dup(x5)?;
+            let m = self
+                .e
+                .compute(Op::Mul, &[constant_hex(u256(3)), val(s1)], "3s1")?;
+            let out1 = self
+                .e
+                .compute(Op::Addmod, &[inplace(m), inplace(x5), inplace(p)], "s1'")?;
+            self.e.end_line();
+            if next_internal {
+                self.e.push_prime()?;
+            }
+            let d = self.e.compute(Op::Add, &[val(x5), val(x5)], "2s0^5")?;
+            let out0 = self.e.compute(Op::Add, &[val(s1), inplace(d)], "s0'")?;
+            self.e.end_line();
+            self.dead.push(x5);
+            self.state = vec![out0, out1];
+            return Ok(());
+        }
+
         let mut old = vec![x5];
         old.extend_from_slice(&self.state[1..]);
         // the sum is reduced, or with internalReduceOutputs lazy as far as the
@@ -1351,7 +1618,6 @@ impl<'a> Builder<'a> {
             others.reverse();
         }
         others.push(0);
-        let p = self.p();
         for (n, &i) in others.iter().enumerate() {
             let s = old[i];
             let d = self.params.internal_diag_minus_one[i];
@@ -1840,7 +2106,11 @@ impl<'a> Builder<'a> {
         if from == 0 {
             self.e.next_round();
             self.e.comment("Initial linear layer");
-            self.external_matrix(false, false, true)?;
+            if self.opts.external_template && self.t <= 4 {
+                self.external_template(TemplateKind::Entry, None)?;
+            } else {
+                self.external_matrix(false, false, true)?;
+            }
             self.e.comment("");
             self.step_bytes.push(self.e.bytes);
         }
@@ -1871,9 +2141,18 @@ impl<'a> Builder<'a> {
             let next = r + 2 < to;
             if r < rf_half {
                 self.e.comment(&format!("Round {r} (external)"));
-                self.add_constants_and_sbox(r)?;
                 let last = r == rf_half - 1;
-                self.external_matrix(false, last && next, !last)?;
+                if self.opts.external_template && self.t <= 4 {
+                    let kind = if last && next {
+                        TemplateKind::Exit
+                    } else {
+                        TemplateKind::Round
+                    };
+                    self.external_template(kind, Some(r))?;
+                } else {
+                    self.add_constants_and_sbox(r)?;
+                    self.external_matrix(false, last && next, !last)?;
+                }
             } else if r < p_end {
                 self.e.comment(&format!("Round {r} (internal)"));
                 if from == r + 1 {
@@ -1883,10 +2162,14 @@ impl<'a> Builder<'a> {
                     self.e.swap(1)?;
                 }
                 let next_internal = r < p_end - 1 && next;
+                // the round programs of t <= 3 expect the PRIME copy under
+                // s0 as well
+                let prime_under =
+                    (r < p_end - 1 || (self.opts.external_template && self.t <= 3)) && next;
                 if self.opts.internal_consume {
                     self.internal_round_consume(r, next_internal, None)?;
                 } else {
-                    self.internal_round(r, next_internal)?;
+                    self.internal_round(r, prime_under)?;
                 }
             } else if r == total - 1 && self.live.is_some() {
                 self.e.comment(&format!("Round {r} (external, s0' only)"));
@@ -1896,8 +2179,17 @@ impl<'a> Builder<'a> {
                 self.final_round_row0(r)?;
             } else {
                 self.e.comment(&format!("Round {r} (external)"));
-                self.add_constants_and_sbox(r)?;
-                self.external_matrix(r == total - 1, false, true)?;
+                if self.opts.external_template && self.t <= 4 {
+                    let kind = if r == total - 1 {
+                        TemplateKind::Final
+                    } else {
+                        TemplateKind::Round
+                    };
+                    self.external_template(kind, Some(r))?;
+                } else {
+                    self.add_constants_and_sbox(r)?;
+                    self.external_matrix(r == total - 1, false, true)?;
+                }
             }
             self.e.comment("");
             self.step_bytes.push(self.e.bytes);
@@ -2202,26 +2494,47 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                         for &internal_consume in pick(consume) {
                                             for &prime_stack in pick(internal_consume) {
                                                 for &shared_body in pick(internal_consume) {
-                                                    list.push(BuildOptions {
-                                                        diag_in_memory,
-                                                        gc_external,
-                                                        gc_m4,
-                                                        gc_internal,
-                                                        chain_swap_mod,
-                                                        external_d,
-                                                        prime_under_external,
-                                                        internal_reduce_outputs,
-                                                        float_prime_internal,
-                                                        internal_consume,
-                                                        prime_stack,
-                                                        gc_internal_from: 0,
-                                                        gc_m4_from: 0,
-                                                        diag_push32: 0,
-                                                        shadow,
-                                                        shared_body,
-                                                        body_inline: 0,
-                                                        consume_group: 0,
-                                                    });
+                                                    // the templates replace the
+                                                    // external rounds (t <= 4) or
+                                                    // the M4 of every block (with
+                                                    // external_d), so the options
+                                                    // those would collect or
+                                                    // pre-place are moot
+                                                    let templated = if t <= 4 {
+                                                        !gc_external
+                                                            && !gc_m4
+                                                            && !prime_under_external
+                                                    } else {
+                                                        external_d && !gc_m4
+                                                    };
+                                                    for &external_template in pick(templated) {
+                                                        for &internal_mul3 in
+                                                            pick(t == 2 && internal_reduce_outputs)
+                                                        {
+                                                            list.push(BuildOptions {
+                                                                diag_in_memory,
+                                                                gc_external,
+                                                                gc_m4,
+                                                                gc_internal,
+                                                                chain_swap_mod,
+                                                                external_d,
+                                                                prime_under_external,
+                                                                internal_reduce_outputs,
+                                                                float_prime_internal,
+                                                                internal_consume,
+                                                                prime_stack,
+                                                                gc_internal_from: 0,
+                                                                gc_m4_from: 0,
+                                                                diag_push32: 0,
+                                                                shadow,
+                                                                shared_body,
+                                                                body_inline: 0,
+                                                                consume_group: 0,
+                                                                external_template,
+                                                                internal_mul3,
+                                                            });
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
