@@ -61,7 +61,7 @@ This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 de
 
 - `params.ts` ports the HorizenLabs `poseidon2_rust_params.sage` script: round numbers, Grain LFSR round constants and the internal matrix diagonal with its minimal polynomial check. `test-reference.ts` checks t = 4 against `constants.ts` and the Barretenberg KAT, t = 3 against the HorizenLabs instance, and the round numbers against the paper.
 - `reference.ts` is the BigInt reference permutation.
-- `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs.
+- `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs. The target sets the reach: `DUP16` / `SWAP16` for the legacy opcodes, slot 235 with the EIP-8024 `DUPN` / `SWAPN` of Amsterdam (`--amsterdam`, 3 gas and 2 bytes each, so the one-byte opcodes are still preferred up to 16).
 - `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits.
 
 Generated permutations for t other than 4 live in `huff/t<t>/` with an entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`.
@@ -74,7 +74,20 @@ Generated permutations for t other than 4 live in `huff/t<t>/` with an entry con
 | 8   | 8   | 57  | 25,719          | 25,909   | 889             | 16      | 14,394        |
 | 12  | 8   | 57  | 43,912          | 44,194   | 274             | 16      | 23,646        |
 
-Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator refuses it. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the 24,576 byte code size limit.
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). t = 16 and above does not fit a stack-only schedule with the legacy opcodes: the deepest state element plus the PRIME copy under the S-box input already exceeds `DUP16`, so the generator refuses it. For t >= 8 the diag constants are stored in memory once and loaded with `MLOAD`, otherwise the `PUSH32`s exceed the 24,576 byte code size limit.
+
+#### Amsterdam (EIP-8024)
+
+`node generator/huff/generate.ts --amsterdam 16 20 24 28` (`npm run generate:huff:amsterdam`) builds the wider permutations with the EIP-8024 `DUPN` / `SWAPN` opcodes, which reach stack slot 235, and the EIP-7954 code size limit of 65,536 bytes. huffc and huff-neo have no mnemonic for them, so `huff/amsterdam/Eip8024.huff` defines `DUP17()` .. `DUP235()` and `SWAP17()` .. `SWAP235()` as `__VERBATIM` bytes (immediate x encodes n = (x + 145) % 256). The whole state stays on the stack; two options use the reach: `gcInternalFrom` leaves the garbage of the first internal rounds in place while the 1024 depth allows (saves the `SWAPn POP` of 5 gas per slot), `diagPush32` keeps as many diag constants as `PUSH32` as the code size allows when the others are in memory (3 gas instead of 6 per use). The generator finds both limits by binary search. The output lives in `huff/amsterdam/t<t>/` with tests in `test/amsterdam/`; these contracts execute on Amsterdam and later only, and `FOUNDRY_PROFILE=amsterdam forge test` (`npm run test:amsterdam`) runs the tests on that EVM (the default profile skips `test/amsterdam`).
+
+| t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                               |
+| --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------- |
+| 16  | 8   | 57  | 48,347          | 48,721   | 999             | 123     | 50,133        | stack, diag as PUSH32, gcInternal from round 44         |
+| 20  | 8   | 57  | 61,107          | 61,573   | 995             | 147     | 63,737        | stack, diag as PUSH32, gcInternal from round 34         |
+| 24  | 8   | 57  | 74,636          | 75,195   | 989             | 171     | 64,816        | stack, 7 diag in memory, 17 PUSH32, gcInternal from 27  |
+| 28  | 8   | 59  | 91,120          | 91,771   | 994             | 63      | 65,414        | stack, 16 diag in memory, 12 PUSH32, gcInternal from 22 |
+
+For comparison the unrolled Yul wrapper of the same widths costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 28 is 122 bytes under the limit. t = 20 fits with every diag constant as `PUSH32`; from t = 24 the code size, not the stack, decides how many are loaded from memory.
 
 The constants and permutation outputs for every generated t match other implementations of the same HorizenLabs instance (gnark-crypto, TACEO, Polygon pil2). See [generator/README.md](../../generator/README.md#evidence-that-the-output-matches-other-implementations) for the links.
 

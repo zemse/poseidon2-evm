@@ -41,7 +41,8 @@ jobs:
         run: |
           npm run generate:yul
           npm run generate:huff
-          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff' and commit the changes." && exit 1)
+          npm run generate:huff:amsterdam
+          git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff && npm run generate:huff:amsterdam' and commit the changes." && exit 1)
 
       - name: Run Forge build
         run: |
@@ -57,6 +58,11 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      - name: Run the Amsterdam (EIP-8024) Forge tests
+        run: |
+          FOUNDRY_PROFILE=amsterdam forge test -vvv
+        id: test-amsterdam
 
       - name: Check gas snapshots
         run: |
