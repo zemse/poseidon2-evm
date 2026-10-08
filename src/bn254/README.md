@@ -23,7 +23,7 @@ This is an instance of Poseidon2 for the BN254 curve (also known as alt_bn128).
 | --------------- | ------- | ------- | ------- |
 | Pure Solidity   | 217,702 | 218,222 | 218,801 |
 | Yul (contract)  | 15,127  | 15,127  | 15,127  |
-| Huff (contract) | 12,537  | 12,537  | 12,537  |
+| Huff (contract) | 12,378  | 12,378  | 12,378  |
 
 ## Recommendation
 
@@ -41,7 +41,7 @@ Using `ADD` is cheaper (3 gas) compared to `ADDMOD` (8 gas) which also needs a p
 
 Applying this optimization for the BN254 curve is tricky because the PRIME is almost close to uint256 max, which means the value could overflow the uint256 variable, corrupting the state and leading to an incorrect hash value. For other curves with smaller prime fields, this optimization is trivial.
 
-BN254 prime allows adding 5 field values (4 additions, since 2^256 / p is about 5.29). Both the Yul and the Huff code are generated, and the generators prove every lazy operation: `generator/shared/value.ts` carries an exact inclusive upper bound per value and refuses an `ADD`, `MUL` or `SHL` whose result could exceed 2^256 - 1, so the choice between `ADD` and `ADDMOD` is made by the bound, never by hand. Where a reduction is forced early (the M4 temporaries, the internal round sum) it is because it keeps more of the following additions lazy. The generated code is also executed on test vectors against the BigInt reference before it is written.
+BN254 prime allows adding 5 field values (4 additions, since 2^256 / p is about 5.29). Both the Yul and the Huff code are generated, and the generators prove every lazy operation: `generator/shared/value.ts` carries an exact inclusive upper bound per value and refuses an `ADD`, `MUL` or `SHL` whose result could exceed 2^256 - 1, so the choice between `ADD` and `ADDMOD` is made by the bound, never by hand. Where a reduction is forced early (the M4 temporaries, the internal round sum) it is because it keeps more of the following additions lazy. Which value to reduce matters: for t = 2 reducing the internal round sum leaves the second element growing, so its doubling falls back to `MULMOD` every second round, while reducing that element with `ADDMOD` and keeping the sum lazy (`internalReduceOutputs`) is one reduction per round and every doubling an `ADD`, 4 gas per round less. The generated code is also executed on test vectors against the BigInt reference before it is written.
 
 If there is even a single situation where an unsafe addition could overflow uint256 max, then it is possible for an attacker to vanity mine the input. The published v1.0.0 Yul had such an addition (hand-tracked in comments); `test_regression_overflow_counterexamples` locks in the inputs that exposed it.
 
@@ -53,7 +53,7 @@ The EVM has a stack limit of 1024. Hence, compilers are designed to avoid runnin
 
 However, it is cheaper to not rearrange elements on the stack and instead `DUP`licate them in the order we want. This works when we are working with fewer than 16 variables (including temporary) because we have `DUP1` to `DUP16`.
 
-This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 dead values on the stack and each internal round 6, so the stack height reaches 449 for t = 4. On Amsterdam `DUPN` / `SWAPN` reach slot 235, so the dead values can stay deeper than 16; from t = 12 the generator reclaims dead slots with `SWAP` + `POP` because the 1024 limit would otherwise be hit.
+This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 dead values on the stack and each internal round 5, so the stack height reaches 396 for t = 4. On Amsterdam `DUPN` / `SWAPN` reach slot 235, so the dead values can stay deeper than 16; from t = 12 the generator reclaims dead slots with `SWAP` + `POP` because the 1024 limit would otherwise be hit.
 
 ### Huff Generator
 
@@ -62,23 +62,23 @@ This instance of Poseidon2 has 64 total rounds. Each external round leaves 13 de
 - `round-constants.ts` ports the HorizenLabs `poseidon2_rust_params.sage` script: round numbers, Grain LFSR round constants and the internal matrix diagonal with its minimal polynomial check. Both generators first run `assert-known.ts`, whatever width they build: t = 4 against `constants.ts`, the Barretenberg KAT and the sponge vectors, t = 3 against the HorizenLabs instance, permutation KATs from TACEO for t = 2, 4, 8, 12, 16, sample gnark-crypto constants for t = 8, 12, 16, and the round numbers against the paper, each pinned to a commit permalink.
 - `reference.ts` is the BigInt reference permutation.
 - `huff/emitter.ts` is a symbolic stack simulator. Every value carries an exact upper bound; `ADD` and `MUL` are only emitted when the bound stays below 2^256, otherwise `ADDMOD` / `MULMOD`. It also tracks depth, the deepest `DUP`, gas and bytecode size, and executes the emitted stream on test inputs. The hardfork (`huff/fork.ts`, `--hardfork <name>`) sets the reach: `DUP16` / `SWAP16` for the legacy opcodes, slot 235 with the EIP-8024 `DUPN` / `SWAPN` of Amsterdam (3 gas and 2 bytes each, so the one-byte opcodes are still preferred up to 16). A value the reach cannot `DUP` can be shadowed: stored to a memory slot when produced and loaded from there instead (see Osaka below).
-- `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer), keeping the cheapest one that fits. `huff/split.ts` cuts a permutation over the fork's code size into parts at round boundaries.
+- `huff/schedule.ts` orders the field operations like the hand-written code did (results land on top, operands are pre-placed so results land in place) and tries a few option sets per t (diag constants in memory, garbage collection, two forms of the t = 4k linear layer, which value the internal round reduces, whether it leaves a PRIME copy under the state every round), keeping the cheapest one that fits. `huff/split.ts` cuts a permutation over the fork's code size into parts at round boundaries.
 
 Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is called through the hand-written `huff/t4/Poseidon2.huff` (`hash_1` / `hash_2` / `hash_3`, tested in `test/Poseidon2.t.sol`); the other widths get a generated entry contract (calldata t words, returns t words) and vectors from the reference in `test/Poseidon2T<t>.t.sol`. All of them target Amsterdam (below), and `forge test` runs on an Amsterdam EVM (`evm_version = "amsterdam"` in `foundry.toml`); CI checks that the output fails on Osaka.
 
 | t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                               |
 | --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------- |
-| 2   | 8   | 56  | 6,454           | 6,506    | 273             | 27      | 4,039         | stack                                                   |
-| 3   | 8   | 56  | 8,037           | 8,112    | 347             | 38      | 4,758         | stack                                                   |
-| 4   | 8   | 56  | 12,459          | 12,537   | 449             | 63      | 13,240        | stack                                                   |
-| 8   | 8   | 57  | 24,319          | 24,509   | 883             | 145     | 25,024        | stack, diag as PUSH32                                   |
-| 12  | 8   | 57  | 36,085          | 36,367   | 993             | 147     | 36,961        | stack, diag as PUSH32, gcInternal from round 52         |
-| 16  | 8   | 57  | 48,347          | 48,721   | 999             | 123     | 50,133        | stack, diag as PUSH32, gcInternal from round 44         |
-| 20  | 8   | 57  | 61,107          | 61,573   | 995             | 147     | 63,737        | stack, diag as PUSH32, gcInternal from round 34         |
-| 24  | 8   | 57  | 74,636          | 75,195   | 989             | 171     | 64,816        | stack, 7 diag in memory, 17 PUSH32, gcInternal from 27  |
-| 28  | 8   | 59  | 91,120          | 91,771   | 994             | 63      | 65,414        | stack, 16 diag in memory, 12 PUSH32, gcInternal from 22 |
+| 2   | 8   | 56  | 6,081           | 6,133    | 218             | 120     | 4,037         | stack, lazy internal sum                                |
+| 3   | 8   | 56  | 7,875           | 7,950    | 293             | 121     | 4,837         | stack                                                   |
+| 4   | 8   | 56  | 12,300          | 12,378   | 396             | 128     | 13,432        | stack                                                   |
+| 8   | 8   | 57  | 24,163          | 24,353   | 831             | 152     | 25,419        | stack, diag as PUSH32                                   |
+| 12  | 8   | 57  | 35,650          | 35,932   | 1,000           | 147     | 37,439        | stack, diag as PUSH32, gcInternal from round 56         |
+| 16  | 8   | 57  | 47,967          | 48,341   | 996             | 152     | 50,751        | stack, diag as PUSH32, gcInternal from round 46         |
+| 20  | 8   | 57  | 60,749          | 61,215   | 988             | 205     | 63,913        | stack, diag as PUSH32, gcInternal from round 35         |
+| 24  | 8   | 57  | 74,218          | 74,777   | 993             | 191     | 64,864        | stack, 7 diag in memory, 17 PUSH32, gcInternal from 28  |
+| 28  | 8   | 59  | 90,643          | 91,294   | 995             | 152     | 65,534        | stack, 16 diag in memory, 12 PUSH32, gcInternal from 15 |
 
-Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 28 is 122 bytes under the 65,536 byte limit. With the legacy opcodes (before Amsterdam) the same widths cost 6,515, 8,124, 12,558, 25,909 and 44,194 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
+Call gas is the Huff contract call measured by forge (t = 4 is `hash_*`, the others are the raw permutation entry). Runtime bytes are the entry plus the permutation as compiled by huffc; t = 28 is 2 bytes under the 65,536 byte limit. Every width DUPs the PRIME copies of its internal rounds from wherever the nearest one sits (`floatPrimeInternal`), which is why the deepest DUP is above 100 everywhere. With the legacy opcodes (before Amsterdam) the same widths cost 6,196, 8,040, 12,497, 25,909 and 43,746 gas for t = 2, 3, 4, 8, 12; the unrolled Yul wrapper costs 78,287 (t = 16), 101,842 (t = 20), 125,985 (t = 24) and 154,826 gas (t = 28, 67,097 bytes, over the limit).
 
 #### Hardforks
 
@@ -97,7 +97,7 @@ A fork other than amsterdam writes `huff/<fork>/t<t>/` and `test/<fork>/`; its t
 
 #### Amsterdam (EIP-8024)
 
-`DUPN` / `SWAPN` reach stack slot 235 and EIP-7954 raises the code size limit to 65,536 bytes. huffc and huff-neo have no mnemonic for them, so `huff/Eip8024.huff` defines `DUP17()` .. `DUP235()` and `SWAP17()` .. `SWAP235()` as `__VERBATIM` bytes (immediate x encodes n = (x + 145) % 256). The whole state stays on the stack; two options use the reach: `gcInternalFrom` leaves the garbage of the first internal rounds in place while the 1024 depth allows (saves the `SWAPn POP` of 5 gas per slot), `diagPush32` keeps as many diag constants as `PUSH32` as the code size allows when the others are in memory (3 gas instead of 6 per use). The generator finds both limits by binary search.
+`DUPN` / `SWAPN` reach stack slot 235 and EIP-7954 raises the code size limit to 65,536 bytes. huffc and huff-neo have no mnemonic for them, so `huff/Eip8024.huff` defines `DUP17()` .. `DUP235()` and `SWAP17()` .. `SWAP235()` as `__VERBATIM` bytes (immediate x encodes n = (x + 145) % 256). The whole state stays on the stack; three options use the reach: `gcInternalFrom` leaves the garbage of the first internal rounds in place while the 1024 depth allows (saves the `SWAPn POP` of 5 gas per slot), `diagPush32` keeps as many diag constants as `PUSH32` as the code size allows when the others are in memory (3 gas instead of 6 per use), and `floatPrimeInternal` lets an internal round DUP its PRIME copies from the nearest one however deep it sits, leaving a fresh copy under the state only when that one is about to leave the reach (saves the 3 gas copy of every other round; with `DUP16` it is needed every round). The generator finds the first two limits by binary search.
 
 #### Legacy opcodes (not shipped)
 
@@ -116,13 +116,13 @@ The constants and permutation outputs for every generated t match other implemen
 `generator/yul/generate.ts` builds the Yul libraries from the same `round-constants.ts`, `reference.ts` and `value.ts`:
 
 - `yul/program.ts` emits straight-line Yul. Every operand is a bound-tracked value whose name is the Yul text producing it (a local, a literal, an `mload` or a nested expression), so an `add` is only written where the bound allows it and the whole permutation is checked against the reference before the file is written.
-- `yul/schedule.ts` orders the field operations and places the state. Internal round outputs stay lazy (below 2p) with one reduced sum per round, M4 reduces only its two inner temporaries, and the text is shaped for the legacy solc pipeline, which compiles inline assembly literally with the optimizer off: nested expressions instead of assignments, temporaries in blocks that end right after their last use, and for t = 12 a two-temporary M4 and sum chains cut so that the deepest local stays within `DUP16` / `SWAP16` (the generator models the reach of every local). The libraries are inlined into the consumer's contract with the consumer's settings, so `compat-check.sh` compiles a consumer of each library with the legacy pipeline (optimizer off, 200 runs, 1,000,000 runs) and via-IR (200 and 1,000,000 runs, t <= 4 only); CI runs it. From t = 8 a via-IR compile of the single straight-line function needs tens of GB of memory (t = 12 passed 69 GB with solc 0.8.37 before it was stopped), so t = 8 and t = 12 are for the legacy pipeline.
+- `yul/schedule.ts` orders the field operations and places the state. Internal round outputs stay lazy (below 2p) with one reduced sum per round (t = 2 keeps the sum lazy and reduces `state1` instead, so its doubling stays a shift), M4 reduces only its two inner temporaries, and the text is shaped for the legacy solc pipeline, which compiles inline assembly literally with the optimizer off: nested expressions instead of assignments, temporaries in blocks that end right after their last use, and for t = 12 a two-temporary M4 and sum chains cut so that the deepest local stays within `DUP16` / `SWAP16` (the generator models the reach of every local). The libraries are inlined into the consumer's contract with the consumer's settings, so `compat-check.sh` compiles a consumer of each library with the legacy pipeline (optimizer off, 200 runs, 1,000,000 runs) and via-IR (200 and 1,000,000 runs, t <= 4 only); CI runs it. From t = 8 a via-IR compile of the single straight-line function needs tens of GB of memory (t = 12 passed 69 GB with solc 0.8.37 before it was stopped), so t = 8 and t = 12 are for the legacy pipeline.
 
 t = 4 keeps `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3` / `poseidon2_core`) and only computes the first output of the last round. Other widths get `yul/t<t>/LibPoseidon2YulT<t>.sol` with `permute(uint256[t] memory state)`, which permutes the array in place after reducing it mod PRIME, and a test in `test/Poseidon2YulT<t>.t.sol` with the reference vectors, input sanitisation and a fuzz against the Huff permutation of the same width.
 
 | t   | Rf  | Rp  | call gas | runtime bytes | state placement                                   |
 | --- | --- | --- | -------- | ------------- | ------------------------------------------------- |
-| 2   | 8   | 56  | 9,103    | 5,141         | locals                                            |
+| 2   | 8   | 56  | 9,019    | 5,169         | locals                                            |
 | 3   | 8   | 56  | 11,403   | 6,092         | locals                                            |
 | 4   | 8   | 56  | 15,127   | 14,483        | locals                                            |
 | 8   | 8   | 57  | 31,833   | 24,130        | 8 locals, 2 diag constants in memory              |
