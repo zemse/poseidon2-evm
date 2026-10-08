@@ -1,0 +1,644 @@
+// Poseidon2 permutation as straight-line Yul (yul/schedule.ts).
+//
+// The schedule only decides the order of the field operations and where the
+// state lives (Yul locals or the caller's memory array); whether an addition
+// is ADD or ADDMOD, and a doubling ADD or MULMOD, is decided per operation
+// from the exact bounds the Program tracks. The text is shaped for the
+// legacy solc pipeline: results are written once per statement as nested
+// expressions, temporaries live in blocks that end right after their last
+// use, the deepest local is the outermost operand, and every local is kept
+// within DUP16 / SWAP16 by the reach model below.
+
+use super::program::Program;
+use crate::bail;
+use crate::error::Result;
+use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
+use crate::reference::permutation;
+use crate::round_constants::Params;
+use crate::value::{Op, Value};
+
+#[derive(Debug, Clone, Copy)]
+pub struct Layout {
+    /// elements 0 .. stack_elements - 1 live in Yul locals state0, state1,
+    /// ...; the rest stay in the state array in memory (array mode only)
+    pub stack_elements: usize,
+    /// how many of the trailing internal diag constants are kept in a memory
+    /// table (loaded with MLOAD) instead of PUSH32 literals
+    pub diag_in_memory: usize,
+    /// M4 with two temporaries (t2, t3) instead of four
+    pub m4_temps: usize,
+    /// keep the internal round's x^5 in a `let` that lives through the round
+    pub internal_let: bool,
+    /// internal rounds: keep the sum lazy and reduce every output but state0
+    pub internal_reduce_outputs: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// t = 4 library: the inputs are the function arguments s0 .. s3 and
+    /// only element 0 is returned, as `result`
+    Hash,
+    /// in-place permutation of the memory array `state`
+    Array,
+}
+
+pub struct BuildResult {
+    pub lines: Vec<String>,
+}
+
+/// rank of a value that is not a local: always within reach
+const UNRANKED: usize = usize::MAX;
+
+struct Builder<'a> {
+    p: Program,
+    t: usize,
+    params: &'a Params,
+    layout: Layout,
+    mode: Mode,
+    inputs: &'a [Vec<U256>],
+    state: Vec<Value>,
+}
+
+/// An operand of a chain statement and whether the step that adds it
+/// reduces.
+#[derive(Clone)]
+struct Step {
+    v: Value,
+    reduce: bool,
+}
+
+impl<'a> Builder<'a> {
+    fn new(
+        params: &'a Params,
+        inputs: &'a [Vec<U256>],
+        layout: Layout,
+        mode: Mode,
+        indent: usize,
+    ) -> Result<Builder<'a>> {
+        if mode == Mode::Hash && (params.t != 4 || layout.stack_elements != 4) {
+            bail!("hash mode is the t = 4 library with all locals");
+        }
+        if layout.stack_elements > params.t || layout.diag_in_memory > params.t {
+            bail!("layout exceeds t");
+        }
+        Ok(Builder {
+            p: Program::new(inputs.len(), indent),
+            t: params.t,
+            params,
+            layout,
+            mode,
+            inputs,
+            state: Vec::new(),
+        })
+    }
+
+    // ---- state placement ---------------------------------------------------
+
+    fn is_local(&self, i: usize) -> bool {
+        i < self.layout.stack_elements
+    }
+
+    fn name(i: usize) -> String {
+        format!("state{i}")
+    }
+
+    /// address of element i in the state array; `mem` aliases `state` once
+    /// the locals are declared
+    fn addr(i: usize, base: &str) -> String {
+        if i == 0 {
+            base.to_string()
+        } else {
+            format!("add({base}, 0x{:x})", 32 * i)
+        }
+    }
+
+    fn in_memory(&self) -> usize {
+        self.t - self.layout.stack_elements
+    }
+
+    fn set(&mut self, i: usize, v: &Value) -> Result<Value> {
+        let value = if self.is_local(i) {
+            self.p.assign(&Self::name(i), v)?
+        } else {
+            self.p.mstore(&Self::addr(i, "mem"), v)?
+        };
+        self.state[i] = value.clone();
+        Ok(value)
+    }
+
+    /// Locals are stack slots in declaration order: state0 is the deepest,
+    /// then the `mem` pointer that loads of memory elements go through.
+    /// Anything else is within easy reach.
+    fn rank(&self, v: &Value) -> usize {
+        if let Some(digits) = v.name.strip_prefix("state")
+            && !digits.is_empty()
+            && digits.bytes().all(|b| b.is_ascii_digit())
+            && let Ok(i) = digits.parse::<usize>()
+            && self.is_local(i)
+        {
+            return i;
+        }
+        if v.name.starts_with("mload(mem") || v.name.starts_with("mload(add(mem") {
+            return self.layout.stack_elements;
+        }
+        UNRANKED
+    }
+
+    /// Whether v can be DUPed with `intermediates` values pushed above the
+    /// live lets.
+    fn reachable(&self, v: &Value, intermediates: usize) -> bool {
+        let i = self.rank(v);
+        if i == UNRANKED {
+            return true;
+        }
+        let offset = if i == self.layout.stack_elements {
+            1
+        } else {
+            0
+        };
+        let above = self.p.live() as i64 - 1 - i as i64;
+        above + (intermediates + offset + 1) as i64 <= 16
+    }
+
+    // ---- arithmetic --------------------------------------------------------
+
+    fn fits(a: &Value, b: &Value) -> bool {
+        a.bound.checked_add(b.bound).is_some()
+    }
+
+    /// a + b, lazily unless the bound says otherwise or a reduction is asked
+    /// for
+    fn add(&self, a: &Value, b: &Value, reduce: bool) -> Result<Value> {
+        if reduce || !Self::fits(a, b) {
+            return self.p.expr(Op::Addmod, &[a, b, &self.p.p]);
+        }
+        self.p.expr(Op::Add, &[a, b])
+    }
+
+    /// d * s for the internal diagonal: 1 and 2 are the fixed t <= 3
+    /// diagonals
+    fn scaled(&self, s: &Value, i: usize) -> Result<Value> {
+        let d = self.params.internal_diag_minus_one[i];
+        if d == u256(1) {
+            return Ok(s.clone());
+        }
+        if d == u256(2) && Self::fits(s, s) {
+            return self.p.expr(Op::Shl, &[&self.p.constant(u256(1)), s]);
+        }
+        let diag = self.diag(i)?;
+        self.p.expr(Op::Mulmod, &[&diag, s, &self.p.p])
+    }
+
+    fn diag(&self, i: usize) -> Result<Value> {
+        let d = self.params.internal_diag_minus_one[i];
+        if i < self.t - self.layout.diag_in_memory {
+            return Ok(self.p.constant(d));
+        }
+        self.p.mload(&self.table_addr(i))
+    }
+
+    fn table_addr(&self, i: usize) -> String {
+        let k = i - (self.t - self.layout.diag_in_memory);
+        if k == 0 {
+            "table".to_string()
+        } else {
+            format!("add(table, 0x{:x})", 32 * k)
+        }
+    }
+
+    /// Sum of values into the variable `name`, reducing only when a partial
+    /// sum would overflow or the total would exceed cap. Shallow values go
+    /// innermost and the deepest local outermost, and the nesting is cut
+    /// into further statements whenever an operand would otherwise be read
+    /// with too many intermediates on the stack to reach it.
+    fn chain_sum(&mut self, values: &[Value], name: &str, cap: U256) -> Result<Value> {
+        let mut order: Vec<Value> = values.to_vec();
+        // descending rank, the unranked (infinite) first; stable like the TS
+        // sort, where two infinities compare as equal
+        order.sort_by_key(|a| std::cmp::Reverse(self.rank(a)));
+        let cap = wide(cap);
+        let mut window: Vec<Step> = Vec::new();
+        let mut acc: Option<Value> = None;
+        // whether acc is the variable (a flush has happened)
+        let mut acc_is_variable = false;
+        let mut bound = U512::ZERO;
+        let mut variable: Option<Value> = None;
+
+        for (j, v) in order.iter().enumerate() {
+            if acc.is_none() {
+                acc = Some(v.clone());
+                bound = wide(v.bound);
+                continue;
+            }
+            let last = j == order.len() - 1;
+            let lazy = bound + wide(v.bound);
+            let reduce = lazy > wide(UINT256_MAX) || (last && lazy > cap);
+            bound = if reduce { wide(PRIME - u256(1)) } else { lazy };
+            let step = Step {
+                v: v.clone(),
+                reduce,
+            };
+            let mut extended = window.clone();
+            extended.push(step.clone());
+            let a = acc.as_ref().expect("acc set");
+            if !self.window_fits(a, acc_is_variable, &extended) {
+                let flushed = self.flush(a, &window, &variable, name)?;
+                variable = Some(flushed.clone());
+                acc = Some(flushed);
+                acc_is_variable = true;
+                window.clear();
+                let a = acc.as_ref().expect("acc set");
+                if !self.window_fits(a, acc_is_variable, std::slice::from_ref(&step)) {
+                    bail!("{} is out of reach", v.name);
+                }
+            }
+            window.push(step);
+        }
+        if !window.is_empty() || variable.is_none() {
+            let a = acc.as_ref().expect("acc set");
+            let flushed = self.flush(a, &window, &variable, name)?;
+            variable = Some(flushed);
+        }
+        let variable = variable.expect("flushed");
+        if wide(variable.bound) > cap {
+            bail!("chain sum exceeds cap");
+        }
+        Ok(variable)
+    }
+
+    fn flush(
+        &mut self,
+        acc: &Value,
+        window: &[Step],
+        variable: &Option<Value>,
+        name: &str,
+    ) -> Result<Value> {
+        let mut e = acc.clone();
+        for Step { v, reduce } in window {
+            e = if *reduce {
+                self.p.expr(Op::Addmod, &[&e, v, &self.p.p])?
+            } else {
+                self.p.expr(Op::Add, &[&e, v])?
+            };
+        }
+        if variable.is_some() {
+            self.p.assign(name, &e)
+        } else {
+            self.p.let_(name, &e)
+        }
+    }
+
+    /// Intermediates on the stack when operand j of a window is read: the
+    /// operands outside it, plus PRIME for each reducing step from j out.
+    /// The first value of the chain is innermost of all and read last.
+    fn window_fits(&self, acc: &Value, acc_is_variable: bool, w: &[Step]) -> bool {
+        let reach = |v: &Value, outer: &[Step], own: usize| {
+            let reducing = outer.iter().filter(|o| o.reduce).count();
+            self.reachable(v, outer.len() - own + reducing)
+        };
+        (acc_is_variable || reach(acc, w, 0))
+            && w.iter().enumerate().all(|(j, s)| reach(&s.v, &w[j..], 1))
+    }
+
+    /// (s_i + c)^5 written back to element i; y and x2 are popped with the
+    /// block
+    fn sbox(&mut self, i: usize, c: U256) -> Result<()> {
+        self.p.open();
+        let y = self.add(&self.state[i], &self.p.constant(c), false)?;
+        let y = self.p.let_("y", &y)?;
+        let x2 = self.p.expr(Op::Mulmod, &[&y, &y, &self.p.p])?;
+        let x2 = self.p.let_("x2", &x2)?;
+        let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
+        let x5 = self.p.expr(Op::Mulmod, &[&x4, &y, &self.p.p])?;
+        self.set(i, &x5)?;
+        self.p.close();
+        Ok(())
+    }
+
+    // ---- linear layers -----------------------------------------------------
+
+    /// Poseidon2 M4 on the four elements idx, in place.
+    ///   t0 = v0 + v1, t1 = v2 + v3, t2 = 2 v1 + t1, t3 = 2 v3 + t0
+    ///   t4 = 4 t1 + t3, t5 = 4 t0 + t2, t6 = t3 + t5, t7 = t2 + t4
+    ///   out = [t6, t5, t7, t4]
+    fn m4(&mut self, idx: [usize; 4], clean: bool, needed: [bool; 4]) -> Result<()> {
+        let v: Vec<Value> = idx.iter().map(|&i| self.state[i].clone()).collect();
+        let one = self.p.constant(u256(1));
+        let four = self.p.constant(u256(4));
+        let four_temps = self.layout.m4_temps == 4;
+        self.p.open();
+        // t0 and t1 as locals, or recomputed where they are used
+        let (l0, l1) = if four_temps {
+            let t0 = self.p.expr(Op::Add, &[&v[1], &v[0]])?;
+            let l0 = self.p.let_("t0", &t0)?;
+            let t1 = self.p.expr(Op::Add, &[&v[3], &v[2]])?;
+            let l1 = self.p.let_("t1", &t1)?;
+            (Some(l0), Some(l1))
+        } else {
+            (None, None)
+        };
+        let t0 = |p: &Program| -> Result<Value> {
+            match &l0 {
+                Some(l) => Ok(l.clone()),
+                None => p.expr(Op::Add, &[&v[1], &v[0]]),
+            }
+        };
+        let t1 = |p: &Program| -> Result<Value> {
+            match &l1 {
+                Some(l) => Ok(l.clone()),
+                None => p.expr(Op::Add, &[&v[3], &v[2]]),
+            }
+        };
+        let two =
+            |p: &Program, x: &Value, t: &dyn Fn(&Program) -> Result<Value>| -> Result<Value> {
+                if four_temps {
+                    let xx = p.expr(Op::Add, &[x, x])?;
+                    p.expr(Op::Addmod, &[&xx, &t(p)?, &p.p])
+                } else {
+                    let tt = t(p)?;
+                    let sh = p.expr(Op::Shl, &[&one, x])?;
+                    p.expr(Op::Addmod, &[&tt, &sh, &p.p])
+                }
+            };
+        let e2 = two(&self.p, &v[1], &t1)?;
+        let t2 = self.p.let_("t2", &e2)?;
+        let e3 = two(&self.p, &v[3], &t0)?;
+        let t3 = self.p.let_("t3", &e3)?;
+        // the deep operands of the recomputed sums go innermost so they are
+        // read before the modulus and the other summand are on the stack
+        let quad = |p: &Program, t: &dyn Fn(&Program) -> Result<Value>| -> Result<Value> {
+            if four_temps {
+                p.expr(Op::Mulmod, &[&t(p)?, &four, &p.p])
+            } else {
+                p.expr(Op::Mulmod, &[&four, &t(p)?, &p.p])
+            }
+        };
+        let mut t4: Option<Value> = None;
+        let mut t5: Option<Value> = None;
+        if needed[3] || needed[2] {
+            let q = quad(&self.p, &t1)?;
+            let e = if four_temps {
+                self.add(&q, &t3, clean)?
+            } else {
+                self.add(&t3, &q, clean)?
+            };
+            t4 = Some(if needed[3] {
+                self.set(idx[3], &e)?
+            } else {
+                self.p.let_("t4", &e)?
+            });
+        }
+        if needed[1] || needed[0] {
+            let q = quad(&self.p, &t0)?;
+            let e = if four_temps {
+                self.add(&q, &t2, clean)?
+            } else {
+                self.add(&t2, &q, clean)?
+            };
+            t5 = Some(if needed[1] {
+                self.set(idx[1], &e)?
+            } else {
+                self.p.let_("t5", &e)?
+            });
+        }
+        if needed[0] {
+            let e = self.add(&t3, t5.as_ref().expect("t5"), clean)?;
+            self.set(idx[0], &e)?;
+        }
+        if needed[2] {
+            let e = self.add(&t2, t4.as_ref().expect("t4"), clean)?;
+            self.set(idx[2], &e)?;
+        }
+        self.p.close();
+        Ok(())
+    }
+
+    fn external_matrix(&mut self, clean: bool, needed: [bool; 4]) -> Result<()> {
+        let t = self.t;
+        if t == 2 || t == 3 {
+            // circ(2, 1[, 1]): out_i = s_i + sum
+            self.p.open();
+            let state = self.state.clone();
+            let sum = self.chain_sum(&state, "sum", UINT256_MAX)?;
+            for i in 0..t {
+                let e = self.add(&sum, &self.state[i], clean)?;
+                self.set(i, &e)?;
+            }
+            self.p.close();
+            return Ok(());
+        }
+        if t == 4 {
+            return self.m4([0, 1, 2, 3], clean, needed);
+        }
+        // y = M4 per block, z_i = sum over blocks of y_{b,i},
+        // out_{b,i} = y_{b,i} + z_i; z_i is reduced far enough for the last
+        // addition to stay lazy
+        let k = t / 4;
+        for b in 0..k {
+            self.m4([4 * b, 4 * b + 1, 4 * b + 2, 4 * b + 3], false, [true; 4])?;
+        }
+        for i in 0..4 {
+            self.p.open();
+            let column: Vec<Value> = (0..k).map(|b| self.state[4 * b + i].clone()).collect();
+            let widest = column.iter().map(|y| y.bound).max().unwrap_or(U256::ZERO);
+            let cap = if clean {
+                UINT256_MAX
+            } else {
+                UINT256_MAX - widest
+            };
+            let z = self.chain_sum(&column, "z", cap)?;
+            for b in 0..k {
+                let e = self.add(&z, &self.state[4 * b + i], clean)?;
+                self.set(4 * b + i, &e)?;
+            }
+            self.p.close();
+        }
+        Ok(())
+    }
+
+    // ---- rounds ------------------------------------------------------------
+
+    fn external_round(&mut self, round: usize, clean: bool, needed: [bool; 4]) -> Result<()> {
+        for i in 0..self.t {
+            let c = self.params.round_constants[round][i];
+            self.sbox(i, c)?;
+        }
+        self.external_matrix(clean, needed)
+    }
+
+    fn internal_outputs(&mut self, x5: &Value) -> Result<()> {
+        let lazy = self.layout.internal_reduce_outputs;
+        let mut old = vec![x5.clone()];
+        old.extend_from_slice(&self.state[1..]);
+        let cap = if lazy {
+            UINT256_MAX - x5.bound - (PRIME - u256(1))
+        } else {
+            PRIME - u256(1)
+        };
+        let sum = self.chain_sum(&old, "sum", cap)?;
+        for (i, s) in old.iter().enumerate() {
+            let scaled = self.scaled(s, i)?;
+            let e = self.add(&sum, &scaled, lazy && i > 0)?;
+            self.set(i, &e)?;
+        }
+        Ok(())
+    }
+
+    /// s0 = (s0 + c)^5, then s_i = d_i s_i + sum with the sum reduced so
+    /// that every output stays within 2p, or with internal_reduce_outputs
+    /// the sum lazy as far as the next round's s0 + c fits and every other
+    /// output reduced.
+    fn internal_round(&mut self, round: usize) -> Result<()> {
+        let c = self.params.round_constants[round][0];
+        if !self.layout.internal_let {
+            self.sbox(0, c)?;
+            self.p.open();
+            let x5 = self.state[0].clone();
+            self.internal_outputs(&x5)?;
+            self.p.close();
+            return Ok(());
+        }
+        self.p.open();
+        let y = self.add(&self.state[0], &self.p.constant(c), false)?;
+        let y = self.p.let_("y", &y)?;
+        let x2 = self.p.expr(Op::Mulmod, &[&y, &y, &self.p.p])?;
+        let x2 = self.p.let_("x2", &x2)?;
+        let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
+        let x5 = self.p.expr(Op::Mulmod, &[&x4, &y, &self.p.p])?;
+        let x5 = self.p.let_("x5", &x5)?;
+        self.internal_outputs(&x5)?;
+        self.p.close();
+        Ok(())
+    }
+
+    // ---- whole permutation -------------------------------------------------
+
+    fn build(mut self) -> Result<BuildResult> {
+        let t = self.t;
+        let rf_half = self.params.rounds_f / 2;
+        let p_end = rf_half + self.params.rounds_p;
+        let total = self.params.rounds_f + self.params.rounds_p;
+
+        // PRIME is declared after the state locals so that the locals, which
+        // are read with temporaries on top, are the deeper slots
+        self.p.comment("inputs reduced mod PRIME");
+        let prime = self.p.constant(PRIME);
+        let raw = |b: &Builder, i: usize| {
+            let name = if b.mode == Mode::Hash {
+                format!("s{i}")
+            } else {
+                format!("mload({})", Self::addr(i, "state"))
+            };
+            b.p.input(&name, b.inputs.iter().map(|input| input[i]).collect())
+        };
+        self.state = vec![prime.clone(); t];
+        for i in 0..self.layout.stack_elements {
+            let e = self.p.expr(Op::Mod, &[&raw(&self, i), &prime])?;
+            self.state[i] = self.p.let_(&Self::name(i), &e)?;
+        }
+        if self.in_memory() > 0 {
+            let mem = self.p.input("state", Vec::new());
+            self.p.let_("mem", &mem)?;
+        }
+        self.p.let_("PRIME", &prime)?;
+        for i in self.layout.stack_elements..t {
+            let e = self.p.expr(Op::Mod, &[&raw(&self, i), &self.p.p])?;
+            self.state[i] = self.p.mstore(&Self::addr(i, "mem"), &e)?;
+        }
+        self.p.blank();
+
+        self.p.comment("initial linear layer");
+        self.external_matrix(false, [true; 4])?;
+        self.p.blank();
+
+        for r in 0..rf_half {
+            self.p.comment(&format!("round {r} (external)"));
+            self.external_round(r, r == rf_half - 1, [true; 4])?;
+            self.p.blank();
+        }
+
+        let internal = |b: &mut Builder| -> Result<()> {
+            for r in rf_half..p_end {
+                b.p.comment(&format!("round {r} (internal)"));
+                b.internal_round(r)?;
+                b.p.blank();
+            }
+            Ok(())
+        };
+        if self.layout.diag_in_memory > 0 {
+            self.p.open();
+            self.p.comment(
+                "diag constants that would not fit the code size as PUSH32, in free memory",
+            );
+            let table = self.p.input("mload(0x40)", Vec::new());
+            self.p.let_("table", &table)?;
+            for i in t - self.layout.diag_in_memory..t {
+                let c = self.p.constant(self.params.internal_diag_minus_one[i]);
+                let addr = self.table_addr(i);
+                self.p.mstore(&addr, &c)?;
+            }
+            self.p.blank();
+            internal(&mut self)?;
+            self.p.close();
+        } else {
+            internal(&mut self)?;
+        }
+
+        let needed = if self.mode == Mode::Hash {
+            [true, false, false, false]
+        } else {
+            [true; 4]
+        };
+        for r in p_end..total {
+            self.p.comment(&format!("round {r} (external)"));
+            let last = r == total - 1;
+            self.external_round(r, last, if last { needed } else { [true; 4] })?;
+            if !last {
+                self.p.blank();
+            }
+        }
+
+        self.p.blank();
+        if self.mode == Mode::Hash {
+            let s0 = self.state[0].clone();
+            self.p.assign("result", &s0)?;
+        } else {
+            let base = if self.in_memory() > 0 { "mem" } else { "state" };
+            for i in 0..self.layout.stack_elements {
+                let line = format!("mstore({}, {})", Self::addr(i, base), self.state[i].name);
+                self.p.line(&line);
+            }
+        }
+
+        // outputs must be clean and match the reference permutation
+        let checked = if self.mode == Mode::Hash { 1 } else { t };
+        let outputs = &self.state[..checked];
+        for (i, out) in outputs.iter().enumerate() {
+            if out.bound >= PRIME {
+                bail!("output {i} is not clean");
+            }
+        }
+        for (k, input) in self.inputs.iter().enumerate() {
+            let want = permutation(self.params, input);
+            for (i, (out, want)) in outputs.iter().zip(&want).enumerate() {
+                if out.vals[k] != *want {
+                    bail!("vector {k} output {i} mismatch");
+                }
+            }
+        }
+
+        Ok(BuildResult {
+            lines: self.p.lines,
+        })
+    }
+}
+
+pub fn build_permutation(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    layout: Layout,
+    mode: Mode,
+    indent: usize,
+) -> Result<BuildResult> {
+    Builder::new(params, inputs, layout, mode, indent)?.build()
+}
