@@ -884,7 +884,9 @@ impl Problem {
     ) {
         // chain continuation: an op consuming d in place with its other
         // operands pre-placed now
-        if depth < self.chain {
+        // A nested continuation leaves d2 on top, not the d the outer
+        // continuation requires, so only the recursive base case survives.
+        if depth == 0 && self.chain != 0 {
             for ci in 0..self.conts[d as usize].len() {
                 let cont = &self.conts[d as usize][ci];
                 let d2 = cont.d2;
