@@ -1,0 +1,28 @@
+# stacksearch
+
+The offline search behind the stack programs of `generator/huff/templates.ts` and `generator-rs/src/huff/templates.rs`: an A\* over the EVM stack programs that compute one Poseidon2 external round (or the M4 of a block of the `externalD` layer) from a given stack layout to a given layout, with the S-box of a lane as one move. Values are linear forms over the S-box outputs with a bound in units of P, so an `ADD` is allowed only while the bound stays below 2^256 and the result otherwise takes an `ADDMOD`; only the forms the linear layer needs are allowed (`build` in `src/bin/macro.rs`).
+
+Two binaries, run from this directory after `cargo build --release`:
+
+- `target/release/macro` (`src/bin/macro.rs`) searches over macro moves: the next arithmetic op together with which of its operands are consumed in place (brought to the top by a swap sequence from a precomputed table, at most 3 swaps) and which are DUPed, a chain pre-placing the operands of the op that consumes the result, the S-box of a lane as one move, standalone `PUSH P` / `POP` / `SWAP1..4` for the goal layout. This is the one that found the programs in the repository.
+
+  ```
+  macro <t> <init> <goal> [reach=16] [max_garbage=2] [extra_depth=8] [final|x] [chain=2] [lazy,strict]
+  ```
+
+- `target/release/stacksearch` (`src/main.rs`) is the earlier single-opcode search with the same value model; slower, kept for reference.
+
+Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
+
+Examples:
+
+```
+# one t = 2 external round from the layout the previous round leaves
+target/release/macro 2 s1,P,s0 O,P,O 16 1 8 x 1
+# the M4 of a block of t >= 8 (the `block` program of BLOCKS)
+target/release/macro 4 x0,x1,x2,x3 t6,t5,t7,t4 16 0 8 x 2 lazy
+```
+
+The output is the cost in gas, the layout the program leaves and one move per line with the stack after it; `todsl.py` turns it into the template DSL (`python3 todsl.py result.txt`) and `drive.py <t>` chases the layouts of a width: the entry, rounds until a layout repeats, the exit, the re-entry after the internal rounds and the final round, appending the DSL of every result to `t<t>.dsl.txt` (`CHAIN=<n>` sets the chain depth, default 1). `run23.sh`, `run_entry.sh`, `run_block.sh` and `run_block2.sh` are the runs that produced the programs of t = 2, t = 3 and the blocks.
+
+A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. Searches that did not finish: the full t = 4 external round (over 19 GB in hours), the t = 3 re-entry layout `s0,P,s1,s2` and the t = 3 final round (2 h limit).
