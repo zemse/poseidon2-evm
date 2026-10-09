@@ -97,6 +97,13 @@ pub fn templates(t: usize, kind: TemplateKind) -> &'static [Template] {
             init: "s2,P,s1,s0",
             ops: "sbox2 P P dup4 sbox1 swap4 sbox0 P dup2 dup4 dup7 add=s1+s2 add=sum dup1 dup7 add=s1' swap4 dup2 add=s2' swap3 add=s0'",
         }],
+        // written by hand (the search did not finish): the lanes as the exit
+        // program takes them, then the three reduced outputs over a PRIME
+        // copy
+        (3, TemplateKind::Final) => &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P dup3 sbox2 P dup5 sbox1 dup3 dup2 add=s0+s1 dup3 add=sum P P dup3 dup6 addmod=s2' P dup4 dup6 addmod=s1' P dup5 dup9 addmod=s0'",
+        }],
         // the last M4 of t = 4 on the S-box outputs, reduced, over a PRIME
         // copy (the blocks leave none, as t >= 8 stacks them)
         (4, TemplateKind::Final) => &[Template {
