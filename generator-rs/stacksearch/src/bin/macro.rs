@@ -1171,6 +1171,7 @@ impl Open {
                 self.len -= 1;
                 return Some((self.min as u16, idx));
             }
+            self.buckets[self.min] = Vec::new();
             self.min += 1;
         }
         None
@@ -1805,5 +1806,67 @@ fn main() {
             }
         }
         None => println!("no solution"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packed_keys_roundtrip() {
+        assert_eq!(std::mem::size_of::<Node>(), 24);
+        for len in 0..=MAXD {
+            let values: Vec<u8> = (0..len).map(|i| (i * 17 % 31) as u8).collect();
+            for computed in [0, 1, u32::MAX] {
+                let (lo, hi) = key(&values, computed);
+                let (stack, mask) = decode(lo, hi);
+                assert_eq!(stack.as_slice(), values);
+                assert_eq!(mask, computed);
+            }
+        }
+    }
+
+    #[test]
+    fn buckets_release_storage_and_allow_reopening() {
+        let mut open = Open {
+            buckets: Vec::new(),
+            min: 0,
+            len: 0,
+        };
+        open.push(10, 1);
+        open.push(10, 2);
+        open.push(20, 3);
+        assert_eq!(open.pop(), Some((10, 2)));
+        assert_eq!(open.pop(), Some((10, 1)));
+        assert_eq!(open.pop(), Some((20, 3)));
+        assert_eq!(open.buckets[10].capacity(), 0);
+        open.push(5, 4);
+        assert_eq!(open.pop(), Some((5, 4)));
+        assert_eq!(open.pop(), None);
+        assert_eq!(open.len, 0);
+        assert!(open.buckets.iter().all(|b| b.capacity() == 0));
+    }
+
+    #[test]
+    fn table_rehash_preserves_exact_keys() {
+        let mut nodes = Vec::new();
+        let mut table = Table::new();
+        for i in 0..50_000u64 {
+            let lo = i.wrapping_mul(0x9E3779B97F4A7C15);
+            let hi = i.rotate_left(29);
+            let slot = table.find(&nodes, lo, hi).unwrap_err();
+            nodes.push(Node {
+                lo,
+                hi,
+                parent: u32::MAX,
+                g: 0,
+                f: 0,
+            });
+            table.insert_at(&nodes, slot, i as u32);
+        }
+        for (i, node) in nodes.iter().enumerate() {
+            assert_eq!(table.find(&nodes, node.lo, node.hi), Ok(i as u32));
+        }
     }
 }
