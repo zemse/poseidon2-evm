@@ -231,6 +231,7 @@ struct Child {
 struct CompInfo {
     needed: u32,
     h: u32,
+    binary: i32,
     p_needed: i32,
     four_needed: i32,
     uses: [i32; 32],
@@ -272,7 +273,6 @@ struct Problem {
     prime: u8,
     four: u8,
     sbox_out: Vec<u8>,
-    sbox_in: Vec<u8>,
     init: Vec<u8>,
     init_computed: u32,
     goal: Vec<Option<u8>>,
@@ -376,6 +376,45 @@ fn swap_table(reach: usize, depth: usize) -> Vec<[u8; 4]> {
 }
 
 impl Problem {
+    fn assert_supported(&self) {
+        assert!(
+            self.init.iter().all(|c| {
+                self.classes[*c as usize].kind != Kind::Val || self.sbox_out.contains(c)
+            }),
+            "initial values must be raw inputs or S-box outputs"
+        );
+        let outputs: Vec<u8> = self
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.name.starts_with('o') || ["t4", "t5", "t6", "t7"].contains(&c.name.as_str())
+            })
+            .map(|(i, _)| i as u8)
+            .collect();
+        let mut fixed = 0u32;
+        let mut count = 0;
+        for &g in self.goal.iter().flatten() {
+            if g == 255 {
+                count += 1;
+            } else if outputs.contains(&g) {
+                assert!(fixed & (1 << g) == 0, "goal outputs must be distinct");
+                fixed |= 1 << g;
+                count += 1;
+            } else {
+                assert!(
+                    g == self.prime || g == self.four,
+                    "goal must contain outputs or constants"
+                );
+            }
+        }
+        assert_eq!(
+            count,
+            outputs.len(),
+            "goal must require every output exactly once"
+        );
+    }
+
     fn needed_mask(&self, computed: u32) -> u32 {
         let n = self.classes.len();
         let mut memo = vec![0u8; n];
@@ -422,10 +461,22 @@ impl Problem {
         let needed = self.needed_mask(computed);
         let n = self.classes.len();
         let mut h = 0;
-        let mut p_needed = 0i32;
-        let mut four_needed = 0i32;
+        let mut binary = 0;
+        let mut p_needed = self.goal.iter().filter(|&&g| g == Some(self.prime)).count() as i32;
+        let mut four_needed = self.goal.iter().filter(|&&g| g == Some(self.four)).count() as i32;
         let mut uses = [0i32; 32];
-        for (members, cost) in &self.groups {
+        let twos = self
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(c, class)| computed & (1 << c) != 0 && class.coeffs.iter().sum::<i32>() == 2)
+            .count();
+        for (group, (members, cost)) in self.groups.iter().enumerate() {
+            // A t3 output can use two degree-two forms instead of a
+            // degree-three form. The second group counts either route.
+            if self.sbox_out.len() == 3 && group == 1 && twos >= 2 {
+                continue;
+            }
             let any_computed = members.iter().any(|&m| computed & (1 << m) != 0);
             let any_needed = members.iter().any(|&m| needed & (1 << m) != 0);
             if any_computed || !any_needed {
@@ -434,6 +485,7 @@ impl Problem {
             h += cost;
             let mut needs_p = true;
             let mut needs_4 = true;
+            let mut needs_binary = true;
             let mut min_use = [i32::MAX; 32];
             for &m in members {
                 for prod in &self.productions[m as usize] {
@@ -442,6 +494,9 @@ impl Problem {
                     }
                     if prod.kind != PKind::Mulmod {
                         needs_4 = false;
+                    }
+                    if !matches!(prod.kind, PKind::Add | PKind::Addmod) {
+                        needs_binary = false;
                     }
                     let mut mult = [0i32; 32];
                     for &o in &prod.operands {
@@ -453,6 +508,9 @@ impl Problem {
                         }
                     }
                 }
+            }
+            if needs_binary {
+                binary += 1;
             }
             if needs_p {
                 p_needed += 1;
@@ -480,6 +538,7 @@ impl Problem {
         CompInfo {
             needed,
             h,
+            binary,
             p_needed,
             four_needed,
             uses,
@@ -509,22 +568,36 @@ impl Problem {
         let mut h = info.h;
         h += 3 * (info.p_needed - copies[self.prime as usize]).max(0) as u32;
         h += 3 * (info.four_needed - copies[self.four as usize]).max(0) as u32;
+        let mut duplicates = 0;
         let mut m = computed;
         while m != 0 {
             let c = m.trailing_zeros() as usize;
             m &= m - 1;
             if self.classes[c].kind == Kind::Val {
-                h += 3 * (info.uses[c] - copies[c]).max(0) as u32;
+                duplicates += (info.uses[c] - copies[c]).max(0);
             }
         }
-        h
+        // Every remaining binary op consumes one value slot; S-boxes and
+        // multiplication by four preserve it. Only DUP can restore it.
+        let values = stack
+            .as_slice()
+            .iter()
+            .filter(|&&c| self.values & (1 << c) != 0)
+            .count() as i32;
+        let deficit = info.binary + self.goal_set.count_ones() as i32 - values;
+        h + 3 * duplicates.max(deficit).max(0) as u32
     }
 
     fn is_goal(&self, stack: &[u8]) -> bool {
         if stack.len() < self.goal.len() {
             return false;
         }
-        let mut seen = 0u32;
+        let mut seen = self
+            .goal
+            .iter()
+            .flatten()
+            .filter(|&&g| g != 255)
+            .fold(0u32, |mask, &g| mask | (1 << g));
         for (i, g) in self.goal.iter().enumerate() {
             match g {
                 None => {}
@@ -913,7 +986,7 @@ impl Problem {
                     }
                     for &c in v.inplace() {
                         if dead2 & (1 << c) != 0 {
-                            lb -= 1;
+                            lb = lb.saturating_sub(1);
                         }
                     }
                     for &c in &prod.operands {
@@ -1012,11 +1085,12 @@ impl Problem {
         }
         for li in 0..prod.layouts.len() {
             let l = &prod.layouts[li];
-            let garbage = base
-                - l.inplace()
+            let garbage = base.saturating_sub(
+                l.inplace()
                     .iter()
                     .filter(|&&c| dead & (1 << c) != 0)
-                    .count();
+                    .count(),
+            );
             if garbage > self.max_garbage {
                 continue;
             }
@@ -1329,17 +1403,18 @@ fn reconstruct(p: &Problem, ctx: &mut Ctx, nodes: &[Node], idx: u32) -> Vec<(Pri
             .filter(|ch| key(ch.stack.as_slice(), ch.computed) == (b.lo, b.hi))
             .min_by_key(|ch| if ch.cost == cost { 0 } else { 1 })
             .expect("no macro from the parent to the child");
-        if found.cost != cost {
-            eprintln!(
-                "warning: the macro costs {} but the path {}",
-                found.cost, cost
-            );
-        }
+        assert_eq!(found.cost, cost, "macro cost differs from the path");
         for &prim in found.prims.as_slice() {
             apply_prim(p, &mut s, prim);
             path.push((prim, s.clone()));
         }
+        assert_eq!(
+            s,
+            decode(b.lo, b.hi).0.as_slice(),
+            "macro replay differs from the child"
+        );
     }
+    assert!(p.is_goal(&s), "replay does not reach the goal");
     path
 }
 
@@ -1542,13 +1617,7 @@ fn build(t: usize, final_round: bool, lazy: bool) -> (Vec<Class>, Vec<(Vec<Strin
     (classes, groups)
 }
 
-#[cfg_attr(feature = "profile", hotpath::main)]
-fn main() {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-    let all: Vec<String> = std::env::args().collect();
-    let no_swap = all.iter().any(|a| a == "--no-swap");
-    let args: Vec<String> = all.into_iter().filter(|a| !a.starts_with("--")).collect();
+fn problem(args: &[String], no_swap: bool) -> Problem {
     let t: usize = args[1].parse().unwrap();
     let init_names: Vec<&str> = args[2].split(',').collect();
     let goal_names: Vec<&str> = args[3].split(',').collect();
@@ -1558,6 +1627,8 @@ fn main() {
     let final_round = args.get(7).map_or(false, |s| s == "final");
     let chain: usize = args.get(8).map_or(2, |s| s.parse().unwrap());
     let lazy = args.get(9).map_or(false, |s| s.contains("lazy"));
+    assert!(!lazy || t == 4, "lazy inputs are supported only for t4");
+    assert!((1..=16).contains(&reach), "reach must be between 1 and 16");
     let strict = args.get(9).map_or(false, |s| s.contains("strict"));
     let (classes, groups) = build(t, final_round, lazy);
     assert!(classes.len() <= 31, "too many classes for the key");
@@ -1697,7 +1768,6 @@ fn main() {
         prime,
         four,
         sbox_out,
-        sbox_in,
         init,
         init_computed,
         goal,
@@ -1769,12 +1839,30 @@ fn main() {
         }
         p.conts[d] = conts;
     }
-    let mut ctx = Ctx {
-        comp: FxMap::default(),
-        infos: Vec::new(),
-        avail: FxMap::default(),
-        scratch: vec![Vec::new(); chain + 2],
-    };
+    p
+}
+
+impl Ctx {
+    fn new() -> Self {
+        Self {
+            comp: FxMap::default(),
+            infos: Vec::new(),
+            avail: FxMap::default(),
+            scratch: vec![Vec::new(); 2],
+        }
+    }
+}
+
+#[cfg_attr(feature = "profile", hotpath::main)]
+fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+    let all: Vec<String> = std::env::args().collect();
+    let no_swap = all.iter().any(|a| a == "--no-swap");
+    let args: Vec<String> = all.into_iter().filter(|a| !a.starts_with("--")).collect();
+    let p = problem(&args, no_swap);
+    p.assert_supported();
+    let mut ctx = Ctx::new();
     match search(&p, &mut ctx) {
         Some((cost, path)) => {
             println!("cost {cost}");
@@ -1814,6 +1902,105 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture(args: &str) -> Problem {
+        problem(
+            &args
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+            false,
+        )
+    }
+
+    fn class(p: &Problem, name: &str) -> u8 {
+        p.classes.iter().position(|c| c.name == name).unwrap() as u8
+    }
+
+    #[test]
+    fn t3_two_plus_two_needs_no_degree_three_form() {
+        let mut p = fixture("macro 3 110,101,P,o1,o2 o0,o1,o2 16 2 8 final 1");
+        for &x in &p.sbox_out {
+            p.init_computed |= 1 << x;
+        }
+        let info = p.comp_info(p.init_computed);
+        assert_eq!(
+            p.heuristic(&Stack::from(&p.init), p.init_computed, &info),
+            8
+        );
+        assert_eq!(search(&p, &mut Ctx::new()).unwrap().0, 8);
+    }
+
+    #[test]
+    fn resource_bounds_count_future_duplicates_and_goal_prime() {
+        let p = fixture("macro 3 s0,P,s1,s2 o0,o1,o2,P 16 2 8 final 1");
+        let info = p.comp_info(0);
+        assert_eq!(info.binary, 5);
+        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 198);
+        let p = fixture("macro 4 s0,s1,s2,s3 O,P,O,O,O 16 3 8 x 1");
+        let info = p.comp_info(0);
+        assert_eq!(info.binary, 10);
+        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 299);
+    }
+
+    #[test]
+    fn wildcard_outputs_exclude_fixed_outputs() {
+        let p = fixture("macro 3 x0,x1,x2 o0,P,O,O 16 2 8 x 1");
+        let stack = |names: &str| names.split(',').map(|n| class(&p, n)).collect::<Vec<_>>();
+        assert!(p.is_goal(&stack("o0,P,o1,o2")));
+        assert!(!p.is_goal(&stack("o0,P,o0,o1")));
+    }
+
+    #[test]
+    fn heuristic_is_bounded_by_a_complete_t2_program() {
+        let p = fixture("macro 2 s0,P,s1 o0,o1,P 16 1 8 final 1");
+        let (cost, path) = search(&p, &mut Ctx::new()).unwrap();
+        let mut computed = p.init_computed;
+        let mut remaining = cost;
+        assert!(p.heuristic(&Stack::from(&p.init), computed, &p.comp_info(computed)) <= remaining);
+        for (prim, stack) in path {
+            remaining -= match prim {
+                Prim::Pop => 2,
+                Prim::Dup(_) | Prim::Swap(_) | Prim::PushP | Prim::Push4 => 3,
+                _ => Problem::op_cost(prim),
+            };
+            for &c in &stack {
+                if p.classes[c as usize].kind == Kind::Val {
+                    computed |= 1 << c;
+                }
+            }
+            assert!(
+                p.heuristic(&Stack::from(&stack), computed, &p.comp_info(computed)) <= remaining
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "initial values must be raw inputs or S-box outputs")]
+    fn composite_initial_values_need_computation_history() {
+        fixture("macro 3 sum,x0,P,o1,o2,x1,x2 o0,o1,o2 16 2 8 final 1").assert_supported();
+    }
+
+    #[test]
+    #[should_panic(expected = "goal must require every output exactly once")]
+    fn partial_output_goals_are_not_supported() {
+        fixture("macro 4 s0,s1,s2,s3 t6 16 3 8 x 1").assert_supported();
+    }
+
+    #[test]
+    #[should_panic(expected = "goal must require every output exactly once")]
+    fn partial_wildcard_goals_are_not_supported() {
+        fixture("macro 3 s0,s1,s2 O 16 2 8 x 1").assert_supported();
+    }
+
+    #[test]
+    fn wildcard_before_a_fixed_output_cannot_reuse_it() {
+        let p = fixture("macro 3 x0,x1,x2 O,o0,O 16 2 8 x 1");
+        p.assert_supported();
+        let stack = |names: &str| names.split(',').map(|n| class(&p, n)).collect::<Vec<_>>();
+        assert!(p.is_goal(&stack("o1,o0,o2")));
+        assert!(!p.is_goal(&stack("o0,o0,o1")));
+    }
 
     #[test]
     fn packed_keys_roundtrip() {

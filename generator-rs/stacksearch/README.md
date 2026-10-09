@@ -25,4 +25,28 @@ target/release/macro 4 x0,x1,x2,x3 t6,t5,t7,t4 16 0 8 x 2 lazy
 
 The output is the cost in gas, the layout the program leaves and one move per line with the stack after it; `todsl.py` turns it into the template DSL (`python3 todsl.py result.txt`) and `drive.py <t>` chases the layouts of a width: the entry, rounds until a layout repeats, the exit, the re-entry after the internal rounds and the final round, appending the DSL of every result to `t<t>.dsl.txt` (`CHAIN=<n>` sets the chain depth, default 1). `run23.sh`, `run_entry.sh`, `run_block.sh` and `run_block2.sh` are the runs that produced the programs of t = 2, t = 3 and the blocks.
 
-A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. Searches that did not finish: the full t = 4 external round (over 19 GB in hours), the t = 3 re-entry layout `s0,P,s1,s2` and the t = 3 final round (2 h limit).
+A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. The t = 3 re-entry layout `s0,P,s1,s2` finishes at 189. Earlier searches did not finish the full t = 4 external round (over 19 GB in hours) or the t = 3 final round (2 h limit).
+
+## Bounds and scope
+
+The heuristic counts mandatory arithmetic, consumed constants and retained goal constants. Binary arithmetic consumes a value slot, whereas S-boxes and multiplication by four preserve it: if B binary operations remain, G output slots are required and V value/input slots are present, at least max(0, B + G - V) DUPs remain. This is combined with the per-class copy bound by taking their maximum, not their sum.
+
+For t = 3, a degree-four output needs a degree-three form or two distinct degree-two forms. The second intermediate group is satisfied by either route. Charging a degree-three form unconditionally overestimates a completion using two degree-two forms.
+
+The bound requires complete computation history and every output. The CLI therefore accepts only raw inputs, S-box outputs and constants initially, and requires every output exactly once in the goal (fixed or `O`). `lazy` is supported only for t = 4. Optimality is within the macro graph, useful-form whitelist, garbage, depth and reach limits, not over arbitrary EVM programs. A positive `chain` enables one continuation; deeper recursion returned results the outer macro could not consume and is skipped.
+
+## Profiling
+
+`bench.py <output-directory> <seconds> <binary> <arguments...>` runs one search under `/usr/bin/time -l`, samples process-group RSS, and stops at the time limit or 48 GiB RSS (`RSS_GIB` overrides this up to 56). It writes a live `snapshot.json`, stdout, stderr and a result record. Successful programs are independently replayed on 64 deterministic BN254 inputs, including boundaries, with checks for ADD overflow, operands, output order, reduction and gas. `check.py <result-file> <arguments...>` runs the same replay separately.
+
+Build the profiling features separately:
+
+```
+cargo build --profile profiling --features dhat-heap
+cargo build --profile profiling --features profile --target-dir target/hotpath
+cargo build --profile profiling --features profile-alloc --target-dir target/hotpath-alloc
+```
+
+Dhat writes `dhat-heap.json` in the run directory. Sum the allocation sites' `gb` fields for the live bytes at the global heap peak, not their individual `mb` maxima. `HOTPATH_REPORT=functions-timing` selects timings; `HOTPATH_REPORT=functions-alloc` selects exclusive allocation bytes, or counts with `HOTPATH_ALLOC_METRIC=count`. Nested timing totals are inclusive and must not be summed. Start hotpath with the small t = 2 case: its event storage can dominate memory on a full search. The M4 timing profile hit the RSS guard even though the uninstrumented search used about 102 MB.
+
+Use `footprint <pid>` and `vmmap --summary <pid>` during a native run. The node arena contains distinct open and closed states; the queue count also contains stale entries and must not be added to it. Peak-heap/final-state ratios include capacity slack and transient table growth, not just the 24-byte node payload. `target/release/intrinsics` measures single-threaded hash/copy latency, streaming reads and dependent random reads at 128 and 768 MiB (15 warm samples).

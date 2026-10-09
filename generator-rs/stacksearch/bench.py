@@ -18,6 +18,8 @@ from check import verify
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 seconds = float(sys.argv[2])
+rss_gib = float(os.environ.get("RSS_GIB", "48"))
+assert 0 < rss_gib <= 56
 command = [str(Path(sys.argv[3]).resolve()), *sys.argv[4:]]
 start = time.monotonic()
 peak_rss = 0
@@ -29,7 +31,7 @@ with (out / "stdout.txt").open("w") as stdout, (out / "stderr.txt").open("w") as
         stdout=stdout, stderr=stderr, start_new_session=True,
     )
     while process.poll() is None:
-        time.sleep(1)
+        time.sleep(0.25)
         rows = subprocess.check_output(
             ["ps", "-axo", "pid,pgid,rss"], text=True
         ).splitlines()[1:]
@@ -38,10 +40,13 @@ with (out / "stdout.txt").open("w") as stdout, (out / "stderr.txt").open("w") as
         peak_rss = max(peak_rss, rss)
         elapsed = time.monotonic() - start
         text = (out / "stderr.txt").read_text()
-        matches = re.findall(r"expanded (\d+).*?states (\d+), open (\d+)", text)
-        expanded, states, opened = map(int, matches[-1]) if matches else (0, 0, 0)
-        if rss > 56 * 1024**3:
-            reason = "56 GiB process-group RSS guard"
+        matches = re.findall(r"expanded (\d+)(?: nodes, (\d+) states|, states (\d+)), open (\d+)", text)
+        expanded, states, opened = (0, 0, 0)
+        if matches:
+            e, final_states, running_states, o = matches[-1]
+            expanded, states, opened = int(e), int(final_states or running_states), int(o)
+        if rss > rss_gib * 1024**3:
+            reason = f"{rss_gib:g} GiB process-group RSS guard"
         elif elapsed > seconds:
             reason = "time limit"
         snapshot = {
@@ -72,7 +77,7 @@ result = {"command": command, "elapsed": time.monotonic() - start,
           "cost": int(m[1]) if m else None, "verified": verified, "stopped": reason}
 (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
 snapshot["status"] = "done" if verified else "failed"
-snapshot["summary"] = f"{out.name}: cost {m[1]}" if m else f"{out.name}: {reason or 'no result'}"
+snapshot["summary"] = f"{out.name}: cost {m[1]}" if verified else f"{out.name}: {reason or 'no result'}"
 snapshot["conditions"] = {"finished": True}
 (out / "snapshot.json").write_text(json.dumps(snapshot))
 print(json.dumps(result, indent=2), flush=True)
