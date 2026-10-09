@@ -30,7 +30,9 @@ use rayon::prelude::*;
 use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
-use super::templates::{BlockKind, Template, TemplateKind, blocks, linear_final4, templates};
+use super::templates::{
+    BlockKind, Template, TemplateKind, blocks, internal4, linear_final4, templates,
+};
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
@@ -96,6 +98,9 @@ pub struct BuildOptions {
     /// the lanes are S-boxed in place and the linear layer consumes its
     /// operands, so a round leaves at most one dead value and a block none
     pub external_template: bool,
+    /// t = 4 internal rounds as the stack program of templates.rs
+    /// (internal4): one dead value a round instead of five, for three SWAPs
+    pub internal_template: bool,
     /// t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3
     /// and s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op
     /// less per round, once s1 is clean)
@@ -122,6 +127,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     body_inline: 0,
     consume_group: 0,
     external_template: false,
+    internal_template: false,
     internal_mul3: false,
 };
 
@@ -215,6 +221,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.external_template {
         enabled.push("externalTemplate".to_string());
+    }
+    if opts.internal_template {
+        enabled.push("internalTemplate".to_string());
     }
     if opts.internal_mul3 {
         enabled.push("internalMul3".to_string());
@@ -809,6 +818,13 @@ impl<'a> Builder<'a> {
                 self.e.swap(n)?;
             } else if mv == "P" {
                 self.e.push_prime()?;
+            } else if let Some(i) = mv.strip_prefix('d').and_then(|i| i.parse::<usize>().ok()) {
+                let d = self.params.internal_diag_minus_one[i];
+                if self.diag_stored(i) {
+                    self.e.mload(d, self.diag_base + 32 * i, &format!("d{i}"))?;
+                } else {
+                    self.e.push(d, Some(&format!("d{i}")))?;
+                }
             } else if mv == "4" {
                 self.e.push(u256(4), None)?;
             } else if mv == "pop" {
@@ -1556,6 +1572,18 @@ impl<'a> Builder<'a> {
     /// round) so that s0 + c lands in place for the S-box.
     fn internal_round(&mut self, round: usize, next_internal: bool) -> Result<()> {
         let t = self.t;
+        if self.opts.internal_template && t == 4 {
+            let list = internal4();
+            let state = self.state.clone();
+            // x + s1 + s3 is a lazy ADD in the program
+            let lazy = wide(self.bound(state[1])) + wide(self.bound(state[3])) + wide(p1());
+            if lazy <= wmax() && self.template(list, &state).is_some() {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(list, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
+        }
         let x5 = self.round_start(round, None)?;
         let collect =
             self.opts.gc_internal && round - self.params.rounds_f / 2 >= self.opts.gc_internal_from;
@@ -2521,31 +2549,36 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                         external_d && !gc_m4
                                                     };
                                                     for &external_template in pick(templated) {
-                                                        for &internal_mul3 in
-                                                            pick(t == 2 && internal_reduce_outputs)
+                                                        for &internal_template in
+                                                            pick(t == 4 && !gc_internal)
                                                         {
-                                                            list.push(BuildOptions {
-                                                                diag_in_memory,
-                                                                gc_external,
-                                                                gc_m4,
-                                                                gc_internal,
-                                                                chain_swap_mod,
-                                                                external_d,
-                                                                prime_under_external,
-                                                                internal_reduce_outputs,
-                                                                float_prime_internal,
-                                                                internal_consume,
-                                                                prime_stack,
-                                                                gc_internal_from: 0,
-                                                                gc_m4_from: 0,
-                                                                diag_push32: 0,
-                                                                shadow,
-                                                                shared_body,
-                                                                body_inline: 0,
-                                                                consume_group: 0,
-                                                                external_template,
-                                                                internal_mul3,
-                                                            });
+                                                            for &internal_mul3 in pick(
+                                                                t == 2 && internal_reduce_outputs,
+                                                            ) {
+                                                                list.push(BuildOptions {
+                                                                    diag_in_memory,
+                                                                    gc_external,
+                                                                    gc_m4,
+                                                                    gc_internal,
+                                                                    chain_swap_mod,
+                                                                    external_d,
+                                                                    prime_under_external,
+                                                                    internal_reduce_outputs,
+                                                                    float_prime_internal,
+                                                                    internal_consume,
+                                                                    prime_stack,
+                                                                    gc_internal_from: 0,
+                                                                    gc_m4_from: 0,
+                                                                    diag_push32: 0,
+                                                                    shadow,
+                                                                    shared_body,
+                                                                    body_inline: 0,
+                                                                    consume_group: 0,
+                                                                    external_template,
+                                                                    internal_template,
+                                                                    internal_mul3,
+                                                                });
+                                                            }
                                                         }
                                                     }
                                                 }

@@ -15,7 +15,7 @@ See impl-specific documentation:
 | Implementation | hash_1 | hash_2 | hash_3 |
 | -------------- | ------ | ------ | ------ |
 | Yul            | 15,127 | 15,127 | 15,127 |
-| Huff           | 12,149 | 12,171 | 12,244 |
+| Huff           | 11,964 | 11,986 | 12,059 |
 
 It is recommended to use Yul implementation. Huff is experimental, and the Huff source targets Amsterdam (EIP-8024 `DUPN` / `SWAPN`); the deployed Huff contract below is a pre-Amsterdam build. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
 

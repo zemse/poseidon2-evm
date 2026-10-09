@@ -6,10 +6,11 @@
 // dupN, swapN, P (a PRIME copy on top), 4 (PUSH1 4), pop, add=NAME,
 // addmod=NAME, mulmod=NAME (the op on the top of the stack, its result named
 // NAME; addmod and mulmod take the PRIME copy at slot 3), sboxI (lane I: s_I
-// + c on top of a PRIME copy, both consumed by the S-box) and sboxIn (lane I
-// without the PRIME copy under it). `init` is the layout the program expects
-// on top: the elements of the state by index and PRIME copies; the programs
-// of a kind are tried in order, the first whose layout matches is replayed.
+// + c on top of a PRIME copy, both consumed by the S-box), sboxIn (lane I
+// without the PRIME copy under it) and dI (the internal diag constant I).
+// `init` is the layout the program expects on top: the elements of the state
+// by index and PRIME copies; the programs of a kind are tried in order, the
+// first whose layout matches is replayed.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateKind {
@@ -124,6 +125,20 @@ pub fn templates(t: usize, kind: TemplateKind) -> &'static [Template] {
         }],
         _ => &[],
     }
+}
+
+/// The t = 4 internal round with the internal_template option: the program
+/// stacksearch's `internal` finds for three lanes, extended to four (166 gas
+/// against 169). The sum lands on a PRIME copy, its copies and the operands
+/// of three lanes are pre-placed in the order the lanes come, s3 is taken by
+/// a copy and every other output is swapped into the slot of the next lane,
+/// which comes up onto its operands. It leaves s3 dead under the outputs and
+/// a PRIME copy under s0'.
+pub fn internal4() -> &'static [Template] {
+    &[Template {
+        init: "s0,P,s1,s2,s3",
+        ops: "sbox0 P P dup5 dup4 dup6 add=x+s1 dup8 add=x+s1+s3 addmod=sum dup2 d0 dup3 dup3 dup2 dup2 dup1 d3 dup14 mulmod=m3 dup3 add=s3' swap11 d2 mulmod=m2 add=s2' swap8 d1 mulmod=m1 add=s1' swap5 mulmod=m0 add=s0'",
+    }]
 }
 
 /// The linear-only final M4 of t = 4 leaves a PRIME copy under its outputs.

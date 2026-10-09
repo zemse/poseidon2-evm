@@ -51,6 +51,7 @@ import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 import {
   BLOCKS,
+  INTERNAL4,
   LINEAR_FINAL4,
   TEMPLATES,
   type Template,
@@ -120,6 +121,9 @@ export type BuildOptions = {
   // lanes are S-boxed in place and the linear layer consumes its operands,
   // so a round leaves at most one dead value and a block none
   externalTemplate: boolean;
+  // t = 4 internal rounds as the stack program of templates.ts
+  // (INTERNAL4): one dead value a round instead of five, for three SWAPs
+  internalTemplate: boolean;
   // t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3 and
   // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op less per
   // round, once s1 is clean)
@@ -146,6 +150,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   bodyInline: 0,
   consumeGroup: 0,
   externalTemplate: false,
+  internalTemplate: false,
   internalMul3: false,
 };
 
@@ -618,6 +623,11 @@ class Builder {
         e.swap(Number(m[1]));
       } else if (move === "P") {
         e.pushPrime();
+      } else if ((m = /^d(\d+)$/.exec(move))) {
+        const i = Number(m[1]);
+        const d = this.params.internalDiagMinusOne[i];
+        if (this.diagStored(i)) e.mload(d, this.diagBase + 32 * i, `d${i}`);
+        else e.push(d, `d${i}`);
       } else if (move === "4") {
         e.push(4n);
       } else if (move === "pop") {
@@ -1190,6 +1200,16 @@ class Builder {
   internalRound(round: number, nextInternal: boolean) {
     const e = this.e;
     const t = this.t;
+    if (this.opts.internalTemplate && t === 4) {
+      // x + s1 + s3 is a lazy ADD in the program
+      const lazy = this.state[1].bound + this.state[3].bound + (PRIME - 1n);
+      if (lazy <= UINT256_MAX && this.template(INTERNAL4, this.state)) {
+        const names = Array.from({ length: t }, (_, i) => `s${i}'`);
+        this.state = this.runTemplate(INTERNAL4, this.state, names, round);
+        this.dead = [];
+        return;
+      }
+    }
     const s0 = this.state[0];
     if (e.top(0) !== s0 || e.top(1) !== this.P) {
       throw new Error("internal round expects [s0, P] on top");
@@ -2025,32 +2045,38 @@ export function buildBest(
                             for (const externalTemplate of templated
                               ? bools
                               : [false]) {
-                              for (const internalMul3 of params.t === 2 &&
-                              internalReduceOutputs
+                              for (const internalTemplate of params.t === 4 &&
+                              !gcInternal
                                 ? bools
                                 : [false]) {
-                                list.push({
-                                  diagInMemory,
-                                  gcExternal,
-                                  gcM4,
-                                  gcInternal,
-                                  chainSwapMod,
-                                  externalD,
-                                  primeUnderExternal,
-                                  internalReduceOutputs,
-                                  floatPrimeInternal,
-                                  internalConsume,
-                                  primeStack,
-                                  gcInternalFrom: 0,
-                                  gcM4From: 0,
-                                  diagPush32: 0,
-                                  shadow,
-                                  sharedBody,
-                                  bodyInline: 0,
-                                  consumeGroup: 0,
-                                  externalTemplate,
-                                  internalMul3,
-                                });
+                                for (const internalMul3 of params.t === 2 &&
+                                internalReduceOutputs
+                                  ? bools
+                                  : [false]) {
+                                  list.push({
+                                    diagInMemory,
+                                    gcExternal,
+                                    gcM4,
+                                    gcInternal,
+                                    chainSwapMod,
+                                    externalD,
+                                    primeUnderExternal,
+                                    internalReduceOutputs,
+                                    floatPrimeInternal,
+                                    internalConsume,
+                                    primeStack,
+                                    gcInternalFrom: 0,
+                                    gcM4From: 0,
+                                    diagPush32: 0,
+                                    shadow,
+                                    sharedBody,
+                                    bodyInline: 0,
+                                    consumeGroup: 0,
+                                    externalTemplate,
+                                    internalTemplate,
+                                    internalMul3,
+                                  });
+                                }
                               }
                             }
                           }
