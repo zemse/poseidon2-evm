@@ -7,10 +7,21 @@
 // result in place (the addTo pattern). Standalone PushP, Pop and shallow
 // Swap moves arrange the goal layout.
 //
-//   macro <t> <init> <goal> [reach] [max_garbage] [extra_depth] [final] [chain]
+//   macro <t> <init> <goal> [reach] [max_garbage] [extra_depth] [final] [chain] [lazy,strict] [--no-swap]
+//
+// The search is partial-expansion A* (PEA*): a node stores only the
+// children whose f is within its current threshold and comes back to the
+// open list at the f of the cheapest child it dropped, so the memory holds
+// the expanded nodes and the frontier at the optimal f rather than every
+// child ever generated. A node is its key (the stack layout at 5 bits a
+// slot and the computed mask), its parent, g and the threshold: 24 bytes,
+// found through an open-addressing table of indices; the path is rebuilt
+// by expanding the parents again. The parts of the heuristic and of the
+// validity check that depend only on the computed mask (or on it and the
+// set of classes on the stack) are memoized.
 
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -69,14 +80,192 @@ enum PKind {
     Sbox,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Item {
+    Copy(u8),
+    P,
+    Four,
+}
+
+/// the operand layout of a macro: the in-place operands (top-first) and
+/// the copies (top-first) above them
+#[derive(Clone, Copy, Debug)]
+struct Layout {
+    inplace: [u8; 3],
+    ninplace: u8,
+    copies: [Item; 3],
+    ncopies: u8,
+    prim: Prim,
+    arity: u8,
+}
+
+impl Layout {
+    fn new(inplace: &[u8], copies: &[Item], prim: Prim, arity: u8) -> Layout {
+        let mut l = Layout {
+            inplace: [0; 3],
+            ninplace: inplace.len() as u8,
+            copies: [Item::P; 3],
+            ncopies: copies.len() as u8,
+            prim,
+            arity,
+        };
+        l.inplace[..inplace.len()].copy_from_slice(inplace);
+        l.copies[..copies.len()].copy_from_slice(copies);
+        l
+    }
+    fn inplace(&self) -> &[u8] {
+        &self.inplace[..self.ninplace as usize]
+    }
+    fn copies(&self) -> &[Item] {
+        &self.copies[..self.ncopies as usize]
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Production {
     operands: Vec<u8>,
     kind: PKind,
+    layouts: Vec<Layout>,
+}
+
+/// an op that can consume d in place, with the pre-placements of its other
+/// operand (prim and arity of the layouts are those of the op)
+#[derive(Clone, Debug)]
+struct Cont {
+    d2: u8,
+    kind: PKind,
+    other: Option<u8>,
+    variants: Vec<Layout>,
 }
 
 const SBOX_P: u32 = 45;
 const SBOX_NOP: u32 = 54;
+const MAXD: usize = 18;
+const NSWAP: usize = 18;
+
+#[derive(Clone, Copy, Debug)]
+struct Stack {
+    s: [u8; MAXD],
+    len: u8,
+}
+
+impl Stack {
+    fn from(v: &[u8]) -> Stack {
+        let mut s = Stack {
+            s: [0; MAXD],
+            len: v.len() as u8,
+        };
+        s.s[..v.len()].copy_from_slice(v);
+        s
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.s[..self.len as usize]
+    }
+    fn len(&self) -> usize {
+        self.len as usize
+    }
+    fn push_top(&mut self, c: u8) {
+        let n = self.len as usize;
+        self.s.copy_within(0..n, 1);
+        self.s[0] = c;
+        self.len += 1;
+    }
+    /// pops `k` slots and pushes `c`
+    fn replace_top(&mut self, k: usize, c: u8) {
+        let n = self.len as usize;
+        self.s.copy_within(k..n, 1);
+        self.s[0] = c;
+        self.len = (n - k + 1) as u8;
+    }
+    fn pop_top(&mut self) {
+        let n = self.len as usize;
+        self.s.copy_within(1..n, 0);
+        self.len -= 1;
+    }
+    fn swap(&mut self, k: usize) {
+        self.s.swap(0, k);
+    }
+    fn count(&self, c: u8) -> usize {
+        self.as_slice().iter().filter(|&&x| x == c).count()
+    }
+    fn position(&self, c: u8) -> Option<usize> {
+        self.as_slice().iter().position(|&x| x == c)
+    }
+    fn mask(&self) -> u32 {
+        self.as_slice().iter().fold(0, |m, &c| m | (1 << c))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Prims {
+    p: [Prim; 24],
+    len: u8,
+}
+
+impl Prims {
+    fn new() -> Prims {
+        Prims {
+            p: [Prim::Pop; 24],
+            len: 0,
+        }
+    }
+    fn push(&mut self, prim: Prim) {
+        self.p[self.len as usize] = prim;
+        self.len += 1;
+    }
+    fn as_slice(&self) -> &[Prim] {
+        &self.p[..self.len as usize]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Child {
+    stack: Stack,
+    computed: u32,
+    cost: u32,
+    prims: Prims,
+}
+
+/// what depends on the computed mask alone
+#[derive(Clone, Debug)]
+struct CompInfo {
+    needed: u32,
+    h: u32,
+    p_needed: i32,
+    four_needed: i32,
+    uses: [i32; 32],
+}
+
+#[derive(Default)]
+struct FxHasher(u64);
+
+impl Hasher for FxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ b as u64).wrapping_mul(0x517cc1b727220a95);
+        }
+    }
+    fn write_u32(&mut self, i: u32) {
+        self.0 = (self.0.rotate_left(5) ^ i as u64).wrapping_mul(0x517cc1b727220a95);
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x517cc1b727220a95);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
+
+/// the memoized parts of the heuristic and the validity check, and the
+/// scratch of the chain recursion
+struct Ctx {
+    comp: FxMap<u32, u32>,
+    infos: Vec<CompInfo>,
+    avail: FxMap<u64, bool>,
+    scratch: Vec<Vec<Child>>,
+}
 
 struct Problem {
     classes: Vec<Class>,
@@ -93,95 +282,110 @@ struct Problem {
     max_garbage: usize,
     chain: usize,
     strict: bool,
+    no_swap: bool,
+    /// the classes of kind Val or Input
+    values: u32,
     groups: Vec<(Vec<u8>, u32)>,
     consumers: Vec<Vec<u8>>,
     productions: Vec<Vec<Production>>,
-    /// swap sequences: positions (top-first, 1-based) of m items -> swaps
-    /// that bring them to slots 1..m in that order
-    swaps: HashMap<Vec<u8>, Vec<u8>>,
+    conts: Vec<Vec<Cont>>,
+    /// swap sequences by the positions (top-first, 1-based, 0 absent) of
+    /// up to 3 items: [len, swaps...], len 255 when out of reach
+    swaps: Vec<[u8; 4]>,
 }
 
-#[derive(Clone, Debug)]
-struct St {
-    stack: Vec<u8>,
-    computed: u32,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Item {
-    Copy(u8),
-    Inplace(u8),
-    P,
-    Four,
-}
-
-#[cfg_attr(feature = "profile", hotpath::measure)]
-fn key(st: &St) -> u128 {
+fn key(stack: &[u8], computed: u32) -> (u64, u64) {
     let mut k: u128 = 0;
-    for &c in &st.stack {
+    for &c in stack {
         k = (k << 5) | (c as u128 + 1);
     }
-    (k << 32) | st.computed as u128
+    let k = (k << 32) | computed as u128;
+    (k as u64, (k >> 64) as u64)
 }
 
-#[cfg_attr(feature = "profile", hotpath::measure)]
-fn decode(key: u128) -> St {
+fn decode(lo: u64, hi: u64) -> (Stack, u32) {
+    let key = (lo as u128) | ((hi as u128) << 64);
     let computed = (key & 0xffff_ffff) as u32;
     let mut k = key >> 32;
-    let mut stack = Vec::new();
+    let mut stack = Stack {
+        s: [0; MAXD],
+        len: 0,
+    };
     while k != 0 {
-        stack.push((k & 31) as u8 - 1);
+        stack.s[stack.len as usize] = (k & 31) as u8 - 1;
+        stack.len += 1;
         k >>= 5;
     }
-    stack.reverse();
-    St { stack, computed }
+    stack.s[..stack.len as usize].reverse();
+    (stack, computed)
+}
+
+fn swap_index(pos: &[u8]) -> usize {
+    let mut i = 0;
+    for (j, &p) in pos.iter().enumerate() {
+        i += p as usize * NSWAP.pow(j as u32);
+    }
+    i
 }
 
 /// Backward BFS over swap sequences: for m marked items, every position
 /// tuple reachable from (1..m) within `depth` swaps.
-fn swap_table(m: usize, reach: usize, depth: usize) -> HashMap<Vec<u8>, Vec<u8>> {
-    let mut table: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-    let goal: Vec<u8> = (1..=m as u8).collect();
-    table.insert(goal.clone(), Vec::new());
-    let mut queue = VecDeque::new();
-    queue.push_back(goal);
-    while let Some(pos) = queue.pop_front() {
-        let seq = table[&pos].clone();
-        if seq.len() >= depth {
-            continue;
-        }
-        for n in 1..=reach as u8 {
-            // Swap(n) exchanges slot 1 and slot n + 1
-            let mut next = pos.clone();
-            for p in next.iter_mut() {
-                if *p == 1 {
-                    *p = n + 1;
-                } else if *p == n + 1 {
-                    *p = 1;
-                }
-            }
-            if next.iter().any(|&p| p as usize > reach + 1) {
+fn swap_table(reach: usize, depth: usize) -> Vec<[u8; 4]> {
+    let mut table = vec![[255, 0, 0, 0]; NSWAP * NSWAP * NSWAP];
+    for m in 1..=3 {
+        let goal: Vec<u8> = (1..=m as u8).collect();
+        let mut seqs: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+        seqs.insert(goal.clone(), Vec::new());
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(goal);
+        while let Some(pos) = queue.pop_front() {
+            let seq = seqs[&pos].clone();
+            if seq.len() >= depth {
                 continue;
             }
-            if !table.contains_key(&next) {
-                // the swaps to reach `next` from the goal reversed are the
-                // swaps from `next` to the goal (a swap is its own inverse)
-                let mut s = vec![n];
-                s.extend_from_slice(&seq);
-                table.insert(next.clone(), s);
-                queue.push_back(next);
+            for n in 1..=reach as u8 {
+                // Swap(n) exchanges slot 1 and slot n + 1
+                let mut next = pos.clone();
+                for p in next.iter_mut() {
+                    if *p == 1 {
+                        *p = n + 1;
+                    } else if *p == n + 1 {
+                        *p = 1;
+                    }
+                }
+                if next.iter().any(|&p| p as usize > reach + 1) {
+                    continue;
+                }
+                if !seqs.contains_key(&next) {
+                    // the swaps to reach `next` from the goal reversed are the
+                    // swaps from `next` to the goal (a swap is its own inverse)
+                    let mut s = vec![n];
+                    s.extend_from_slice(&seq);
+                    seqs.insert(next.clone(), s);
+                    queue.push_back(next);
+                }
             }
+        }
+        for (pos, seq) in seqs {
+            let mut e = [seq.len() as u8, 0, 0, 0];
+            e[1..1 + seq.len()].copy_from_slice(&seq);
+            table[swap_index(&pos)] = e;
         }
     }
     table
 }
 
 impl Problem {
-    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn needed_mask(&self, computed: u32) -> u32 {
         let n = self.classes.len();
         let mut memo = vec![0u8; n];
-        fn rec(p: &Problem, c: usize, computed: u32, memo: &mut Vec<u8>, visiting: &mut Vec<bool>) -> bool {
+        fn rec(
+            p: &Problem,
+            c: usize,
+            computed: u32,
+            memo: &mut Vec<u8>,
+            visiting: &mut Vec<bool>,
+        ) -> bool {
             if memo[c] != 0 {
                 return memo[c] == 2;
             }
@@ -212,13 +416,15 @@ impl Problem {
         mask
     }
 
+    /// the needed mask and the stack-independent part of the heuristic
     #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn heuristic(&self, stack: &[u8], computed: u32, needed: u32) -> u32 {
+    fn comp_info(&self, computed: u32) -> CompInfo {
+        let needed = self.needed_mask(computed);
         let n = self.classes.len();
         let mut h = 0;
         let mut p_needed = 0i32;
         let mut four_needed = 0i32;
-        let mut uses = vec![0i32; n];
+        let mut uses = [0i32; 32];
         for (members, cost) in &self.groups {
             let any_computed = members.iter().any(|&m| computed & (1 << m) != 0);
             let any_needed = members.iter().any(|&m| needed & (1 << m) != 0);
@@ -228,7 +434,7 @@ impl Problem {
             h += cost;
             let mut needs_p = true;
             let mut needs_4 = true;
-            let mut min_use = vec![i32::MAX; n];
+            let mut min_use = [i32::MAX; 32];
             for &m in members {
                 for prod in &self.productions[m as usize] {
                     if prod.kind == PKind::Add {
@@ -237,7 +443,7 @@ impl Problem {
                     if prod.kind != PKind::Mulmod {
                         needs_4 = false;
                     }
-                    let mut mult = vec![0i32; n];
+                    let mut mult = [0i32; 32];
                     for &o in &prod.operands {
                         mult[o as usize] += 1;
                     }
@@ -266,26 +472,54 @@ impl Problem {
                 p_needed += 1;
             }
         }
-        let p_copies = stack.iter().filter(|&&c| c == self.prime).count() as i32;
-        let four_copies = stack.iter().filter(|&&c| c == self.four).count() as i32;
-        h += 3 * (p_needed - p_copies).max(0) as u32;
-        h += 3 * (four_needed - four_copies).max(0) as u32;
         for c in 0..n {
             if self.goal_set & (1 << c) != 0 {
                 uses[c] += 1;
             }
         }
-        for c in 0..n {
-            if self.classes[c].kind != Kind::Val || computed & (1 << c) == 0 {
-                continue;
+        CompInfo {
+            needed,
+            h,
+            p_needed,
+            four_needed,
+            uses,
+        }
+    }
+
+    fn info<'a>(&self, ctx: &'a mut Ctx, computed: u32) -> &'a CompInfo {
+        let idx = match ctx.comp.get(&computed) {
+            Some(&i) => i as usize,
+            None => {
+                let info = self.comp_info(computed);
+                ctx.infos.push(info);
+                let i = ctx.infos.len() - 1;
+                ctx.comp.insert(computed, i as u32);
+                i
             }
-            let copies = stack.iter().filter(|&&x| x as usize == c).count() as i32;
-            h += 3 * (uses[c] - copies).max(0) as u32;
+        };
+        &ctx.infos[idx]
+    }
+
+    #[cfg_attr(feature = "profile", hotpath::measure)]
+    fn heuristic(&self, stack: &Stack, computed: u32, info: &CompInfo) -> u32 {
+        let mut copies = [0i32; 32];
+        for &c in stack.as_slice() {
+            copies[c as usize] += 1;
+        }
+        let mut h = info.h;
+        h += 3 * (info.p_needed - copies[self.prime as usize]).max(0) as u32;
+        h += 3 * (info.four_needed - copies[self.four as usize]).max(0) as u32;
+        let mut m = computed;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
+            if self.classes[c].kind == Kind::Val {
+                h += 3 * (info.uses[c] - copies[c]).max(0) as u32;
+            }
         }
         h
     }
 
-    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn is_goal(&self, stack: &[u8]) -> bool {
         if stack.len() < self.goal.len() {
             return false;
@@ -311,22 +545,28 @@ impl Problem {
         true
     }
 
-    #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn garbage(&self, stack: &[u8], needed: u32) -> usize {
-        let dead = stack
-            .iter()
-            .filter(|&&c| match self.classes[c as usize].kind {
+    /// the values (not constants) that are dead under `needed`
+    fn dead_mask(&self, needed: u32) -> u32 {
+        self.values & !needed
+    }
+
+    fn garbage(&self, stack: &Stack, needed: u32) -> usize {
+        let mut dead = 0;
+        for &c in stack.as_slice() {
+            if match self.classes[c as usize].kind {
                 Kind::Val | Kind::Input(_) => needed & (1 << c) == 0,
                 _ => false,
-            })
-            .count();
+            } {
+                dead += 1;
+            }
+        }
         if !self.strict {
             return dead;
         }
         // strict: constants left over count as well, beyond the copies the
         // goal keeps
         let extra = |c: u8| {
-            let on_stack = stack.iter().filter(|&&x| x == c).count();
+            let on_stack = stack.count(c);
             let kept = self.goal.iter().filter(|&&g| g == Some(c)).count();
             on_stack.saturating_sub(kept)
         };
@@ -334,31 +574,40 @@ impl Problem {
     }
 
     /// Brings the in-place items (top-first required order) to the top and
-    /// pushes the copies (top-first order) above them. Returns the prims,
-    /// the stack and the cost, or None when out of reach.
+    /// pushes the copies (top-first order) above them. Returns the stack
+    /// and the cost, or None when out of reach.
     #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn realize(&self, stack: &[u8], inplace: &[u8], copies: &[Item], prims: &mut Vec<Prim>) -> Option<(Vec<u8>, u32)> {
-        let mut s = stack.to_vec();
+    fn realize(
+        &self,
+        stack: &Stack,
+        inplace: &[u8],
+        copies: &[Item],
+        prims: &mut Prims,
+    ) -> Option<(Stack, u32)> {
+        let mut s = *stack;
         let mut cost = 0;
         if !inplace.is_empty() {
             // positions: the shallowest copy of each, distinct slots
-            let mut pos: Vec<u8> = Vec::new();
-            for &c in inplace {
+            let mut pos = [0u8; 3];
+            for (j, &c) in inplace.iter().enumerate() {
                 let mut found = None;
-                for (i, &x) in s.iter().enumerate() {
-                    if x == c && !pos.contains(&(i as u8 + 1)) {
+                for (i, &x) in s.as_slice().iter().enumerate() {
+                    if x == c && !pos[..j].contains(&(i as u8 + 1)) {
                         found = Some(i as u8 + 1);
                         break;
                     }
                 }
-                pos.push(found?);
+                pos[j] = found?;
             }
-            let seq = match self.swaps.get(&pos) { Some(s) => s, None => { if std::env::var("DBG2").is_ok() { eprintln!("no swap seq for {:?} (table {})", pos, self.swaps.len()); } return None; } };
-            for &n in seq {
+            let seq = self.swaps[swap_index(&pos[..inplace.len()])];
+            if seq[0] == 255 {
+                return None;
+            }
+            for &n in &seq[1..1 + seq[0] as usize] {
                 if n as usize >= s.len() {
                     return None;
                 }
-                s.swap(0, n as usize);
+                s.swap(n as usize);
                 prims.push(Prim::Swap(n));
                 cost += 3;
             }
@@ -369,22 +618,21 @@ impl Problem {
             }
             match *item {
                 Item::Copy(c) => {
-                    let k = s.iter().position(|&x| x == c)? + 1;
+                    let k = s.position(c)? + 1;
                     if k > self.reach {
                         return None;
                     }
-                    s.insert(0, c);
+                    s.push_top(c);
                     prims.push(Prim::Dup(k as u8));
                 }
                 Item::P => {
-                    s.insert(0, self.prime);
+                    s.push_top(self.prime);
                     prims.push(Prim::PushP);
                 }
                 Item::Four => {
-                    s.insert(0, self.four);
+                    s.push_top(self.four);
                     prims.push(Prim::Push4);
                 }
-                Item::Inplace(_) => unreachable!(),
             }
             cost += 3;
         }
@@ -393,65 +641,118 @@ impl Problem {
 
     /// The operand layouts of a production: (in-place top-first, copies
     /// top-first, the op prim, its arity) for every in-place choice.
-    #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn layouts(&self, prod: &Production) -> Vec<(Vec<u8>, Vec<Item>, Prim, usize)> {
+    fn layouts(&self, operands: &[u8], kind: PKind) -> Vec<Layout> {
         let mut out = Vec::new();
-        match prod.kind {
+        let p = self.prime;
+        match kind {
             PKind::Sbox => {
-                let s = prod.operands[0];
+                let s = operands[0];
                 let lane = match self.classes[s as usize].kind {
                     Kind::Input(i) => i,
                     _ => unreachable!(),
                 };
-                out.push((vec![s], vec![], Prim::SboxNoP(lane), 1));
-                out.push((vec![s, self.prime], vec![], Prim::SboxP(lane), 2));
-                out.push((vec![], vec![Item::Copy(s)], Prim::SboxNoP(lane), 1));
-                out.push((vec![], vec![Item::Copy(s), Item::P], Prim::SboxP(lane), 2));
-                out.push((vec![self.prime], vec![Item::Copy(s)], Prim::SboxP(lane), 2));
+                out.push(Layout::new(&[s], &[], Prim::SboxNoP(lane), 1));
+                out.push(Layout::new(&[s, p], &[], Prim::SboxP(lane), 2));
+                out.push(Layout::new(&[], &[Item::Copy(s)], Prim::SboxNoP(lane), 1));
+                out.push(Layout::new(
+                    &[],
+                    &[Item::Copy(s), Item::P],
+                    Prim::SboxP(lane),
+                    2,
+                ));
+                out.push(Layout::new(&[p], &[Item::Copy(s)], Prim::SboxP(lane), 2));
             }
             PKind::Add => {
-                let (a, b) = (prod.operands[0], prod.operands[1]);
-                out.push((vec![], vec![Item::Copy(a), Item::Copy(b)], Prim::Add, 2));
+                let (a, b) = (operands[0], operands[1]);
+                out.push(Layout::new(
+                    &[],
+                    &[Item::Copy(a), Item::Copy(b)],
+                    Prim::Add,
+                    2,
+                ));
                 if a != b {
-                    out.push((vec![], vec![Item::Copy(b), Item::Copy(a)], Prim::Add, 2));
+                    out.push(Layout::new(
+                        &[],
+                        &[Item::Copy(b), Item::Copy(a)],
+                        Prim::Add,
+                        2,
+                    ));
                 }
-                out.push((vec![a], vec![Item::Copy(b)], Prim::Add, 2));
+                out.push(Layout::new(&[a], &[Item::Copy(b)], Prim::Add, 2));
                 if a != b {
-                    out.push((vec![b], vec![Item::Copy(a)], Prim::Add, 2));
+                    out.push(Layout::new(&[b], &[Item::Copy(a)], Prim::Add, 2));
                 }
-                out.push((vec![a, b], vec![], Prim::Add, 2));
+                out.push(Layout::new(&[a, b], &[], Prim::Add, 2));
                 if a != b {
-                    out.push((vec![b, a], vec![], Prim::Add, 2));
+                    out.push(Layout::new(&[b, a], &[], Prim::Add, 2));
                 }
             }
             PKind::Addmod => {
-                let (a, b) = (prod.operands[0], prod.operands[1]);
-                let p = self.prime;
-                out.push((vec![], vec![Item::Copy(a), Item::Copy(b), Item::P], Prim::Addmod, 3));
+                let (a, b) = (operands[0], operands[1]);
+                out.push(Layout::new(
+                    &[],
+                    &[Item::Copy(a), Item::Copy(b), Item::P],
+                    Prim::Addmod,
+                    3,
+                ));
                 if a != b {
-                    out.push((vec![], vec![Item::Copy(b), Item::Copy(a), Item::P], Prim::Addmod, 3));
+                    out.push(Layout::new(
+                        &[],
+                        &[Item::Copy(b), Item::Copy(a), Item::P],
+                        Prim::Addmod,
+                        3,
+                    ));
                 }
-                out.push((vec![p], vec![Item::Copy(a), Item::Copy(b)], Prim::Addmod, 3));
+                out.push(Layout::new(
+                    &[p],
+                    &[Item::Copy(a), Item::Copy(b)],
+                    Prim::Addmod,
+                    3,
+                ));
                 if a != b {
-                    out.push((vec![p], vec![Item::Copy(b), Item::Copy(a)], Prim::Addmod, 3));
+                    out.push(Layout::new(
+                        &[p],
+                        &[Item::Copy(b), Item::Copy(a)],
+                        Prim::Addmod,
+                        3,
+                    ));
                 }
-                out.push((vec![a, p], vec![Item::Copy(b)], Prim::Addmod, 3));
+                out.push(Layout::new(&[a, p], &[Item::Copy(b)], Prim::Addmod, 3));
                 if a != b {
-                    out.push((vec![b, p], vec![Item::Copy(a)], Prim::Addmod, 3));
+                    out.push(Layout::new(&[b, p], &[Item::Copy(a)], Prim::Addmod, 3));
                 }
-                out.push((vec![a, b, p], vec![], Prim::Addmod, 3));
+                out.push(Layout::new(&[a, b, p], &[], Prim::Addmod, 3));
                 if a != b {
-                    out.push((vec![b, a, p], vec![], Prim::Addmod, 3));
+                    out.push(Layout::new(&[b, a, p], &[], Prim::Addmod, 3));
                 }
             }
             PKind::Mulmod => {
-                let v = prod.operands[0];
-                let p = self.prime;
-                out.push((vec![], vec![Item::Four, Item::Copy(v), Item::P], Prim::Mulmod, 3));
-                out.push((vec![], vec![Item::Copy(v), Item::Four, Item::P], Prim::Mulmod, 3));
-                out.push((vec![p], vec![Item::Four, Item::Copy(v)], Prim::Mulmod, 3));
-                out.push((vec![p], vec![Item::Copy(v), Item::Four], Prim::Mulmod, 3));
-                out.push((vec![v, p], vec![Item::Four], Prim::Mulmod, 3));
+                let v = operands[0];
+                out.push(Layout::new(
+                    &[],
+                    &[Item::Four, Item::Copy(v), Item::P],
+                    Prim::Mulmod,
+                    3,
+                ));
+                out.push(Layout::new(
+                    &[],
+                    &[Item::Copy(v), Item::Four, Item::P],
+                    Prim::Mulmod,
+                    3,
+                ));
+                out.push(Layout::new(
+                    &[p],
+                    &[Item::Four, Item::Copy(v)],
+                    Prim::Mulmod,
+                    3,
+                ));
+                out.push(Layout::new(
+                    &[p],
+                    &[Item::Copy(v), Item::Four],
+                    Prim::Mulmod,
+                    3,
+                ));
+                out.push(Layout::new(&[v, p], &[Item::Four], Prim::Mulmod, 3));
             }
         }
         out
@@ -467,50 +768,100 @@ impl Problem {
         }
     }
 
-    /// Every macro from a state: (prims, new state, cost).
+    /// Every macro from a state into `out`.
     #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn expand(&self, st: &St, needed: u32) -> Vec<(Vec<Prim>, St, u32)> {
-        let mut out = Vec::new();
+    fn expand(
+        &self,
+        ctx: &mut Ctx,
+        stack: &Stack,
+        computed: u32,
+        needed: u32,
+        out: &mut Vec<Child>,
+    ) {
+        out.clear();
         let n = self.classes.len();
         // standalone moves
-        if st.stack.len() < self.max_depth && st.stack.iter().filter(|&&c| c == self.prime).count() < 3 {
-            let mut s = st.stack.clone();
-            s.insert(0, self.prime);
-            out.push((vec![Prim::PushP], St { stack: s, computed: st.computed }, 3));
+        if stack.len() < self.max_depth && stack.count(self.prime) < 3 {
+            let mut s = *stack;
+            s.push_top(self.prime);
+            let mut prims = Prims::new();
+            prims.push(Prim::PushP);
+            out.push(Child {
+                stack: s,
+                computed,
+                cost: 3,
+                prims,
+            });
         }
-        if let Some(&top) = st.stack.first() {
+        if stack.len() > 0 {
+            let top = stack.s[0];
             let dead = match self.classes[top as usize].kind {
                 Kind::Val | Kind::Input(_) => needed & (1 << top) == 0,
                 _ => true,
             };
             if dead {
-                out.push((vec![Prim::Pop], St { stack: st.stack[1..].to_vec(), computed: st.computed }, 2));
+                let mut s = *stack;
+                s.pop_top();
+                let mut prims = Prims::new();
+                prims.push(Prim::Pop);
+                out.push(Child {
+                    stack: s,
+                    computed,
+                    cost: 2,
+                    prims,
+                });
             }
         }
-        for k in 1..=4usize.min(st.stack.len().saturating_sub(1)) {
-            if st.stack[0] != st.stack[k] {
-                let mut s = st.stack.clone();
-                s.swap(0, k);
-                out.push((vec![Prim::Swap(k as u8)], St { stack: s, computed: st.computed }, 3));
+        if !self.no_swap {
+            for k in 1..=4usize.min(stack.len().saturating_sub(1)) {
+                if stack.s[0] != stack.s[k] {
+                    let mut s = *stack;
+                    s.swap(k);
+                    let mut prims = Prims::new();
+                    prims.push(Prim::Swap(k as u8));
+                    out.push(Child {
+                        stack: s,
+                        computed,
+                        cost: 3,
+                        prims,
+                    });
+                }
             }
         }
         // arithmetic macros with chains
+        let smask = stack.mask();
         for d in 0..n {
-            if st.computed & (1 << d) != 0 || needed & (1 << d) == 0 {
+            if computed & (1 << d) != 0 || needed & (1 << d) == 0 {
                 continue;
             }
-            for prod in &self.productions[d] {
+            for pi in 0..self.productions[d].len() {
+                let prod = &self.productions[d][pi];
                 // operands must exist
-                if prod.operands.iter().any(|&o| self.classes[o as usize].kind == Kind::Val && st.computed & (1 << o) == 0) {
+                if prod
+                    .operands
+                    .iter()
+                    .any(|&o| match self.classes[o as usize].kind {
+                        Kind::Val => computed & (1 << o) == 0,
+                        Kind::Input(_) => smask & (1 << o) == 0,
+                        _ => false,
+                    })
+                {
                     continue;
                 }
-                if prod.operands.iter().any(|&o| matches!(self.classes[o as usize].kind, Kind::Input(_)) && !st.stack.contains(&o)) {
-                    continue;
-                }
-                self.chain(st, needed, d as u8, prod, &Vec::new(), &st.stack, 0, 0, &mut out);
+                self.chain(
+                    ctx,
+                    computed,
+                    needed,
+                    d as u8,
+                    prod,
+                    &Prims::new(),
+                    stack,
+                    0,
+                    0,
+                    out,
+                );
             }
         }
-        out
     }
 
     /// Macro of d via prod after `pre` prims (the pre-placements of the
@@ -520,122 +871,169 @@ impl Problem {
     #[cfg_attr(feature = "profile", hotpath::measure)]
     fn chain(
         &self,
-        st: &St,
+        ctx: &mut Ctx,
+        computed: u32,
         needed: u32,
         d: u8,
         prod: &Production,
-        pre: &Vec<Prim>,
-        stack: &[u8],
+        pre: &Prims,
+        stack: &Stack,
         pre_cost: u32,
         depth: usize,
-        out: &mut Vec<(Vec<Prim>, St, u32)>,
+        out: &mut Vec<Child>,
     ) {
         // chain continuation: an op consuming d in place with its other
         // operands pre-placed now
         if depth < self.chain {
-            for &d2 in &self.consumers[d as usize] {
-                if st.computed & (1 << d2) != 0 || needed & (1 << d2) == 0 {
+            for ci in 0..self.conts[d as usize].len() {
+                let cont = &self.conts[d as usize][ci];
+                let d2 = cont.d2;
+                if computed & (1 << d2) != 0 || needed & (1 << d2) == 0 {
                     continue;
                 }
-                for prod2 in &self.productions[d2 as usize] {
-                    if !prod2.operands.contains(&d) || prod2.kind == PKind::Sbox {
+                // the other operand must be computed
+                if let Some(o) = cont.other {
+                    if computed & (1 << o) == 0 {
                         continue;
                     }
-                    // the other operands must be computed
-                    let others: Vec<u8> = {
-                        let mut v = prod2.operands.clone();
-                        let i = v.iter().position(|&o| o == d).unwrap();
-                        v.remove(i);
-                        v
-                    };
-                    if others.iter().any(|&o| st.computed & (1 << o) == 0) {
+                }
+                // a lower bound on the garbage after op2: what is dead
+                // then and stays on the stack even if d's macro consumes
+                // every operand it can in place
+                let dead2 = self.dead_mask(self.info(ctx, computed | (1 << d) | (1 << d2)).needed);
+                for vi in 0..cont.variants.len() {
+                    let v = &cont.variants[vi];
+                    let mut lb = 0usize;
+                    for &c in stack.as_slice() {
+                        if dead2 & (1 << c) != 0 {
+                            lb += 1;
+                        }
+                    }
+                    for &c in v.inplace() {
+                        if dead2 & (1 << c) != 0 {
+                            lb -= 1;
+                        }
+                    }
+                    for &c in &prod.operands {
+                        if dead2 & (1 << c) != 0
+                            && stack.count(c) > v.inplace().iter().filter(|&&x| x == c).count()
+                        {
+                            lb = lb.saturating_sub(1);
+                        }
+                    }
+                    if lb > self.max_garbage {
                         continue;
                     }
-                    // pre-placements: for add [b]; addmod [b, P]; mulmod [P] (4 after)
-                    let variants: Vec<(Vec<u8>, Vec<Item>)> = match prod2.kind {
-                        PKind::Add => {
-                            let b = others[0];
-                            vec![(vec![], vec![Item::Copy(b)]), (vec![b], vec![])]
-                        }
-                        PKind::Addmod => {
-                            let b = others[0];
-                            vec![
-                                (vec![], vec![Item::Copy(b), Item::P]),
-                                (vec![self.prime], vec![Item::Copy(b)]),
-                                (vec![b, self.prime], vec![]),
-                            ]
-                        }
-                        PKind::Mulmod => vec![(vec![], vec![Item::P]), (vec![self.prime], vec![])],
-                        PKind::Sbox => unreachable!(),
+                    let mut prims = *pre;
+                    let Some((s2, c2)) = self.realize(stack, v.inplace(), v.copies(), &mut prims)
+                    else {
+                        continue;
                     };
-                    for (inplace, copies) in variants {
-                        let mut prims = pre.clone();
-                        let Some((s2, c2)) = self.realize(stack, &inplace, &copies, &mut prims) else {
-                            continue;
+                    // continue the chain with d's macro on top of the pre-placement, then op2
+                    let mut sub = std::mem::take(&mut ctx.scratch[depth]);
+                    sub.clear();
+                    self.chain(
+                        ctx,
+                        computed,
+                        needed,
+                        d,
+                        prod,
+                        &prims,
+                        &s2,
+                        pre_cost + c2,
+                        depth + 1,
+                        &mut sub,
+                    );
+                    for ch in sub.iter() {
+                        // apply op2: d on top, operands below
+                        let arity = match cont.kind {
+                            PKind::Add => 2,
+                            _ => 3,
                         };
-                        // continue the chain with d's macro on top of the pre-placement, then op2
-                        let mut sub = Vec::new();
-                        self.chain(st, needed, d, prod, &prims, &s2, pre_cost + c2, depth + 1, &mut sub);
-                        for (mut p3, st3, c3) in sub {
-                            // apply op2: d on top, operands below
-                            let arity = match prod2.kind {
-                                PKind::Add => 2,
-                                _ => 3,
-                            };
-                            let mut s3 = st3.stack.clone();
-                            if s3.len() < arity || s3[0] != d {
-                                continue;
-                            }
-                            let prim = match prod2.kind {
-                                PKind::Add => Prim::Add,
-                                PKind::Addmod => Prim::Addmod,
-                                PKind::Mulmod => {
-                                    // push 4 on top of d
-                                    if s3.len() >= self.max_depth {
-                                        continue;
-                                    }
-                                    s3.insert(0, self.four);
-                                    p3.push(Prim::Push4);
-                                    Prim::Mulmod
+                        let mut s3 = ch.stack;
+                        if s3.len() < arity || s3.s[0] != d {
+                            continue;
+                        }
+                        let mut p3 = ch.prims;
+                        let prim = match cont.kind {
+                            PKind::Add => Prim::Add,
+                            PKind::Addmod => Prim::Addmod,
+                            PKind::Mulmod => {
+                                // push 4 on top of d
+                                if s3.len() >= self.max_depth {
+                                    continue;
                                 }
-                                PKind::Sbox => unreachable!(),
-                            };
-                            let extra = if prod2.kind == PKind::Mulmod { 3 } else { 0 };
-                            // check operand layout
-                            let ok = match prod2.kind {
-                                PKind::Add => s3[1] == others[0],
-                                PKind::Addmod => s3[1] == others[0] && s3[2] == self.prime,
-                                PKind::Mulmod => s3[1] == d && s3[2] == self.prime,
-                                PKind::Sbox => false,
-                            };
-                            if !ok {
-                                continue;
+                                s3.push_top(self.four);
+                                p3.push(Prim::Push4);
+                                Prim::Mulmod
                             }
-                            let mut s4 = vec![d2];
-                            s4.extend_from_slice(&s3[arity..]);
-                            p3.push(prim);
-                            let st4 = St { stack: s4, computed: st3.computed | (1 << d2) };
-                            if self.valid(&st4) {
-                                out.push((p3, st4, c3 + extra + Self::op_cost(prim)));
+                            PKind::Sbox => unreachable!(),
+                        };
+                        let extra = if cont.kind == PKind::Mulmod { 3 } else { 0 };
+                        // check operand layout
+                        let ok = match cont.kind {
+                            PKind::Add => s3.s[1] == cont.other.unwrap(),
+                            PKind::Addmod => {
+                                s3.s[1] == cont.other.unwrap() && s3.s[2] == self.prime
                             }
+                            PKind::Mulmod => s3.s[1] == d && s3.s[2] == self.prime,
+                            PKind::Sbox => false,
+                        };
+                        if !ok {
+                            continue;
+                        }
+                        s3.replace_top(arity, d2);
+                        p3.push(prim);
+                        let computed4 = ch.computed | (1 << d2);
+                        if self.valid(ctx, &s3, computed4) {
+                            out.push(Child {
+                                stack: s3,
+                                computed: computed4,
+                                cost: ch.cost + extra + Self::op_cost(prim),
+                                prims: p3,
+                            });
                         }
                     }
+                    ctx.scratch[depth] = sub;
                 }
             }
         }
-        // d itself
-        for (inplace, copies, prim, arity) in self.layouts(prod) {
-            let mut prims = pre.clone();
-            let Some((s2, c2)) = self.realize(stack, &inplace, &copies, &mut prims) else {
+        // d itself; the garbage after it is what is dead then minus the
+        // operands consumed in place, so a layout over the limit is skipped
+        // before it is realized
+        let dead = self.dead_mask(self.info(ctx, computed | (1 << d)).needed);
+        let mut base = 0usize;
+        for &c in stack.as_slice() {
+            if dead & (1 << c) != 0 {
+                base += 1;
+            }
+        }
+        for li in 0..prod.layouts.len() {
+            let l = &prod.layouts[li];
+            let garbage = base
+                - l.inplace()
+                    .iter()
+                    .filter(|&&c| dead & (1 << c) != 0)
+                    .count();
+            if garbage > self.max_garbage {
+                continue;
+            }
+            let mut prims = *pre;
+            let Some((mut s2, c2)) = self.realize(stack, l.inplace(), l.copies(), &mut prims)
+            else {
                 continue;
             };
             // the in-place operands and the copies now sit on top; apply
-            let mut s3 = vec![d];
-            s3.extend_from_slice(&s2[arity..]);
-            prims.push(prim);
-            let st3 = St { stack: s3, computed: st.computed | (1 << d) };
-            if self.valid(&st3) {
-                out.push((prims, st3, pre_cost + c2 + Self::op_cost(prim)));
+            s2.replace_top(l.arity as usize, d);
+            prims.push(l.prim);
+            let computed3 = computed | (1 << d);
+            if self.valid(ctx, &s2, computed3) {
+                out.push(Child {
+                    stack: s2,
+                    computed: computed3,
+                    cost: pre_cost + c2 + Self::op_cost(l.prim),
+                    prims,
+                });
             }
         }
     }
@@ -644,22 +1042,32 @@ impl Problem {
     /// (a computed value that left the stack is lost), garbage within the
     /// limit
     #[cfg_attr(feature = "profile", hotpath::measure)]
-    fn valid(&self, st: &St) -> bool {
-        let n = self.classes.len();
-        let mut avail = vec![false; n];
-        for &c in &st.stack {
-            avail[c as usize] = true;
+    fn valid(&self, ctx: &mut Ctx, stack: &Stack, computed: u32) -> bool {
+        let needed = self.info(ctx, computed).needed;
+        if self.garbage(stack, needed) > self.max_garbage {
+            return false;
         }
-        avail[self.prime as usize] = true;
-        avail[self.four as usize] = true;
+        let smask = stack.mask();
+        let k = ((computed as u64) << 32) | smask as u64;
+        if let Some(&v) = ctx.avail.get(&k) {
+            return v;
+        }
+        let n = self.classes.len();
+        let mut avail = smask | (1 << self.prime) | (1 << self.four);
         loop {
             let mut changed = false;
             for d in 0..n {
-                if avail[d] || st.computed & (1 << d) != 0 || self.classes[d].kind != Kind::Val {
+                if avail & (1 << d) != 0
+                    || computed & (1 << d) != 0
+                    || self.classes[d].kind != Kind::Val
+                {
                     continue;
                 }
-                if self.productions[d].iter().any(|prod| prod.operands.iter().all(|&o| avail[o as usize])) {
-                    avail[d] = true;
+                if self.productions[d]
+                    .iter()
+                    .any(|prod| prod.operands.iter().all(|&o| avail & (1 << o) != 0))
+                {
+                    avail |= 1 << d;
                     changed = true;
                 }
             }
@@ -667,86 +1075,269 @@ impl Problem {
                 break;
             }
         }
-        for c in 0..n {
-            if self.goal_set & (1 << c) != 0 && !avail[c] {
-                return false;
-            }
-        }
-        let needed = self.needed_mask(st.computed);
-        self.garbage(&st.stack, needed) <= self.max_garbage
+        let v = self.goal_set & !avail == 0;
+        ctx.avail.insert(k, v);
+        v
     }
 }
 
+const CLOSED: u16 = u16::MAX;
+
+#[derive(Clone, Copy)]
 struct Node {
-    key: u128,
-    g: u32,
+    lo: u64,
+    hi: u64,
     parent: u32,
-    prims: Vec<Prim>,
+    g: u16,
+    /// the f threshold of the next expansion (the f of the cheapest child
+    /// dropped so far), CLOSED when none is left
+    f: u16,
+}
+
+/// open-addressing table of node indices keyed by the node's key
+struct Table {
+    slots: Vec<u32>,
+    count: usize,
+}
+
+impl Table {
+    fn new() -> Table {
+        Table {
+            slots: vec![u32::MAX; 1 << 16],
+            count: 0,
+        }
+    }
+    fn hash(lo: u64, hi: u64) -> u64 {
+        (lo ^ hi.rotate_left(29))
+            .wrapping_mul(0x9E3779B97F4A7C15)
+            .rotate_left(23)
+            .wrapping_mul(0xD6E8FEB86659FD93)
+    }
+    fn find(&self, nodes: &[Node], lo: u64, hi: u64) -> Result<u32, usize> {
+        let mask = self.slots.len() - 1;
+        let mut i = Self::hash(lo, hi) as usize & mask;
+        loop {
+            let idx = self.slots[i];
+            if idx == u32::MAX {
+                return Err(i);
+            }
+            let n = &nodes[idx as usize];
+            if n.lo == lo && n.hi == hi {
+                return Ok(idx);
+            }
+            i = (i + 1) & mask;
+        }
+    }
+    fn insert_at(&mut self, nodes: &[Node], slot: usize, idx: u32) {
+        self.slots[slot] = idx;
+        self.count += 1;
+        if self.count * 10 > self.slots.len() * 6 {
+            let cap = self.slots.len() * 2;
+            let old = std::mem::replace(&mut self.slots, vec![u32::MAX; cap]);
+            let mask = self.slots.len() - 1;
+            for idx in old.into_iter().filter(|&i| i != u32::MAX) {
+                let n = &nodes[idx as usize];
+                let mut i = Self::hash(n.lo, n.hi) as usize & mask;
+                while self.slots[i] != u32::MAX {
+                    i = (i + 1) & mask;
+                }
+                self.slots[i] = idx;
+            }
+        }
+    }
+}
+
+struct Open {
+    buckets: Vec<Vec<u32>>,
+    min: usize,
+    len: usize,
+}
+
+impl Open {
+    fn push(&mut self, f: u16, idx: u32) {
+        let f = f as usize;
+        if f >= self.buckets.len() {
+            self.buckets.resize_with(f + 1, Vec::new);
+        }
+        self.buckets[f].push(idx);
+        self.len += 1;
+        if f < self.min {
+            self.min = f;
+        }
+    }
+    fn pop(&mut self) -> Option<(u16, u32)> {
+        while self.min < self.buckets.len() {
+            if let Some(idx) = self.buckets[self.min].pop() {
+                self.len -= 1;
+                return Some((self.min as u16, idx));
+            }
+            self.min += 1;
+        }
+        None
+    }
+}
+
+fn mem_estimate(nodes: &Vec<Node>, table: &Table, open: &Open) -> usize {
+    nodes.capacity() * std::mem::size_of::<Node>()
+        + table.slots.len() * 4
+        + open.buckets.iter().map(|b| b.capacity() * 4).sum::<usize>()
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
-fn search(p: &Problem) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
+fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
     let mut nodes: Vec<Node> = Vec::new();
-    let mut best: HashMap<u128, u32> = HashMap::new();
-    let mut heap: BinaryHeap<(Reverse<u32>, u32, u32)> = BinaryHeap::new();
-    let init = St { stack: p.init.clone(), computed: p.init_computed };
-    let k0 = key(&init);
-    nodes.push(Node { key: k0, g: 0, parent: u32::MAX, prims: Vec::new() });
-    best.insert(k0, 0);
-    let needed0 = p.needed_mask(p.init_computed);
-    heap.push((Reverse(p.heuristic(&init.stack, init.computed, needed0)), 0, 0));
+    let mut table = Table::new();
+    let mut open = Open {
+        buckets: Vec::new(),
+        min: 0,
+        len: 0,
+    };
+    let init = Stack::from(&p.init);
+    let (lo, hi) = key(init.as_slice(), p.init_computed);
+    let h0 = {
+        let info = p.info(ctx, p.init_computed).clone();
+        p.heuristic(&init, p.init_computed, &info)
+    };
+    nodes.push(Node {
+        lo,
+        hi,
+        parent: u32::MAX,
+        g: 0,
+        f: h0 as u16,
+    });
+    let slot = table.find(&nodes, lo, hi).unwrap_err();
+    table.insert_at(&nodes, slot, 0);
+    open.push(h0 as u16, 0);
     let mut expanded = 0usize;
-    while let Some((Reverse(f), g, idx)) = measure_block!("open_pop", { heap.pop() }) {
-        let st = decode(nodes[idx as usize].key);
-        if measure_block!("closed_lookup", { best.get(&nodes[idx as usize].key).copied().unwrap_or(u32::MAX) }) < g {
+    let mut children = Vec::new();
+    let dbg = std::env::var("DBG").is_ok();
+    while let Some((f, idx)) = measure_block!("open_pop", { open.pop() }) {
+        let node = nodes[idx as usize];
+        if node.f != f {
             continue;
         }
-        if p.is_goal(&st.stack) {
-            let mut macros = Vec::new();
-            let mut cur = idx;
-            while nodes[cur as usize].parent != u32::MAX {
-                macros.push((nodes[cur as usize].prims.clone(), nodes[cur as usize].parent));
-                cur = nodes[cur as usize].parent;
-            }
-            macros.reverse();
-            // replay for the stack after every prim
-            let mut path = Vec::new();
-            let mut s = p.init.clone();
-            for (prims, _) in macros {
-                for prim in prims {
-                    apply_prim(p, &mut s, prim);
-                    path.push((prim, s.clone()));
-                }
-            }
-            eprintln!("expanded {expanded} nodes, {} states", best.len());
-            return Some((g, path));
+        let (stack, computed) = decode(node.lo, node.hi);
+        let g = node.g as u32;
+        if p.is_goal(stack.as_slice()) {
+            eprintln!(
+                "expanded {expanded} nodes, {} states, open {}, ~{} MB",
+                nodes.len(),
+                open.len,
+                mem_estimate(&nodes, &table, &open) >> 20
+            );
+            return Some((g, reconstruct(p, ctx, &nodes, idx)));
         }
         expanded += 1;
-        if expanded % 100_000 == 0 {
-            eprintln!("expanded {expanded}, states {}, g {g} f {f}", best.len());
+        if expanded % 1_000_000 == 0 {
+            eprintln!(
+                "expanded {expanded}, states {}, open {}, ~{} MB, g {g} f {f}",
+                nodes.len(),
+                open.len,
+                mem_estimate(&nodes, &table, &open) >> 20
+            );
         }
-        let needed = p.needed_mask(st.computed);
-        let dbg = std::env::var("DBG").is_ok();
-        for (prims, s2, cost) in p.expand(&st, needed) {
+        let needed = p.info(ctx, computed).needed;
+        p.expand(ctx, &stack, computed, needed, &mut children);
+        let mut next_f = u32::MAX;
+        for ch in children.iter() {
+            let g2 = g + ch.cost;
+            let h = {
+                let info = p.info(ctx, ch.computed);
+                p.heuristic(&ch.stack, ch.computed, info)
+            };
             if dbg {
-                let names: Vec<&str> = s2.stack.iter().map(|&c| p.classes[c as usize].name.as_str()).collect();
-                eprintln!("  from g={g} {:?} -> g={} [{}] h={}", prims, g + cost, names.join(","), p.heuristic(&s2.stack, s2.computed, p.needed_mask(s2.computed)));
+                let names: Vec<&str> = ch
+                    .stack
+                    .as_slice()
+                    .iter()
+                    .map(|&c| p.classes[c as usize].name.as_str())
+                    .collect();
+                eprintln!(
+                    "  from g={g} {:?} -> g={} [{}] h={}",
+                    ch.prims.as_slice(),
+                    g2,
+                    names.join(","),
+                    h
+                );
             }
-            let g2 = g + cost;
-            let k2 = key(&s2);
-            if measure_block!("closed_lookup_child", { best.get(&k2).copied().unwrap_or(u32::MAX) }) <= g2 {
+            let f2 = g2 + h;
+            if f2 > f as u32 {
+                if f2 < next_f {
+                    next_f = f2;
+                }
                 continue;
             }
-            measure_block!("closed_insert", { best.insert(k2, g2) });
-            let needed2 = p.needed_mask(s2.computed);
-            let h = p.heuristic(&s2.stack, s2.computed, needed2);
-            measure_block!("open_push", {
-                nodes.push(Node { key: k2, g: g2, parent: idx, prims });
-                heap.push((Reverse(g2 + h), g2, (nodes.len() - 1) as u32));
-            });
+            let (lo, hi) = key(ch.stack.as_slice(), ch.computed);
+            match measure_block!("closed_lookup", { table.find(&nodes, lo, hi) }) {
+                Ok(j) => {
+                    let m = &mut nodes[j as usize];
+                    if m.g as u32 <= g2 {
+                        continue;
+                    }
+                    m.g = g2 as u16;
+                    m.parent = idx;
+                    m.f = f2 as u16;
+                    open.push(f2 as u16, j);
+                }
+                Err(slot) => {
+                    measure_block!("closed_insert", {
+                        nodes.push(Node {
+                            lo,
+                            hi,
+                            parent: idx,
+                            g: g2 as u16,
+                            f: f2 as u16,
+                        });
+                        let j = (nodes.len() - 1) as u32;
+                        table.insert_at(&nodes, slot, j);
+                        open.push(f2 as u16, j);
+                    });
+                }
+            }
+        }
+        if next_f != u32::MAX {
+            nodes[idx as usize].f = next_f as u16;
+            open.push(next_f as u16, idx);
+        } else {
+            nodes[idx as usize].f = CLOSED;
         }
     }
     None
+}
+
+/// the macros from the root to `idx`, by expanding each parent again
+fn reconstruct(p: &Problem, ctx: &mut Ctx, nodes: &[Node], idx: u32) -> Vec<(Prim, Vec<u8>)> {
+    let mut chain = vec![idx];
+    while nodes[*chain.last().unwrap() as usize].parent != u32::MAX {
+        chain.push(nodes[*chain.last().unwrap() as usize].parent);
+    }
+    chain.reverse();
+    let mut path = Vec::new();
+    let mut s = p.init.clone();
+    let mut children = Vec::new();
+    for w in chain.windows(2) {
+        let (a, b) = (nodes[w[0] as usize], nodes[w[1] as usize]);
+        let (stack, computed) = decode(a.lo, a.hi);
+        let needed = p.info(ctx, computed).needed;
+        p.expand(ctx, &stack, computed, needed, &mut children);
+        let cost = b.g as u32 - a.g as u32;
+        let found = children
+            .iter()
+            .filter(|ch| key(ch.stack.as_slice(), ch.computed) == (b.lo, b.hi))
+            .min_by_key(|ch| if ch.cost == cost { 0 } else { 1 })
+            .expect("no macro from the parent to the child");
+        if found.cost != cost {
+            eprintln!(
+                "warning: the macro costs {} but the path {}",
+                found.cost, cost
+            );
+        }
+        for &prim in found.prims.as_slice() {
+            apply_prim(p, &mut s, prim);
+            path.push((prim, s.clone()));
+        }
+    }
+    path
 }
 
 fn apply_prim(p: &Problem, s: &mut Vec<u8>, prim: Prim) {
@@ -769,7 +1360,11 @@ fn apply_prim(p: &Problem, s: &mut Vec<u8>, prim: Prim) {
                 coeffs[i] = ca.coeffs[i] + cb.coeffs[i];
             }
             let bound = ca.bound + cb.bound;
-            let r = p.classes.iter().position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == bound).unwrap();
+            let r = p
+                .classes
+                .iter()
+                .position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == bound)
+                .unwrap();
             s.drain(0..2);
             s.insert(0, r as u8);
         }
@@ -780,7 +1375,11 @@ fn apply_prim(p: &Problem, s: &mut Vec<u8>, prim: Prim) {
             for i in 0..4 {
                 coeffs[i] = ca.coeffs[i] + cb.coeffs[i];
             }
-            let r = p.classes.iter().position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == 1).unwrap();
+            let r = p
+                .classes
+                .iter()
+                .position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == 1)
+                .unwrap();
             s.drain(0..3);
             s.insert(0, r as u8);
         }
@@ -792,7 +1391,11 @@ fn apply_prim(p: &Problem, s: &mut Vec<u8>, prim: Prim) {
             for i in 0..4 {
                 coeffs[i] = 4 * cv.coeffs[i];
             }
-            let r = p.classes.iter().position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == 1).unwrap();
+            let r = p
+                .classes
+                .iter()
+                .position(|c| c.kind == Kind::Val && c.coeffs == coeffs && c.bound == 1)
+                .unwrap();
             s.drain(0..3);
             s.insert(0, r as u8);
         }
@@ -811,7 +1414,12 @@ fn build(t: usize, final_round: bool, lazy: bool) -> (Vec<Class>, Vec<(Vec<Strin
     let b: u8 = if lazy { 2 } else { 1 };
     let mut classes = Vec::new();
     let mut add = |name: &str, coeffs: [i32; 4], bound: u8, kind: Kind| {
-        classes.push(Class { coeffs, bound, name: name.to_string(), kind });
+        classes.push(Class {
+            coeffs,
+            bound,
+            name: name.to_string(),
+            kind,
+        });
     };
     add("P", [0; 4], 0, Kind::Prime);
     add("4", [0; 4], 0, Kind::Four);
@@ -935,7 +1543,9 @@ fn build(t: usize, final_round: bool, lazy: bool) -> (Vec<Class>, Vec<(Vec<Strin
 fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
-    let args: Vec<String> = std::env::args().collect();
+    let all: Vec<String> = std::env::args().collect();
+    let no_swap = all.iter().any(|a| a == "--no-swap");
+    let args: Vec<String> = all.into_iter().filter(|a| !a.starts_with("--")).collect();
     let t: usize = args[1].parse().unwrap();
     let init_names: Vec<&str> = args[2].split(',').collect();
     let goal_names: Vec<&str> = args[3].split(',').collect();
@@ -947,6 +1557,7 @@ fn main() {
     let lazy = args.get(9).map_or(false, |s| s.contains("lazy"));
     let strict = args.get(9).map_or(false, |s| s.contains("strict"));
     let (classes, groups) = build(t, final_round, lazy);
+    assert!(classes.len() <= 31, "too many classes for the key");
     let idx = |n: &str| -> u8 {
         classes
             .iter()
@@ -966,13 +1577,24 @@ fn main() {
     }
     let goal: Vec<Option<u8>> = goal_names
         .iter()
-        .map(|n| if *n == "_" { None } else if *n == "O" { Some(255) } else { Some(idx(n)) })
+        .map(|n| {
+            if *n == "_" {
+                None
+            } else if *n == "O" {
+                Some(255)
+            } else {
+                Some(idx(n))
+            }
+        })
         .collect();
     let mut goal_set = 0u32;
     for g in goal.iter().flatten() {
         if *g == 255 {
             for (i, c) in classes.iter().enumerate() {
-                if c.kind == Kind::Val && (c.name.starts_with('o') || ["t4", "t5", "t6", "t7"].contains(&c.name.as_str())) {
+                if c.kind == Kind::Val
+                    && (c.name.starts_with('o')
+                        || ["t4", "t5", "t6", "t7"].contains(&c.name.as_str()))
+                {
                     goal_set |= 1 << i;
                 }
             }
@@ -990,7 +1612,11 @@ fn main() {
         }
         for (i, &x) in sbox_out.iter().enumerate() {
             if x as usize == d {
-                productions[d].push(Production { operands: vec![sbox_in[i]], kind: PKind::Sbox });
+                productions[d].push(Production {
+                    operands: vec![sbox_in[i]],
+                    kind: PKind::Sbox,
+                    layouts: Vec::new(),
+                });
                 consumers[sbox_in[i] as usize].push(d as u8);
             }
         }
@@ -1016,9 +1642,17 @@ fn main() {
                     continue;
                 }
                 if ec.bound + cc.bound == dc.bound {
-                    productions[d].push(Production { operands: vec![c as u8, e as u8], kind: PKind::Add });
+                    productions[d].push(Production {
+                        operands: vec![c as u8, e as u8],
+                        kind: PKind::Add,
+                        layouts: Vec::new(),
+                    });
                 } else if dc.bound == 1 {
-                    productions[d].push(Production { operands: vec![c as u8, e as u8], kind: PKind::Addmod });
+                    productions[d].push(Production {
+                        operands: vec![c as u8, e as u8],
+                        kind: PKind::Addmod,
+                        layouts: Vec::new(),
+                    });
                 } else {
                     continue;
                 }
@@ -1029,8 +1663,15 @@ fn main() {
                     consumers[e].push(d as u8);
                 }
             }
-            if dc.bound == 1 && cc.coeffs != [0; 4] && (0..4).all(|i| dc.coeffs[i] == 4 * cc.coeffs[i]) {
-                productions[d].push(Production { operands: vec![c as u8], kind: PKind::Mulmod });
+            if dc.bound == 1
+                && cc.coeffs != [0; 4]
+                && (0..4).all(|i| dc.coeffs[i] == 4 * cc.coeffs[i])
+            {
+                productions[d].push(Production {
+                    operands: vec![c as u8],
+                    kind: PKind::Mulmod,
+                    layouts: Vec::new(),
+                });
                 if !consumers[c].contains(&(d as u8)) {
                     consumers[c].push(d as u8);
                 }
@@ -1042,11 +1683,13 @@ fn main() {
         .map(|(names, cost)| (names.iter().map(|n| idx(n)).collect(), *cost))
         .collect();
     let max_depth = (init.len() + extra_depth).min(17);
-    let mut swaps = HashMap::new();
-    for m in 1..=3 {
-        swaps.extend(swap_table(m, reach, 3));
-    }
-    let p = Problem {
+    let swaps = swap_table(reach, 3);
+    let values = classes
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| matches!(c.kind, Kind::Val | Kind::Input(_)))
+        .fold(0, |m, (i, _)| m | (1 << i));
+    let mut p = Problem {
         classes,
         prime,
         four,
@@ -1061,16 +1704,82 @@ fn main() {
         max_garbage,
         chain,
         strict,
+        no_swap,
+        values,
         groups,
         consumers,
         productions,
+        conts: vec![Vec::new(); n],
         swaps,
     };
-    match search(&p) {
+    // the operand layouts of every production and the chain continuations
+    // of every class
+    for d in 0..n {
+        for pi in 0..p.productions[d].len() {
+            let (operands, kind) = (
+                p.productions[d][pi].operands.clone(),
+                p.productions[d][pi].kind,
+            );
+            p.productions[d][pi].layouts = p.layouts(&operands, kind);
+        }
+    }
+    for d in 0..n {
+        let mut conts = Vec::new();
+        for &d2 in &p.consumers[d] {
+            for prod2 in &p.productions[d2 as usize] {
+                if !prod2.operands.contains(&(d as u8)) || prod2.kind == PKind::Sbox {
+                    continue;
+                }
+                let mut others = prod2.operands.clone();
+                let i = others.iter().position(|&o| o == d as u8).unwrap();
+                others.remove(i);
+                // pre-placements: for add [b]; addmod [b, P]; mulmod [P] (4 after)
+                let variants: Vec<Layout> = match prod2.kind {
+                    PKind::Add => {
+                        let b = others[0];
+                        vec![
+                            Layout::new(&[], &[Item::Copy(b)], Prim::Add, 2),
+                            Layout::new(&[b], &[], Prim::Add, 2),
+                        ]
+                    }
+                    PKind::Addmod => {
+                        let b = others[0];
+                        vec![
+                            Layout::new(&[], &[Item::Copy(b), Item::P], Prim::Addmod, 3),
+                            Layout::new(&[prime], &[Item::Copy(b)], Prim::Addmod, 3),
+                            Layout::new(&[b, prime], &[], Prim::Addmod, 3),
+                        ]
+                    }
+                    PKind::Mulmod => vec![
+                        Layout::new(&[], &[Item::P], Prim::Mulmod, 3),
+                        Layout::new(&[prime], &[], Prim::Mulmod, 3),
+                    ],
+                    PKind::Sbox => unreachable!(),
+                };
+                conts.push(Cont {
+                    d2,
+                    kind: prod2.kind,
+                    other: others.first().copied(),
+                    variants,
+                });
+            }
+        }
+        p.conts[d] = conts;
+    }
+    let mut ctx = Ctx {
+        comp: FxMap::default(),
+        infos: Vec::new(),
+        avail: FxMap::default(),
+        scratch: vec![Vec::new(); chain + 2],
+    };
+    match search(&p, &mut ctx) {
         Some((cost, path)) => {
             println!("cost {cost}");
             if let Some((_, stack)) = path.last() {
-                let names: Vec<&str> = stack.iter().map(|&c| p.classes[c as usize].name.as_str()).collect();
+                let names: Vec<&str> = stack
+                    .iter()
+                    .map(|&c| p.classes[c as usize].name.as_str())
+                    .collect();
                 println!("layout {}", names.join(","));
             }
             let mut g = 0;
@@ -1083,8 +1792,16 @@ fn main() {
                     Prim::SboxNoP(_) => SBOX_NOP,
                     _ => 3,
                 };
-                let names: Vec<&str> = stack.iter().map(|&c| p.classes[c as usize].name.as_str()).collect();
-                println!("{:<12} {:>4}  [{}]", format!("{prim:?}"), g, names.join(", "));
+                let names: Vec<&str> = stack
+                    .iter()
+                    .map(|&c| p.classes[c as usize].name.as_str())
+                    .collect();
+                println!(
+                    "{:<12} {:>4}  [{}]",
+                    format!("{prim:?}"),
+                    g,
+                    names.join(", ")
+                );
             }
         }
         None => println!("no solution"),
