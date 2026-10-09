@@ -30,7 +30,7 @@ use rayon::prelude::*;
 use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
-use super::templates::{BlockKind, Template, TemplateKind, blocks, templates};
+use super::templates::{BlockKind, Template, TemplateKind, blocks, linear_final4, templates};
 use crate::bail;
 use crate::error::{Error, Result};
 use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
@@ -863,22 +863,35 @@ impl<'a> Builder<'a> {
         Ok(res)
     }
 
-    /// An external round of t <= 4 from its template. t = 4 has no round
-    /// program (the search did not finish): its lanes go as usual and its
-    /// M4 takes the block program, which consumes the S-box outputs.
+    /// An external round of t <= 4 from its template. Unmatched t = 4
+    /// layouts use separate S-boxes and a linear template or generic M4.
     fn external_template(&mut self, kind: TemplateKind, round: Option<usize>) -> Result<()> {
         let names: Vec<String> = (0..self.t).map(|i| format!("s{i}'")).collect();
         if self.t == 4 {
+            let full = templates(4, kind);
+            let inputs = self.state.clone();
+            if self.template(full, &inputs).is_some() {
+                self.state = self.run_template(full, &inputs, &names, round)?;
+                return Ok(());
+            }
             if let Some(round) = round {
                 self.add_constants_and_sbox(round)?;
             }
-            let list = match kind {
-                TemplateKind::Final => templates(4, kind),
+            let linear = match kind {
+                TemplateKind::Final => linear_final4(),
                 TemplateKind::Exit => blocks(BlockKind::Exit),
                 _ => blocks(BlockKind::Block),
             };
             let inputs = self.state.clone();
-            self.state = self.run_template(list, &inputs, &names, None)?;
+            if self.template(linear, &inputs).is_some() {
+                self.state = self.run_template(linear, &inputs, &names, None)?;
+            } else {
+                self.external_matrix(
+                    kind == TemplateKind::Final,
+                    kind == TemplateKind::Exit,
+                    kind != TemplateKind::Exit,
+                )?;
+            }
             return Ok(());
         }
         let inputs = self.state.clone();

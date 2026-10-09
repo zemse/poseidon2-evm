@@ -51,6 +51,7 @@ import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 import {
   BLOCKS,
+  LINEAR_FINAL4,
   TEMPLATES,
   type Template,
   type TemplateKind,
@@ -648,18 +649,30 @@ class Builder {
     return out;
   }
 
-  // An external round of t <= 4 from its template. t = 4 has no round
-  // program (the search did not finish): its lanes go as usual and its M4
-  // takes the block program, which consumes the S-box outputs.
+  // An external round of t <= 4 from its template. Unmatched t = 4
+  // layouts use separate S-boxes and a linear template or generic M4.
   externalTemplate(kind: TemplateKind, round?: number) {
     const names = Array.from({ length: this.t }, (_, i) => `s${i}'`);
     if (this.t === 4) {
+      const full = TEMPLATES[4][kind];
+      if (this.template(full, this.state)) {
+        this.state = this.runTemplate(full, this.state, names, round);
+        return;
+      }
       if (round !== undefined) this.addConstantsAndSbox(round);
-      const list =
+      const linear =
         kind === "final"
-          ? TEMPLATES[4].final
+          ? LINEAR_FINAL4
           : BLOCKS[kind === "exit" ? "exit" : "block"];
-      this.state = this.runTemplate(list, this.state, names);
+      if (this.template(linear, this.state)) {
+        this.state = this.runTemplate(linear, this.state, names);
+      } else {
+        this.externalMatrix(
+          kind === "final",
+          kind === "exit" ? () => this.e.pushPrime() : undefined,
+          kind !== "exit",
+        );
+      }
       return;
     }
     const list = TEMPLATES[this.t]?.[kind] ?? [];
