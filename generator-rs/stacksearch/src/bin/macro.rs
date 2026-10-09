@@ -579,11 +579,12 @@ impl Problem {
             }
         }
         // Every remaining binary op consumes one value slot; S-boxes and
-        // multiplication by four preserve it. Only DUP can restore it.
+        // multiplication by four preserve it. Only DUP can restore it;
+        // dead values cannot supply any remaining operand or output.
         let values = stack
             .as_slice()
             .iter()
-            .filter(|&&c| self.values & (1 << c) != 0)
+            .filter(|&&c| self.values & info.needed & (1 << c) != 0)
             .count() as i32;
         let deficit = info.binary + self.goal_set.count_ones() as i32 - values;
         h + 3 * duplicates.max(deficit).max(0) as u32
@@ -2081,6 +2082,16 @@ mod tests {
         assert_eq!(open.pop(), None);
         assert_eq!(open.len, 0);
         assert!(open.buckets.iter().all(|b| b.levels.capacity() == 0));
+    }
+
+    #[test]
+    fn dead_inputs_do_not_reduce_the_copy_bound() {
+        let p = fixture("macro 3 x0,P,x1,x2 o0,o1,o2,P 16 2 8 final 1");
+        let info = p.comp_info(p.init_computed);
+        let h = p.heuristic(&Stack::from(&p.init), p.init_computed, &info);
+        let mut stack = p.init.clone();
+        stack.push(class(&p, "s0"));
+        assert_eq!(p.heuristic(&Stack::from(&stack), p.init_computed, &info), h);
     }
 
     #[test]

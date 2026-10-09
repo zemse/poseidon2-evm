@@ -29,7 +29,7 @@ A template is the `init` layout (the state elements by index and PRIME copies as
 
 ## Bounds and scope
 
-The heuristic counts mandatory arithmetic, consumed constants and retained goal constants. Binary arithmetic consumes a value slot, whereas S-boxes and multiplication by four preserve it: if B binary operations remain, G output slots are required and V value/input slots are present, at least max(0, B + G - V) DUPs remain. This is combined with the per-class copy bound by taking their maximum, not their sum.
+The heuristic counts mandatory arithmetic, consumed constants and retained goal constants. Binary arithmetic consumes a value slot, whereas S-boxes and multiplication by four preserve it: if B binary operations remain, G output slots are required and V live value/input slots are present, at least max(0, B + G - V) DUPs remain. This is combined with the per-class copy bound by taking their maximum, not their sum.
 
 For t = 3, a degree-four output needs a degree-three form or two distinct degree-two forms. The second intermediate group is satisfied by either route. Charging a degree-three form unconditionally overestimates a completion using two degree-two forms.
 
