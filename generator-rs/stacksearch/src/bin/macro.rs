@@ -12,6 +12,25 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
+/// hotpath::measure_block! under the profile feature, the block itself
+/// otherwise
+macro_rules! measure_block {
+    ($name:expr, $body:block) => {{
+        #[cfg(feature = "profile")]
+        {
+            hotpath::measure_block!($name, $body)
+        }
+        #[cfg(not(feature = "profile"))]
+        {
+            $body
+        }
+    }};
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     Val,
@@ -96,6 +115,7 @@ enum Item {
     Four,
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn key(st: &St) -> u128 {
     let mut k: u128 = 0;
     for &c in &st.stack {
@@ -104,6 +124,7 @@ fn key(st: &St) -> u128 {
     (k << 32) | st.computed as u128
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn decode(key: u128) -> St {
     let computed = (key & 0xffff_ffff) as u32;
     let mut k = key >> 32;
@@ -156,6 +177,7 @@ fn swap_table(m: usize, reach: usize, depth: usize) -> HashMap<Vec<u8>, Vec<u8>>
 }
 
 impl Problem {
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn needed_mask(&self, computed: u32) -> u32 {
         let n = self.classes.len();
         let mut memo = vec![0u8; n];
@@ -190,6 +212,7 @@ impl Problem {
         mask
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn heuristic(&self, stack: &[u8], computed: u32, needed: u32) -> u32 {
         let n = self.classes.len();
         let mut h = 0;
@@ -262,6 +285,7 @@ impl Problem {
         h
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn is_goal(&self, stack: &[u8]) -> bool {
         if stack.len() < self.goal.len() {
             return false;
@@ -287,6 +311,7 @@ impl Problem {
         true
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn garbage(&self, stack: &[u8], needed: u32) -> usize {
         let dead = stack
             .iter()
@@ -311,6 +336,7 @@ impl Problem {
     /// Brings the in-place items (top-first required order) to the top and
     /// pushes the copies (top-first order) above them. Returns the prims,
     /// the stack and the cost, or None when out of reach.
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn realize(&self, stack: &[u8], inplace: &[u8], copies: &[Item], prims: &mut Vec<Prim>) -> Option<(Vec<u8>, u32)> {
         let mut s = stack.to_vec();
         let mut cost = 0;
@@ -367,6 +393,7 @@ impl Problem {
 
     /// The operand layouts of a production: (in-place top-first, copies
     /// top-first, the op prim, its arity) for every in-place choice.
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn layouts(&self, prod: &Production) -> Vec<(Vec<u8>, Vec<Item>, Prim, usize)> {
         let mut out = Vec::new();
         match prod.kind {
@@ -441,6 +468,7 @@ impl Problem {
     }
 
     /// Every macro from a state: (prims, new state, cost).
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn expand(&self, st: &St, needed: u32) -> Vec<(Vec<Prim>, St, u32)> {
         let mut out = Vec::new();
         let n = self.classes.len();
@@ -489,6 +517,7 @@ impl Problem {
     /// chain so far, giving `stack`), then recursively the ops the chain
     /// continues with.
     #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn chain(
         &self,
         st: &St,
@@ -614,6 +643,7 @@ impl Problem {
     /// every goal value can still be produced from what is on the stack
     /// (a computed value that left the stack is lost), garbage within the
     /// limit
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn valid(&self, st: &St) -> bool {
         let n = self.classes.len();
         let mut avail = vec![false; n];
@@ -654,6 +684,7 @@ struct Node {
     prims: Vec<Prim>,
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn search(p: &Problem) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
     let mut nodes: Vec<Node> = Vec::new();
     let mut best: HashMap<u128, u32> = HashMap::new();
@@ -665,9 +696,9 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
     let needed0 = p.needed_mask(p.init_computed);
     heap.push((Reverse(p.heuristic(&init.stack, init.computed, needed0)), 0, 0));
     let mut expanded = 0usize;
-    while let Some((Reverse(f), g, idx)) = heap.pop() {
+    while let Some((Reverse(f), g, idx)) = measure_block!("open_pop", { heap.pop() }) {
         let st = decode(nodes[idx as usize].key);
-        if best.get(&nodes[idx as usize].key).copied().unwrap_or(u32::MAX) < g {
+        if measure_block!("closed_lookup", { best.get(&nodes[idx as usize].key).copied().unwrap_or(u32::MAX) }) < g {
             continue;
         }
         if p.is_goal(&st.stack) {
@@ -703,14 +734,16 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
             }
             let g2 = g + cost;
             let k2 = key(&s2);
-            if best.get(&k2).copied().unwrap_or(u32::MAX) <= g2 {
+            if measure_block!("closed_lookup_child", { best.get(&k2).copied().unwrap_or(u32::MAX) }) <= g2 {
                 continue;
             }
-            best.insert(k2, g2);
+            measure_block!("closed_insert", { best.insert(k2, g2) });
             let needed2 = p.needed_mask(s2.computed);
             let h = p.heuristic(&s2.stack, s2.computed, needed2);
-            nodes.push(Node { key: k2, g: g2, parent: idx, prims });
-            heap.push((Reverse(g2 + h), g2, (nodes.len() - 1) as u32));
+            measure_block!("open_push", {
+                nodes.push(Node { key: k2, g: g2, parent: idx, prims });
+                heap.push((Reverse(g2 + h), g2, (nodes.len() - 1) as u32));
+            });
         }
     }
     None
@@ -898,7 +931,10 @@ fn build(t: usize, final_round: bool, lazy: bool) -> (Vec<Class>, Vec<(Vec<Strin
     (classes, groups)
 }
 
+#[cfg_attr(feature = "profile", hotpath::main)]
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
     let args: Vec<String> = std::env::args().collect();
     let t: usize = args[1].parse().unwrap();
     let init_names: Vec<&str> = args[2].split(',').collect();

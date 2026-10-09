@@ -4,7 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# profiling, off unless the features below are on
+dhat = { version = "0.3", optional = true }
+hotpath = { version = "0.28", optional = true, features = ["hotpath"] }
+
+[features]
+# per-function timings (HOTPATH_REPORT=functions-timing)
+profile = ["dep:hotpath"]
+# per-function allocation counts and bytes (HOTPATH_REPORT=functions-alloc)
+profile-alloc = ["profile", "hotpath/hotpath-alloc"]
+# dhat heap profile: total and peak bytes, allocation sites (dhat-heap.json)
+dhat-heap = ["dep:dhat"]
 
 [profile.release]
 opt-level = 3
 debug = false
+
+# release with line debug info for the dhat allocation sites
+[profile.profiling]
+inherits = "release"
+debug = 1
