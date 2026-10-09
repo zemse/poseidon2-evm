@@ -144,6 +144,9 @@ export class Emitter {
   private pool: { offset: number; round: number }[] = [];
   private round = 0;
   slotBase = 0;
+  // memory offset of a PRIME copy that pushPrime loads (PUSH, MLOAD: 3 gas
+  // more than PUSH32, 30 bytes less) when none is within reach
+  primeSlot: number | undefined;
   stores = 0;
   loads = 0;
 
@@ -364,6 +367,13 @@ export class Emitter {
   pushPrime(): Value {
     const n = this.findPrime();
     if (n > 0) return this.dup(this.stack[n - 1]);
+    if (this.primeSlot !== undefined) {
+      this.push(BigInt(this.primeSlot));
+      this.stack.shift();
+      this.opcode("mload", GAS.mload, 1);
+      this.pushed(this.P);
+      return this.P;
+    }
     return this.push(PRIME);
   }
 

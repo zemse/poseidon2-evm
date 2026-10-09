@@ -105,6 +105,9 @@ pub struct BuildOptions {
     /// and s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op
     /// less per round, once s1 is clean)
     pub internal_mul3: bool,
+    /// store PRIME in memory once and load it (PUSH, MLOAD) where no copy
+    /// is within reach instead of PUSH32 (3 gas more, 30 bytes less)
+    pub prime_in_memory: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -129,6 +132,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     external_template: false,
     internal_template: false,
     internal_mul3: false,
+    prime_in_memory: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -227,6 +231,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.internal_mul3 {
         enabled.push("internalMul3".to_string());
+    }
+    if opts.prime_in_memory {
+        enabled.push("primeInMemory".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -409,6 +416,9 @@ impl<'a> Builder<'a> {
             } else {
                 0
             };
+        if opts.prime_in_memory {
+            e.slot_base += 32;
+        }
         // takes: [s0, s1, ..., s(t-1), PRIME]
         let mut state = Vec::with_capacity(t);
         let mut input_slots = vec![None; t];
@@ -2131,6 +2141,18 @@ impl<'a> Builder<'a> {
         let Range { from, to } = self.range;
         let has_internal = from <= p_end && to > rf_half + 1;
 
+        if self.opts.prime_in_memory {
+            // the slot below the shadow slots
+            let offset = self.e.slot_base - 32;
+            self.e
+                .comment("PRIME in memory, loaded where no copy is within reach");
+            self.e.push_prime()?;
+            self.e.mstore(offset)?;
+            self.e.end_line();
+            self.e.comment("");
+            self.e.prime_slot = Some(offset);
+        }
+
         if has_internal && self.diag_stored(0) {
             self.e
                 .comment("Internal diag constants, loaded with MLOAD in the internal rounds");
@@ -2577,6 +2599,7 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                                     external_template,
                                                                     internal_template,
                                                                     internal_mul3,
+                                                                    prime_in_memory: false,
                                                                 });
                                                             }
                                                         }
@@ -2648,7 +2671,7 @@ pub fn build_best_with(
             opts.body_inline += 1;
             first = build(&opts);
         }
-        let mut result = match first {
+        let result = match first {
             Ok(r) => r,
             Err(err) => {
                 return Outcome {
@@ -2657,7 +2680,9 @@ pub fn build_best_with(
                 };
             }
         };
-        let mut finish = || -> std::result::Result<(BuildOptions, u64), String> {
+        let finish = |mut opts: BuildOptions,
+                      mut result: BuildResult|
+         -> std::result::Result<(BuildOptions, u64), String> {
             if result.max_depth <= 1000 {
                 if opts.gc_internal && fork.reach > 16 {
                     let gc_internal_from = largest(params.rounds_p, |n| {
@@ -2740,9 +2765,35 @@ pub fn build_best_with(
             }
             Ok((opts, cost(&result)))
         };
+        let plain = finish(opts, result);
+        // where the code size binds (a shorter body, diag constants in
+        // memory, or no fit at all), PRIME from memory frees 30 bytes per
+        // PUSH32 for 3 gas
+        let binding = match &plain {
+            Ok((o, _)) => {
+                (o.shared_body && o.consume_group > 0)
+                    || (o.diag_in_memory && o.diag_push32 < params.t)
+            }
+            Err(reason) => reason.ends_with(" bytes"),
+        };
+        let mut chosen = plain;
+        if binding {
+            let pim = BuildOptions {
+                prime_in_memory: true,
+                ..opts
+            };
+            if let Ok(r) = build(&pim) {
+                let alt = finish(pim, r);
+                if let Ok((_, gas)) = alt
+                    && chosen.as_ref().map_or(true, |&(_, g)| gas < g)
+                {
+                    chosen = alt;
+                }
+            }
+        }
         Outcome {
             built: true,
-            result: finish(),
+            result: chosen,
         }
     };
 

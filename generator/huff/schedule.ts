@@ -128,6 +128,9 @@ export type BuildOptions = {
   // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op less per
   // round, once s1 is clean)
   internalMul3: boolean;
+  // store PRIME in memory once and load it (PUSH, MLOAD) where no copy is
+  // within reach instead of PUSH32 (3 gas more, 30 bytes less)
+  primeInMemory: boolean;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -152,6 +155,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   externalTemplate: false,
   internalTemplate: false,
   internalMul3: false,
+  primeInMemory: false,
 };
 
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
@@ -319,6 +323,7 @@ class Builder {
     this.period = bodyPeriod(params, fork, opts.consumeGroup);
     this.e.slotBase =
       this.rcBase + (opts.sharedBody ? 32 * (this.period + 2) : 0);
+    if (opts.primeInMemory) this.e.slotBase += 32;
     // takes: [s0, s1, ..., s(t-1), PRIME]
     this.state = [];
     for (let i = 0; i < this.t; i++) {
@@ -1689,6 +1694,17 @@ class Builder {
     const { from, to } = this.range;
     const hasInternal = from <= pEnd && to > rfHalf + 1;
 
+    if (this.opts.primeInMemory) {
+      // the slot below the shadow slots
+      const offset = e.slotBase - 32;
+      e.comment("PRIME in memory, loaded where no copy is within reach");
+      e.pushPrime();
+      e.mstore(offset);
+      e.endLine();
+      e.comment("");
+      e.primeSlot = offset;
+    }
+
     if (hasInternal && this.diagStored(0)) {
       e.comment(
         "Internal diag constants, loaded with MLOAD in the internal rounds",
@@ -2075,6 +2091,7 @@ export function buildBest(
                                     externalTemplate,
                                     internalTemplate,
                                     internalMul3,
+                                    primeInMemory: false,
                                   });
                                 }
                               }
@@ -2106,12 +2123,93 @@ export function buildBest(
   let best: Best | undefined;
   let built = 0;
   const failures: string[] = [];
+  // the option searches after a first build: deeper garbage, sub-chains,
+  // diag constants as PUSH32 and inline rounds as the code size allows;
+  // the options and the build, or why it fails
+  const finish = (
+    opts: BuildOptions,
+    result: BuildResult,
+  ): { opts: BuildOptions; result: BuildResult } | string => {
+    const build = () =>
+      buildPermutation(params, inputs, opts, fork, range, boundary);
+    try {
+      if (result.maxDepth <= 1000) {
+        if (opts.gcInternal && fork.reach > 16) {
+          const gcInternalFrom = largest(params.roundsP, (n) => {
+            const r = attempt({ ...opts, gcInternalFrom: n });
+            return r !== undefined && r.maxDepth <= 1000;
+          });
+          opts = { ...opts, gcInternalFrom };
+          result = build();
+        }
+        if (opts.gcM4 && fork.reach > 16) {
+          const gcM4From = largest(params.roundsF + 1, (n) => {
+            const r = attempt({ ...opts, gcM4From: n });
+            return r !== undefined && r.maxDepth <= 1000;
+          });
+          opts = { ...opts, gcM4From };
+          result = build();
+        }
+        if (opts.sharedBody && result.bytes > maxBytes) {
+          // a body too large for the code size: sub-chains shorten it,
+          // the longest period that fits (the shorter, the more chains
+          // and calls)
+          const groups = groupCandidates(params, fork);
+          const fits = (n: number) => {
+            const r = attempt({ ...opts, consumeGroup: groups[n] });
+            return r !== undefined && r.bytes <= maxBytes;
+          };
+          if (groups.length > 0 && fits(0)) {
+            const consumeGroup = groups[largest(groups.length - 1, fits)];
+            opts = { ...opts, consumeGroup };
+            result = build();
+          }
+        }
+        if (opts.diagInMemory && result.bytes <= maxBytes) {
+          const diagPush32 = largest(params.t, (n) => {
+            const r = attempt({ ...opts, diagPush32: n });
+            return r !== undefined && r.bytes <= maxBytes;
+          });
+          opts = { ...opts, diagPush32 };
+          result = build();
+        }
+        if (opts.sharedBody && result.bytes <= maxBytes) {
+          const { steady } = steadyRounds(params, range);
+          const fits = (n: number) => {
+            const r = attempt({ ...opts, bodyInline: n });
+            return r !== undefined && r.bytes <= maxBytes;
+          };
+          const base = opts.bodyInline;
+          let bodyInline = base + largest(steady - base, (n) => fits(base + n));
+          // a remainder call and the mid exit cost more than the 3 gas
+          // per round the body charges, so the largest count that leaves
+          // none when one fits
+          const period = bodyPeriod(params, fork, opts.consumeGroup);
+          const extra = (period - ((steady - bodyInline) % period)) % period;
+          if (bodyInline >= extra && fits(bodyInline - extra)) {
+            bodyInline -= extra;
+          }
+          opts = { ...opts, bodyInline };
+          result = build();
+        }
+      }
+    } catch (err) {
+      return `${JSON.stringify(opts)}: ${(err as Error).message}`;
+    }
+    if (result.maxDepth > 1000) {
+      return `${JSON.stringify(opts)}: depth ${result.maxDepth}`;
+    }
+    if (result.bytes > maxBytes) {
+      return `${JSON.stringify(opts)}: ${result.bytes} bytes`;
+    }
+    return { opts, result };
+  };
   const search = (list: BuildOptions[]) => {
     for (let opts of list) {
+      let result: BuildResult;
       try {
         const build = () =>
           buildPermutation(params, inputs, opts, fork, range, boundary);
-        let result: BuildResult;
         if (opts.sharedBody) {
           // the round after a part's entry still loads from the entry's
           // shadow slots (a memory layout of its own), so the body starts
@@ -2125,101 +2223,39 @@ export function buildBest(
         } else {
           result = build();
         }
-        built++;
-        if (result.maxDepth <= 1000) {
-          if (opts.gcInternal && fork.reach > 16) {
-            const gcInternalFrom = largest(params.roundsP, (n) => {
-              const r = attempt({ ...opts, gcInternalFrom: n });
-              return r !== undefined && r.maxDepth <= 1000;
-            });
-            opts = { ...opts, gcInternalFrom };
-            result = buildPermutation(
-              params,
-              inputs,
-              opts,
-              fork,
-              range,
-              boundary,
-            );
-          }
-          if (opts.gcM4 && fork.reach > 16) {
-            const gcM4From = largest(params.roundsF + 1, (n) => {
-              const r = attempt({ ...opts, gcM4From: n });
-              return r !== undefined && r.maxDepth <= 1000;
-            });
-            opts = { ...opts, gcM4From };
-            result = buildPermutation(
-              params,
-              inputs,
-              opts,
-              fork,
-              range,
-              boundary,
-            );
-          }
-          if (opts.sharedBody && result.bytes > maxBytes) {
-            // a body too large for the code size: sub-chains shorten it,
-            // the longest period that fits (the shorter, the more chains
-            // and calls)
-            const groups = groupCandidates(params, fork);
-            const fits = (n: number) => {
-              const r = attempt({ ...opts, consumeGroup: groups[n] });
-              return r !== undefined && r.bytes <= maxBytes;
-            };
-            if (groups.length > 0 && fits(0)) {
-              const consumeGroup = groups[largest(groups.length - 1, fits)];
-              opts = { ...opts, consumeGroup };
-              result = build();
-            }
-          }
-          if (opts.diagInMemory && result.bytes <= maxBytes) {
-            const diagPush32 = largest(params.t, (n) => {
-              const r = attempt({ ...opts, diagPush32: n });
-              return r !== undefined && r.bytes <= maxBytes;
-            });
-            opts = { ...opts, diagPush32 };
-            result = buildPermutation(
-              params,
-              inputs,
-              opts,
-              fork,
-              range,
-              boundary,
-            );
-          }
-          if (opts.sharedBody && result.bytes <= maxBytes) {
-            const { steady } = steadyRounds(params, range);
-            const fits = (n: number) => {
-              const r = attempt({ ...opts, bodyInline: n });
-              return r !== undefined && r.bytes <= maxBytes;
-            };
-            const base = opts.bodyInline;
-            let bodyInline =
-              base + largest(steady - base, (n) => fits(base + n));
-            // a remainder call and the mid exit cost more than the 3 gas
-            // per round the body charges, so the largest count that leaves
-            // none when one fits
-            const period = bodyPeriod(params, fork, opts.consumeGroup);
-            const extra = (period - ((steady - bodyInline) % period)) % period;
-            if (bodyInline >= extra && fits(bodyInline - extra)) {
-              bodyInline -= extra;
-            }
-            opts = { ...opts, bodyInline };
-            result = build();
-          }
-        }
-        if (result.maxDepth > 1000) {
-          failures.push(`${JSON.stringify(opts)}: depth ${result.maxDepth}`);
-          continue;
-        }
-        if (result.bytes > maxBytes) {
-          failures.push(`${JSON.stringify(opts)}: ${result.bytes} bytes`);
-          continue;
-        }
-        if (!best || cost(result) < cost(best.result)) best = { result, opts };
       } catch (err) {
         failures.push(`${JSON.stringify(opts)}: ${(err as Error).message}`);
+        continue;
       }
+      built++;
+      let chosen = finish(opts, result);
+      // where the code size binds (a shorter body, diag constants in
+      // memory, or no fit at all), PRIME from memory frees 30 bytes per
+      // PUSH32 for 3 gas
+      const binding =
+        typeof chosen === "string"
+          ? chosen.endsWith(" bytes")
+          : (chosen.opts.sharedBody && chosen.opts.consumeGroup > 0) ||
+            (chosen.opts.diagInMemory && chosen.opts.diagPush32 < params.t);
+      if (binding) {
+        const pim = { ...opts, primeInMemory: true };
+        const r = attempt(pim);
+        if (r !== undefined) {
+          const alt = finish(pim, r);
+          if (
+            typeof alt !== "string" &&
+            (typeof chosen === "string" ||
+              cost(alt.result) < cost(chosen.result))
+          ) {
+            chosen = alt;
+          }
+        }
+      }
+      if (typeof chosen === "string") {
+        failures.push(chosen);
+        continue;
+      }
+      if (!best || cost(chosen.result) < cost(best.result)) best = chosen;
     }
   };
   search(candidates(false));

@@ -196,6 +196,9 @@ pub struct Emitter {
     pool: Vec<Slot>,
     round: i64,
     pub slot_base: usize,
+    /// memory offset of a PRIME copy that push_prime loads (PUSH, MLOAD:
+    /// 3 gas more than PUSH32, 30 bytes less) when none is within reach
+    pub prime_slot: Option<usize>,
     pub stores: usize,
     pub loads: usize,
 
@@ -245,6 +248,7 @@ impl Emitter {
             pool: Vec::new(),
             round: 0,
             slot_base: 0,
+            prime_slot: None,
             stores: 0,
             loads: 0,
             body_mode: BodyMode::Off,
@@ -538,6 +542,14 @@ impl Emitter {
         if n > 0 {
             let v = self.stack[self.stack.len() - n];
             return self.dup(v);
+        }
+        if let Some(offset) = self.prime_slot {
+            self.push(u256(offset as u64), None)?;
+            self.stack.pop();
+            self.opcode(|| "mload".to_string(), gas::MLOAD, 1);
+            let p = self.p;
+            self.pushed(p);
+            return Ok(p);
         }
         self.push(PRIME, None)
     }
