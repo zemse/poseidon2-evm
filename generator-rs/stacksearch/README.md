@@ -33,7 +33,7 @@ The heuristic counts mandatory arithmetic, consumed constants and retained goal 
 
 For t = 3, a degree-four output needs a degree-three form or two distinct degree-two forms. The second intermediate group is satisfied by either route. Charging a degree-three form unconditionally overestimates a completion using two degree-two forms.
 
-The bound requires complete computation history and every output. The CLI therefore accepts only raw inputs, S-box outputs and constants initially, and requires every output exactly once in the goal (fixed or `O`). `lazy` is supported only for t = 4. Optimality is within the macro graph, useful-form whitelist, garbage, depth and reach limits, not over arbitrary EVM programs. A positive `chain` enables one continuation; deeper recursion returned results the outer macro could not consume and is skipped.
+The bound requires complete computation history and every output. The CLI therefore accepts only raw inputs, S-box outputs and constants initially, and requires every output exactly once in the goal (fixed or `O`). `lazy` is supported only for t = 4. Goals normally constrain a prefix; `--clean-goal` also forbids trailing values and constants, without restricting temporary PRIME copies during expansion. Use it for production M4 blocks. Equal-f nodes are ordered by larger g, then LIFO. Optimality is within the macro graph, useful-form whitelist, garbage, depth and reach limits, not over arbitrary EVM programs. A positive `chain` enables one continuation; deeper recursion returned results the outer macro could not consume and is skipped.
 
 ## Profiling
 

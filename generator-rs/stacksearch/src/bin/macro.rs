@@ -283,6 +283,7 @@ struct Problem {
     chain: usize,
     strict: bool,
     no_swap: bool,
+    clean_goal: bool,
     /// the classes of kind Val or Input
     values: u32,
     groups: Vec<(Vec<u8>, u32)>,
@@ -589,7 +590,7 @@ impl Problem {
     }
 
     fn is_goal(&self, stack: &[u8]) -> bool {
-        if stack.len() < self.goal.len() {
+        if stack.len() < self.goal.len() || (self.clean_goal && stack.len() != self.goal.len()) {
             return false;
         }
         let mut seen = self
@@ -1223,19 +1224,51 @@ impl Table {
     }
 }
 
+#[derive(Default)]
+struct Bucket {
+    levels: Vec<Vec<u32>>,
+    max: usize,
+}
+
+impl Bucket {
+    fn push(&mut self, g: u16, idx: u32) {
+        let g = g as usize;
+        if g >= self.levels.len() {
+            self.levels.resize_with(g + 1, Vec::new);
+        }
+        self.levels[g].push(idx);
+        self.max = self.max.max(g);
+    }
+
+    fn pop(&mut self) -> Option<u32> {
+        loop {
+            if let Some(level) = self.levels.get_mut(self.max) {
+                if let Some(idx) = level.pop() {
+                    return Some(idx);
+                }
+                *level = Vec::new();
+            }
+            if self.max == 0 {
+                return None;
+            }
+            self.max -= 1;
+        }
+    }
+}
+
 struct Open {
-    buckets: Vec<Vec<u32>>,
+    buckets: Vec<Bucket>,
     min: usize,
     len: usize,
 }
 
 impl Open {
-    fn push(&mut self, f: u16, idx: u32) {
+    fn push(&mut self, f: u16, g: u16, idx: u32) {
         let f = f as usize;
         if f >= self.buckets.len() {
-            self.buckets.resize_with(f + 1, Vec::new);
+            self.buckets.resize_with(f + 1, Bucket::default);
         }
-        self.buckets[f].push(idx);
+        self.buckets[f].push(g, idx);
         self.len += 1;
         if f < self.min {
             self.min = f;
@@ -1247,7 +1280,7 @@ impl Open {
                 self.len -= 1;
                 return Some((self.min as u16, idx));
             }
-            self.buckets[self.min] = Vec::new();
+            self.buckets[self.min] = Bucket::default();
             self.min += 1;
         }
         None
@@ -1257,7 +1290,17 @@ impl Open {
 fn mem_estimate(nodes: &Vec<Node>, table: &Table, open: &Open) -> usize {
     nodes.capacity() * std::mem::size_of::<Node>()
         + table.slots.len() * 4
-        + open.buckets.iter().map(|b| b.capacity() * 4).sum::<usize>()
+        + open
+            .buckets
+            .iter()
+            .map(|b| {
+                b.levels.capacity() * std::mem::size_of::<Vec<u32>>()
+                    + b.levels
+                        .iter()
+                        .map(|level| level.capacity() * 4)
+                        .sum::<usize>()
+            })
+            .sum::<usize>()
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -1284,7 +1327,7 @@ fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
     });
     let slot = table.find(&nodes, lo, hi).unwrap_err();
     table.insert_at(&nodes, slot, 0);
-    open.push(h0 as u16, 0);
+    open.push(h0 as u16, 0, 0);
     let mut expanded = 0usize;
     let mut children = Vec::new();
     let dbg = std::env::var("DBG").is_ok();
@@ -1354,7 +1397,7 @@ fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
                     m.g = g2 as u16;
                     m.parent = idx;
                     m.f = f2 as u16;
-                    open.push(f2 as u16, j);
+                    open.push(f2 as u16, g2 as u16, j);
                 }
                 Err(slot) => {
                     measure_block!("closed_insert", {
@@ -1367,14 +1410,14 @@ fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
                         });
                         let j = (nodes.len() - 1) as u32;
                         table.insert_at(&nodes, slot, j);
-                        open.push(f2 as u16, j);
+                        open.push(f2 as u16, g2 as u16, j);
                     });
                 }
             }
         }
         if next_f != u32::MAX {
             nodes[idx as usize].f = next_f as u16;
-            open.push(next_f as u16, idx);
+            open.push(next_f as u16, node.g, idx);
         } else {
             nodes[idx as usize].f = CLOSED;
         }
@@ -1778,6 +1821,7 @@ fn problem(args: &[String], no_swap: bool) -> Problem {
         chain,
         strict,
         no_swap,
+        clean_goal: false,
         values,
         groups,
         consumers,
@@ -1859,8 +1903,10 @@ fn main() {
     let _profiler = dhat::Profiler::new_heap();
     let all: Vec<String> = std::env::args().collect();
     let no_swap = all.iter().any(|a| a == "--no-swap");
+    let clean_goal = all.iter().any(|a| a == "--clean-goal");
     let args: Vec<String> = all.into_iter().filter(|a| !a.starts_with("--")).collect();
-    let p = problem(&args, no_swap);
+    let mut p = problem(&args, no_swap);
+    p.clean_goal = clean_goal;
     p.assert_supported();
     let mut ctx = Ctx::new();
     match search(&p, &mut ctx) {
@@ -2023,18 +2069,43 @@ mod tests {
             min: 0,
             len: 0,
         };
-        open.push(10, 1);
-        open.push(10, 2);
-        open.push(20, 3);
+        open.push(10, 1, 1);
+        open.push(10, 2, 2);
+        open.push(20, 3, 3);
         assert_eq!(open.pop(), Some((10, 2)));
         assert_eq!(open.pop(), Some((10, 1)));
         assert_eq!(open.pop(), Some((20, 3)));
-        assert_eq!(open.buckets[10].capacity(), 0);
-        open.push(5, 4);
+        assert_eq!(open.buckets[10].levels.capacity(), 0);
+        open.push(5, 4, 4);
         assert_eq!(open.pop(), Some((5, 4)));
         assert_eq!(open.pop(), None);
         assert_eq!(open.len, 0);
-        assert!(open.buckets.iter().all(|b| b.capacity() == 0));
+        assert!(open.buckets.iter().all(|b| b.levels.capacity() == 0));
+    }
+
+    #[test]
+    fn clean_goal_rejects_trailing_constants() {
+        let mut p = fixture("macro 2 x0,x1 o0,o1 16 0 8 x 1");
+        let stack = vec![class(&p, "o0"), class(&p, "o1"), p.prime];
+        assert!(p.is_goal(&stack));
+        p.clean_goal = true;
+        assert!(!p.is_goal(&stack));
+        assert!(p.is_goal(&stack[..2]));
+    }
+
+    #[test]
+    fn bucket_prefers_larger_g_then_lifo() {
+        let mut bucket = Bucket::default();
+        bucket.push(5, 1);
+        bucket.push(10, 2);
+        bucket.push(5, 3);
+        assert_eq!(bucket.pop(), Some(2));
+        assert_eq!(bucket.pop(), Some(3));
+        assert_eq!(bucket.pop(), Some(1));
+        assert_eq!(bucket.pop(), None);
+        bucket.push(0, 4);
+        assert_eq!(bucket.pop(), Some(4));
+        assert_eq!(bucket.pop(), None);
     }
 
     #[test]

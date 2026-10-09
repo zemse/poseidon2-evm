@@ -74,7 +74,9 @@ def verify(text, args):
             assert gas == int(cumulative), "cumulative cost mismatch"
         assert gas == cost, "reported cost mismatch"
         assert len(stack) == len(layout)
-        seen = set()
+        if "--clean-goal" in args:
+            assert len(stack) == len(goal), "trailing values in a clean goal"
+        seen = {name for name in goal if name in expected}
         for i, wanted in enumerate(goal):
             actual = layout[i]
             if wanted == "O":
