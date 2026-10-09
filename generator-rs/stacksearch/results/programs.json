@@ -1,0 +1,162 @@
+[
+  {
+    "file": "m4-block.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "x",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 125,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "m4-exit.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "x",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 128,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "m4-final.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "final",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 157,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-reentry.program",
+    "args": [
+      "3",
+      "s0,P,s1,s2",
+      "O,P,O,O",
+      "16",
+      "2",
+      "8",
+      "x",
+      "1"
+    ],
+    "cost": 189,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-final-C.program",
+    "args": [
+      "3",
+      "s0,P,s2,s1",
+      "o0,o1,o2,P",
+      "16",
+      "2",
+      "8",
+      "final",
+      "1"
+    ],
+    "cost": 216,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-final-A.program",
+    "args": [
+      "3",
+      "s2,P,s1,s0",
+      "o0,o1,o2,P",
+      "16",
+      "2",
+      "8",
+      "final",
+      "1"
+    ],
+    "cost": 216,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t4-round-prime.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 326,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 13
+  },
+  {
+    "file": "t4-round-canonical.program",
+    "args": [
+      "4",
+      "s0,s1,s2,s3,P",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 332,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 14
+  },
+  {
+    "file": "t4-round-raw.program",
+    "args": [
+      "4",
+      "s0,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 332,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 13
+  },
+  {
+    "file": "t4-final-prime.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,t5,t7,t4,P",
+      "16",
+      "8",
+      "13",
+      "final",
+      "1"
+    ],
+    "cost": 358,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 15
+  }
+]

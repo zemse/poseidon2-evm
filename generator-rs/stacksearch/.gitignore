@@ -1,4 +1,5 @@
 target/
 __pycache__/
 *.json
+!results/programs.json
 *.dsl.txt
