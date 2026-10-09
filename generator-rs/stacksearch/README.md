@@ -12,6 +12,12 @@ Two binaries, run from this directory after `cargo build --release`:
 
 - `target/release/stacksearch` (`src/main.rs`) is the earlier single-opcode search with the same value model; slower, kept for reference.
 
+- `target/release/internal` (`src/bin/internal.rs`) searches the t = 4 internal round over single opcodes (the S-box of lane 0 one move), with the products `d_i * s_i` and the outputs `m_i + sum` as classes. Beyond the ops and copies left, its bound counts one DUP or SWAP for the sum while two outputs are to go (its deepest entry can only be consumed by the first output) and for a needed value frozen under an output; a DUP is only made for a use left that no entry can serve in place. `REPLAY="<program>"` scores a program in the template DSL instead.
+
+  ```
+  internal <lanes> <init> <goal> [max_garbage=0] [max_depth=16] [s=<bounds>;o=<bounds>]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:

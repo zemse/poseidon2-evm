@@ -158,5 +158,33 @@
     "cost": 358,
     "scope": "fixed S-box prefix, then a separate linear-layer search",
     "peak_depth": 15
+  },
+  {
+    "file": "internal3.program",
+    "args": [
+      "3",
+      "s0,P,s1,s2",
+      "s0,P,s1,s2",
+      "4",
+      "12"
+    ],
+    "env": {
+      "NO_POP": "1"
+    },
+    "cost": 137,
+    "scope": "A* over single opcodes with the S-box as one move, the DUP rule, depth 12, garbage 4, no POP; three-lane analogue of the t = 4 internal round"
+  },
+  {
+    "file": "internal4.replay",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "s0,P,s1,s2,s3",
+      "1",
+      "15",
+      "s=3,2,3,2;o=2,2,2,2"
+    ],
+    "cost": 166,
+    "scope": "the three-lane program extended to four lanes by hand and replayed (REPLAY); the four-lane search did not finish (f = 157 still open after 18M expansions)"
   }
 ]

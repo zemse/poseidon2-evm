@@ -245,6 +245,14 @@ Verification completed:
 - `./gas-report.sh` passed and confirmed the three Amsterdam t4 hash values above.
 - Independent review found all 21 TS/Rust template `init`/`ops` pairs identical and no actionable dispatch, layout or round-index issue. Full t4 templates run before separate S-boxes; unmatched layouts retain a linear or generic fallback. Folded hash round zero and the s0-only hash final path remain separate.
 
+## Internal rounds
+
+The t = 4 internal round the scheduler built costs 169 gas (S-box 45, sum 29, lanes 95) and leaves five dead values: the sum, s0^5 and the three old lanes. With every value used as often as the round needs and nothing left behind, its floor is 154. Without SWAP five dead values are the minimum: the sum is created on top and never consumed (the first output that consumes it leaves no copy for the others), so every value under it at that moment stays, and each lane is still needed there for its product. The audit's estimate of two recoverable values (336 gas) does not hold without SWAP.
+
+`internal` searches the round over single opcodes. For four lanes it does not finish: with the DUP rule, garbage at most 1 and depth 15 the f = 157 level was still open after 18M expansions and 133M states. The three-lane analogue (lanes scaled by their own d_i, not the t = 3 round) finishes: `internal 3 s0,P,s1,s2 s0,P,s1,s2 4 12` with `NO_POP=1` returns 137 in 18.9M expansions and 81M states (`internal3.program`), against 140 for the four dead values a round without SWAP leaves there. It leaves one dead value and takes two SWAPs: the sum lands on a PRIME copy, its copies and the operands of the lanes are pre-placed in the order the lanes come, the last lane is taken by a copy, and every other output is swapped into the slot of the next lane, which comes up onto its operands.
+
+Extended by hand to four lanes (`internal4.replay`, replayed at 166 from the bounds of the first internal round, s = 3,2,3,2) the round costs 166: one dead value and three SWAPs. With it the t = 4 permutation is 12,252 to 12,067 gas and hash_1/2/3 12,149/12,171/12,244 to 11,964/11,986/12,059 on Amsterdam; on Osaka, whose rounds had to leave a PRIME copy within DUP16 reach above the growing garbage, hash_2 is 12,249 to 11,986. The stack depth falls from 319 to 93.
+
 ## Changes and rejected approaches
 
 - Release an exhausted f bucket instead of retaining every historical frontier's capacity.
