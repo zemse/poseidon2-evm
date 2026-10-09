@@ -106,7 +106,13 @@ impl Problem {
     fn needed_mask(&self, computed: u32) -> u32 {
         let n = self.classes.len();
         let mut memo = vec![0u8; n];
-        fn rec(p: &Problem, c: usize, computed: u32, memo: &mut Vec<u8>, visiting: &mut Vec<bool>) -> bool {
+        fn rec(
+            p: &Problem,
+            c: usize,
+            computed: u32,
+            memo: &mut Vec<u8>,
+            visiting: &mut Vec<bool>,
+        ) -> bool {
             if memo[c] != 0 {
                 return memo[c] == 2;
             }
@@ -245,7 +251,12 @@ impl Problem {
         } else {
             (0, 0)
         };
-        let mk = |stack: Vec<u8>, computed: u32| St { stack, computed, run, swaps };
+        let mk = |stack: Vec<u8>, computed: u32| St {
+            stack,
+            computed,
+            run,
+            swaps,
+        };
         match op {
             Op::Dup(k) => {
                 let k = k as usize;
@@ -459,23 +470,47 @@ fn decode(p: &Problem, key: u128) -> St {
     }
     stack.reverse();
     let _ = p;
-    St { stack, computed, run, swaps }
+    St {
+        stack,
+        computed,
+        run,
+        swaps,
+    }
 }
 
 fn search(p: &Problem) -> Option<(u32, Vec<(Op, Vec<u8>, u32)>)> {
     let mut nodes: Vec<Node> = Vec::new();
     let mut best: HashMap<u128, u32> = HashMap::new();
     let mut heap: BinaryHeap<(Reverse<u32>, u32, u32)> = BinaryHeap::new();
-    let init = St { stack: p.init.clone(), computed: p.init_computed, run: 0, swaps: 0 };
+    let init = St {
+        stack: p.init.clone(),
+        computed: p.init_computed,
+        run: 0,
+        swaps: 0,
+    };
     let k0 = key(&init);
-    nodes.push(Node { key: k0, g: 0, parent: u32::MAX, op: None });
+    nodes.push(Node {
+        key: k0,
+        g: 0,
+        parent: u32::MAX,
+        op: None,
+    });
     best.insert(k0, 0);
     let needed0 = p.needed_mask(p.init_computed);
-    heap.push((Reverse(p.heuristic(&init.stack, init.computed, needed0)), 0, 0));
+    heap.push((
+        Reverse(p.heuristic(&init.stack, init.computed, needed0)),
+        0,
+        0,
+    ));
     let mut expanded = 0usize;
     while let Some((Reverse(_f), g, idx)) = heap.pop() {
         let st = decode(p, nodes[idx as usize].key);
-        if best.get(&nodes[idx as usize].key).copied().unwrap_or(u32::MAX) < g {
+        if best
+            .get(&nodes[idx as usize].key)
+            .copied()
+            .unwrap_or(u32::MAX)
+            < g
+        {
             continue;
         }
         if p.is_goal(&st.stack) {
@@ -483,7 +518,11 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Op, Vec<u8>, u32)>)> {
             let mut cur = idx;
             while nodes[cur as usize].parent != u32::MAX {
                 let s = decode(p, nodes[cur as usize].key);
-                path.push((nodes[cur as usize].op.unwrap(), s.stack, nodes[cur as usize].g));
+                path.push((
+                    nodes[cur as usize].op.unwrap(),
+                    s.stack,
+                    nodes[cur as usize].g,
+                ));
                 cur = nodes[cur as usize].parent;
             }
             path.reverse();
@@ -497,7 +536,11 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Op, Vec<u8>, u32)>)> {
         let needed = p.needed_mask(st.computed);
         for op in p.ops(st.stack.len()) {
             if let Some((s2, cost)) = p.apply(&st, needed, op) {
-                let needed2 = if s2.computed != st.computed { p.needed_mask(s2.computed) } else { needed };
+                let needed2 = if s2.computed != st.computed {
+                    p.needed_mask(s2.computed)
+                } else {
+                    needed
+                };
                 if p.garbage(&s2.stack, needed2) > p.max_garbage {
                     continue;
                 }
@@ -508,7 +551,12 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Op, Vec<u8>, u32)>)> {
                 }
                 best.insert(k2, g2);
                 let h = p.heuristic(&s2.stack, s2.computed, needed2);
-                nodes.push(Node { key: k2, g: g2, parent: idx, op: Some(op) });
+                nodes.push(Node {
+                    key: k2,
+                    g: g2,
+                    parent: idx,
+                    op: Some(op),
+                });
                 heap.push((Reverse(g2 + h), g2, (nodes.len() - 1) as u32));
             }
         }
@@ -519,7 +567,12 @@ fn search(p: &Problem) -> Option<(u32, Vec<(Op, Vec<u8>, u32)>)> {
 fn build(t: usize, final_round: bool) -> (Vec<Class>, Vec<(Vec<String>, u32)>) {
     let mut classes = Vec::new();
     let mut add = |name: &str, coeffs: [i32; 4], bound: u8, kind: Kind| {
-        classes.push(Class { coeffs, bound, name: name.to_string(), kind });
+        classes.push(Class {
+            coeffs,
+            bound,
+            name: name.to_string(),
+            kind,
+        });
     };
     add("P", [0; 4], 0, Kind::Prime);
     add("4", [0; 4], 0, Kind::Four);
@@ -682,7 +735,11 @@ fn main() {
         // sbox
         for (i, &x) in sbox_out.iter().enumerate() {
             if x as usize == d {
-                productions[d].push(Production { operands: vec![sbox_in[i]], mulmod: false, addmod: false });
+                productions[d].push(Production {
+                    operands: vec![sbox_in[i]],
+                    mulmod: false,
+                    addmod: false,
+                });
                 consumers[sbox_in[i] as usize].push(d as u8);
             }
         }
@@ -709,9 +766,17 @@ fn main() {
                     continue;
                 }
                 if ec.bound + cc.bound == dc.bound {
-                    productions[d].push(Production { operands: vec![c as u8, e as u8], mulmod: false, addmod: false });
+                    productions[d].push(Production {
+                        operands: vec![c as u8, e as u8],
+                        mulmod: false,
+                        addmod: false,
+                    });
                 } else if dc.bound == 1 {
-                    productions[d].push(Production { operands: vec![c as u8, e as u8], mulmod: false, addmod: true });
+                    productions[d].push(Production {
+                        operands: vec![c as u8, e as u8],
+                        mulmod: false,
+                        addmod: true,
+                    });
                 } else {
                     continue;
                 }
@@ -723,8 +788,15 @@ fn main() {
                 }
             }
             // mulmod by 4
-            if dc.bound == 1 && cc.coeffs != [0; 4] && (0..4).all(|i| dc.coeffs[i] == 4 * cc.coeffs[i]) {
-                productions[d].push(Production { operands: vec![c as u8], mulmod: true, addmod: false });
+            if dc.bound == 1
+                && cc.coeffs != [0; 4]
+                && (0..4).all(|i| dc.coeffs[i] == 4 * cc.coeffs[i])
+            {
+                productions[d].push(Production {
+                    operands: vec![c as u8],
+                    mulmod: true,
+                    addmod: false,
+                });
                 if !consumers[c].contains(&(d as u8)) {
                     consumers[c].push(d as u8);
                 }
@@ -760,7 +832,10 @@ fn main() {
         Some((cost, path)) => {
             println!("cost {cost}");
             for (op, stack, g) in path {
-                let names: Vec<&str> = stack.iter().map(|&c| p.classes[c as usize].name.as_str()).collect();
+                let names: Vec<&str> = stack
+                    .iter()
+                    .map(|&c| p.classes[c as usize].name.as_str())
+                    .collect();
                 println!("{:<12} {:>4}  [{}]", format!("{op:?}"), g, names.join(", "));
             }
         }
