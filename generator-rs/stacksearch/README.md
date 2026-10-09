@@ -25,7 +25,7 @@ target/release/macro 4 x0,x1,x2,x3 t6,t5,t7,t4 16 0 8 x 2 lazy
 
 The output is the cost in gas, the layout the program leaves and one move per line with the stack after it; `todsl.py` turns it into the template DSL (`python3 todsl.py result.txt`) and `drive.py <t>` chases the layouts of a width: the entry, rounds until a layout repeats, the exit, the re-entry after the internal rounds and the final round, appending the DSL of every result to `t<t>.dsl.txt` (`CHAIN=<n>` sets the chain depth, default 1). `run23.sh`, `run_entry.sh`, `run_block.sh` and `run_block2.sh` are the runs that produced the programs of t = 2, t = 3 and the blocks.
 
-A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. The t = 3 re-entry layout `s0,P,s1,s2` finishes at 189. Earlier searches did not finish the full t = 4 external round (over 19 GB in hours) or the t = 3 final round (2 h limit).
+A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. The t = 3 re-entry layout `s0,P,s1,s2` finishes at 189. Both t = 3 final-cycle layouts now finish at 216. Earlier searches did not finish the full t = 4 external round (over 19 GB in hours) or the t = 3 final round (2 h limit).
 
 ## Bounds and scope
 
@@ -34,6 +34,10 @@ The heuristic counts mandatory arithmetic, consumed constants and retained goal 
 For t = 3, a degree-four output needs a degree-three form or two distinct degree-two forms. The second intermediate group is satisfied by either route. Charging a degree-three form unconditionally overestimates a completion using two degree-two forms.
 
 The bound requires complete computation history and every output. The CLI therefore accepts only raw inputs, S-box outputs and constants initially, and requires every output exactly once in the goal (fixed or `O`). `lazy` is supported only for t = 4. Goals normally constrain a prefix; `--clean-goal` also forbids trailing values and constants, without restricting temporary PRIME copies during expansion. Use it for production M4 blocks. Equal-f nodes are ordered by larger g, then LIFO. Optimality is within the macro graph, useful-form whitelist, garbage, depth and reach limits, not over arbitrary EVM programs. A positive `chain` enables one continuation; deeper recursion returned results the outer macro could not consume and is skipped.
+
+## Composed rounds
+
+`compose.py <t> <init> <goal> <round|final> <output-directory> [seconds-per-order]` fixes all S-boxes before the linear layer, trying each order with the initial top lane first. Each linear search has a 2 GiB RSS guard and a default 180 s limit. Its cache key includes the binary, arguments and time limit; cached and composed programs are independently replayed. The t = 4 linear search uses conservative lazy bounds. These restrictions give up global optimality, and `peak_depth` can exceed the default full-round search's depth. This is the restricted search used for full t = 4 round candidates.
 
 ## Profiling
 
