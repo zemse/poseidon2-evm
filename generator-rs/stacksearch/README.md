@@ -10,6 +10,8 @@ Two binaries, run from this directory after `cargo build --release`:
   macro <t> <init> <goal> [reach=16] [max_garbage=2] [extra_depth=8] [final|x] [chain=2] [lazy,strict]
   ```
 
+  `UB=<cost>` drops every node whose f reaches cost, so the search returns only a program cheaper than cost, or `no solution` once everything below it is exhausted.
+
 - `target/release/stacksearch` (`src/main.rs`) is the earlier single-opcode search with the same value model; slower, kept for reference.
 
 - `target/release/internal` (`src/bin/internal.rs`) searches the t = 4 internal round over single opcodes (the S-box of lane 0 one move), with the products `d_i * s_i` and the outputs `m_i + sum` as classes. Beyond the ops and copies left, its bound counts one DUP or SWAP for the sum while two outputs are to go (its deepest entry can only be consumed by the first output) and for a needed value frozen under an output; a DUP is only made for a use left that no entry can serve in place. `REPLAY="<program>"` scores a program in the template DSL instead.
@@ -35,7 +37,7 @@ A template is the `init` layout (the state elements by index and PRIME copies as
 
 ## Bounds and scope
 
-The heuristic counts mandatory arithmetic, consumed constants and retained goal constants. Binary arithmetic consumes a value slot, whereas S-boxes and multiplication by four preserve it: if B binary operations remain, G output slots are required and V live value/input slots are present, at least max(0, B + G - V) DUPs remain. This is combined with the per-class copy bound by taking their maximum, not their sum.
+The heuristic counts mandatory arithmetic, consumed constants and retained goal constants. Binary arithmetic consumes a value slot, whereas S-boxes and multiplication by four preserve it: if B binary operations remain, G output slots are required and V live value/input slots are present, at least max(0, B + G - V) DUPs remain. This is combined with the per-class copy bound by taking their maximum, not their sum. An input counts as one slot however many copies are on the stack: its only consumer is its S-box. On top, each S-box left but the one whose input is already on top costs at least 2: only a DUP or SWAP of that input or a POP right above it brings the input to the top (an op leaves its result there), and none of these is counted elsewhere.
 
 For t = 3, a degree-four output needs a degree-three form or two distinct degree-two forms. The second intermediate group is satisfied by either route. Charging a degree-three form unconditionally overestimates a completion using two degree-two forms.
 
@@ -43,7 +45,9 @@ The bound requires complete computation history and every output. The CLI theref
 
 ## Composed rounds
 
-`compose.py <t> <init> <goal> <round|final> <output-directory> [seconds-per-order]` fixes all S-boxes before the linear layer, trying each order with the initial top lane first. Each linear search has a 2 GiB RSS guard and a default 180 s limit. Its cache key includes the binary, arguments and time limit; cached and composed programs are independently replayed. The t = 4 linear search uses conservative lazy bounds. These restrictions give up global optimality, and `peak_depth` can exceed the default full-round search's depth. This is the restricted search used for full t = 4 round candidates.
+`compose.py <t> <init> <goal> <round|final> <output-directory> [seconds-per-order]` fixes all S-boxes before the linear layer, trying each order with the initial top lane first. Each linear search has a 2 GiB RSS guard and a default 180 s limit. Its cache key includes the binary, arguments and time limit; cached and composed programs are independently replayed. The t = 4 linear search uses conservative lazy bounds. These restrictions give up global optimality, and `peak_depth` can exceed the default full-round search's depth. This was the restricted search for the first full t = 4 round candidates.
+
+`interleave.py <k> <round|final> <extra-garbage> <output-directory> [seconds] [ub] [orders...]` fixes only the first k S-boxes of a t = 4 round from `s0,P,s1,s2,s3` (placed as `compose.py` places them) and searches the others together with the linear layer under `bench.py`, with lazy bounds and a garbage limit of the prefix's dead inputs plus `extra-garbage`. With `ub` it asks only for programs cheaper than ub in total. The full program is replayed and written to `full.txt` and `best.json`. The integrated t = 4 round fixes two S-boxes (k = 1 and the unrestricted search find nothing cheaper), the final round three (k = 2 and k = 1 find nothing cheaper).
 
 ## Profiling
 
@@ -61,4 +65,4 @@ Dhat writes `dhat-heap.json` in the run directory. Sum the allocation sites' `gb
 
 Use `footprint <pid>` and `vmmap --summary <pid>` during a native run. The node arena contains distinct open and closed states; the queue count also contains stale entries and must not be added to it. Peak-heap/final-state ratios include capacity slack and transient table growth, not just the 24-byte node payload. `target/release/intrinsics` measures single-threaded hash/copy latency, streaming reads and dependent random reads at 128 and 768 MiB (15 warm samples).
 
-[RESULTS.md](RESULTS.md) records the measured comparisons, limits and verified call gas. Ten integrated programs are archived in `results/`; `results/programs.json` gives each program's replay arguments, cost and search scope.
+[RESULTS.md](RESULTS.md) records the measured comparisons, limits and verified call gas. The integrated programs and earlier candidates are archived in `results/`; `results/programs.json` gives each program's replay arguments, cost and search scope.

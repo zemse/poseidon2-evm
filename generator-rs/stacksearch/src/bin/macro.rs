@@ -273,6 +273,7 @@ struct Problem {
     prime: u8,
     four: u8,
     sbox_out: Vec<u8>,
+    sbox_in: Vec<u8>,
     init: Vec<u8>,
     init_computed: u32,
     goal: Vec<Option<u8>>,
@@ -581,13 +582,35 @@ impl Problem {
         // Every remaining binary op consumes one value slot; S-boxes and
         // multiplication by four preserve it. Only DUP can restore it;
         // dead values cannot supply any remaining operand or output.
-        let values = stack
-            .as_slice()
-            .iter()
-            .filter(|&&c| self.values & info.needed & (1 << c) != 0)
-            .count() as i32;
+        // An input supplies one slot: its only consumer is its S-box, so a
+        // second copy is dead once the S-box ran.
+        let mut values = 0;
+        let mut inputs = 0u32;
+        for &c in stack.as_slice() {
+            if self.values & info.needed & (1 << c) == 0 {
+                continue;
+            }
+            if self.classes[c as usize].kind == Kind::Val {
+                values += 1;
+            } else if inputs & (1 << c) == 0 {
+                inputs |= 1 << c;
+                values += 1;
+            }
+        }
         let deficit = info.binary + self.goal_set.count_ones() as i32 - values;
-        h + 3 * duplicates.max(deficit).max(0) as u32
+        // An S-box takes its input on top. Only a DUP or SWAP of that input
+        // or a POP right above it brings it there (an op leaves its result
+        // on top), at least 2 gas for each lane left but the one on top.
+        let mut lanes = 0;
+        let mut on_top = false;
+        for (i, &x) in self.sbox_out.iter().enumerate() {
+            if computed & (1 << x) == 0 && info.needed & (1 << x) != 0 {
+                lanes += 1;
+                on_top |= stack.len() > 0 && stack.s[0] == self.sbox_in[i];
+            }
+        }
+        let lanes = lanes - on_top as u32;
+        h + 3 * duplicates.max(deficit).max(0) as u32 + 2 * lanes
     }
 
     fn is_goal(&self, stack: &[u8]) -> bool {
@@ -1332,6 +1355,9 @@ fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
     let mut expanded = 0usize;
     let mut children = Vec::new();
     let dbg = std::env::var("DBG").is_ok();
+    // UB=<cost>: only programs strictly cheaper than cost
+    let ub: u32 = std::env::var("UB").map_or(u32::MAX, |v| v.parse().unwrap());
+    eprintln!("h0 {h0}");
     while let Some((f, idx)) = measure_block!("open_pop", { open.pop() }) {
         let node = nodes[idx as usize];
         if node.f != f {
@@ -1382,6 +1408,9 @@ fn search(p: &Problem, ctx: &mut Ctx) -> Option<(u32, Vec<(Prim, Vec<u8>)>)> {
                 );
             }
             let f2 = g2 + h;
+            if f2 >= ub {
+                continue;
+            }
             if f2 > f as u32 {
                 if f2 < next_f {
                     next_f = f2;
@@ -1812,6 +1841,7 @@ fn problem(args: &[String], no_swap: bool) -> Problem {
         prime,
         four,
         sbox_out,
+        sbox_in,
         init,
         init_computed,
         goal,
@@ -1983,11 +2013,12 @@ mod tests {
         let p = fixture("macro 3 s0,P,s1,s2 o0,o1,o2,P 16 2 8 final 1");
         let info = p.comp_info(0);
         assert_eq!(info.binary, 5);
-        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 198);
+        // 2 gas for each of s1 and s2, not on top
+        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 202);
         let p = fixture("macro 4 s0,s1,s2,s3 O,P,O,O,O 16 3 8 x 1");
         let info = p.comp_info(0);
         assert_eq!(info.binary, 10);
-        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 299);
+        assert_eq!(p.heuristic(&Stack::from(&p.init), 0, &info), 305);
     }
 
     #[test]

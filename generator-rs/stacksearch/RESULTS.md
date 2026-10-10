@@ -215,6 +215,20 @@ The round goal is `t6,P,t5,t7,t4`; the final goal is `t6,t5,t7,t4,P`. Each candi
 
 Composition fixes all S-boxes before the linear layer, tries orders with the initial top lane first, and uses the conservative lazy M4 model for the separate linear search. It does not search arbitrary interleavings. Its replay arguments permit garbage eight and extra depth thirteen; the measured peak stack is 13 to 15. Per-order time and RSS limits further restrict the exploration. These are best recorded composed candidates, not globally optimal t4 programs, and not results of the unrestricted full-round searches.
 
+### t4 interleaved rounds
+
+The heuristic now counts an input once however many copies are on the stack and charges at least 2 for every S-box whose input is not on top (only a DUP or SWAP of the input or a POP right above it brings it there). From `s0,P,s1,s2,s3` the round bound rises from 296 to 302 and the final bound to 334; the entry (`x0,x1,x2,x3,P`, linear only) is 104. Earlier programs and costs reproduce: t2 123, t3 re-entry 189 (30 s), the clean M4 exit 128, the t3 final 216. `UB=<cost>` drops every node whose f reaches cost, so a search either returns a cheaper program or proves within its graph that there is none.
+
+Three restrictions of the composed programs cost gas. The linear search ran with garbage zero and a clean goal; with garbage two, lazy, the M4 from the composed S-box order costs 125 instead of 128 (`x2,x3,x1,x0` and `x3,x2,x1,x0`; `x1,x3,x2,x0` and `x1,x2,x3,x0` stay 128; the final M4 stays 160). The entry was the clean block (125) followed by `DUP5 SWAP1` (6) in round 0; searched to the round layout directly it costs 122. And the S-boxes need not all come first. `interleave.py` fixes the first k S-boxes and searches the others with the linear layer (lazy, the prefix's dead inputs plus two more as garbage):
+
+| Kind | Bound | Composed | k = 3 | k = 2 | k = 1 | k = 0 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| round (`t6,P,t5,t7,t4`) | 302 | 326 | 320 | 317 | none < 317 | none < 317 |
+| final (`t6,t5,t7,t4,P`) | 334 | 358 | 352 | none < 352 | none < 352 | stopped |
+| entry (linear) | 104 | 125 + 6 | | | | 122 |
+
+Every round kind (entry exit, steady, pre-internal exit, re-entry after the internal rounds) starts from `s0,P,s1,s2,s3`: the internal template leaves its outputs in that layout over one dead s3, so one round program serves all of them. The k = 3 round prefixes 0,1,2 and 0,1,3 give 320 (63 s and 138 s), 0,2,1 / 0,2,3 / 0,3,2 give 323, 0,3,1 stops at its 600 s limit. The k = 2 round prefix 0,1 gives 317 in 72 s (948 MiB); 0,2 and 0,3 exhaust everything below 317 in 21 s and 39 s. With S-box 0 fixed (garbage two and four) nothing below 317 exists (141 s, 1.1 GiB; 277 s, 2.1 GiB). The unrestricted round search (`s0,P,s1,s2,s3`, garbage four, `UB=317`) exhausts f below 317 in 881 s at 7.6 GB sampled RSS, 181M states: 317 is optimal within the macro graph, reach, depth, garbage and the lazy bounds. The final k = 3 prefix 0,1,3 gives 352 (130 s); 0,1,2 and 0,2,1 give 355; with two S-boxes fixed nothing below 352 exists (every prefix within 443 s), nor with S-box 0 fixed (garbage four, 1,582 s, 14.6 GB peak RSS). The unrestricted final search (`UB=352`) was stopped by hand after 53 minutes at f = 349 with 722M states and 25 GB sampled RSS, two f levels short.
+
 ## Verified call gas
 
 Before is `2fb3452`; after is the paired TS/Rust template update. Except for the explicitly labelled t4 hashes, these are raw permutation entry calls, not hypothetical public hash wrappers. The README uses the same raw entries for widths other than t4. Gas excludes transaction intrinsic cost. Osaka split entries include cold hops.

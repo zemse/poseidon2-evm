@@ -186,5 +186,53 @@
     ],
     "cost": 166,
     "scope": "the three-lane program extended to four lanes by hand and replayed (REPLAY); the four-lane search did not finish (f = 157 still open after 18M expansions)"
+  },
+  {
+    "file": "t4-entry.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3,P",
+      "t6,P,t5,t7,t4",
+      "16",
+      "2",
+      "8",
+      "x",
+      "1",
+      "lazy"
+    ],
+    "cost": 122,
+    "scope": "A* within the configured macro graph; the initial linear layer straight to the round layout, garbage 2"
+  },
+  {
+    "file": "t4-round-k2.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1",
+      "lazy"
+    ],
+    "cost": 317,
+    "scope": "S-boxes 0 and 1 fixed (interleave.py 2 round 2), then A* over the other S-boxes and the linear layer; no cheaper program with only S-box 0 fixed or unrestricted (garbage 4)"
+  },
+  {
+    "file": "t4-final-k3.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,t5,t7,t4,P",
+      "16",
+      "8",
+      "13",
+      "final",
+      "1",
+      "lazy"
+    ],
+    "cost": 352,
+    "scope": "S-boxes 0, 1 and 3 fixed (interleave.py 3 final 2), then A* over S-box 2 and the linear layer; no cheaper program with two S-boxes or only S-box 0 fixed"
   }
 ]

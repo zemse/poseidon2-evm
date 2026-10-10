@@ -31,7 +31,7 @@ def verify(text, args):
         values.update({f"s{i}": s for i, s in enumerate(ss)})
         stack = [values[n] for n in initial]
         for i in range(t):
-            if f"s{i}" in initial:
+            if f"s{i}" in initial and f"x{i}" not in initial:
                 xs[i] = pow(ss[i] + constants[i], 5, P)
         if t == 4:
             outputs = [sum(a * b for a, b in zip(row, xs)) % P for row in M4]
