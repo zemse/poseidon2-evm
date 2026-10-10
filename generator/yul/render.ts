@@ -62,12 +62,16 @@ export function renderArrayLibrary(
     layout.diagInMemory > 0
       ? `\n/// @dev ${layout.diagInMemory} of the ${t} internal diag constants are kept in free memory (not allocated) to stay within the code size limit`
       : "";
+  const scratch =
+    layout.diagScratch > 0
+      ? `\n/// @dev ${layout.diagScratch} internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation`
+      : "";
   return `${HEADER}
 pragma solidity >=0.6.0;
 
 /// @notice Poseidon2 permutation for BN254 with t = ${t}, Rf = ${roundsF}, Rp = ${roundsP}, optimized in Yul assembly
 /// @dev Permutes \`state\` in place; inputs are reduced mod PRIME, ${placement}
-/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256${table}
+/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256${scratch}${table}
 /// ${SECURITY}
 library ${name} {
     function permute(uint256[${t}] memory state) internal pure {

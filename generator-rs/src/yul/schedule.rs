@@ -25,6 +25,13 @@ pub struct Layout {
     /// how many of the trailing internal diag constants are kept in a memory
     /// table (loaded with MLOAD) instead of PUSH32 literals
     pub diag_in_memory: usize,
+    /// how many of the leading internal diag constants are locals declared
+    /// for the internal rounds: solc's constant optimizer turns a PUSH32
+    /// used more than once into a CODECOPY and MLOAD with few runs (200)
+    pub diag_lets: usize,
+    /// how many of the following diag constants are kept in the scratch
+    /// space (mload(0) and mload(0x20))
+    pub diag_scratch: usize,
     /// M4 with two temporaries (t2, t3) instead of four
     pub m4_temps: usize,
     /// keep the internal round's x^5 in a `let` that lives through the round
@@ -57,6 +64,7 @@ struct Builder<'a> {
     mode: Mode,
     inputs: &'a [Vec<U256>],
     state: Vec<Value>,
+    diag_locals: Vec<Value>,
 }
 
 /// An operand of a chain statement and whether the step that adds it
@@ -78,7 +86,10 @@ impl<'a> Builder<'a> {
         if mode == Mode::Hash && (params.t != 4 || layout.stack_elements != 4) {
             bail!("hash mode is the t = 4 library with all locals");
         }
-        if layout.stack_elements > params.t || layout.diag_in_memory > params.t {
+        if layout.stack_elements > params.t
+            || layout.diag_scratch > 2
+            || layout.diag_lets + layout.diag_scratch + layout.diag_in_memory > params.t
+        {
             bail!("layout exceeds t");
         }
         Ok(Builder {
@@ -89,6 +100,7 @@ impl<'a> Builder<'a> {
             mode,
             inputs,
             state: Vec::new(),
+            diag_locals: Vec::new(),
         })
     }
 
@@ -191,10 +203,24 @@ impl<'a> Builder<'a> {
 
     fn diag(&self, i: usize) -> Result<Value> {
         let d = self.params.internal_diag_minus_one[i];
+        if i < self.layout.diag_lets {
+            return Ok(self.diag_locals[i].clone());
+        }
+        if i < self.layout.diag_lets + self.layout.diag_scratch {
+            return self.p.mload(self.scratch_addr(i));
+        }
         if i < self.t - self.layout.diag_in_memory {
             return Ok(self.p.constant(d));
         }
         self.p.mload(&self.table_addr(i))
+    }
+
+    fn scratch_addr(&self, i: usize) -> &'static str {
+        if i == self.layout.diag_lets {
+            "0"
+        } else {
+            "0x20"
+        }
     }
 
     fn table_addr(&self, i: usize) -> String {
@@ -565,17 +591,41 @@ impl<'a> Builder<'a> {
             }
             Ok(())
         };
-        if self.layout.diag_in_memory > 0 {
+        let Layout {
+            diag_lets,
+            diag_scratch,
+            diag_in_memory,
+            ..
+        } = self.layout;
+        if diag_lets + diag_scratch + diag_in_memory > 0 {
             self.p.open();
-            self.p.comment(
-                "diag constants that would not fit the code size as PUSH32, in free memory",
-            );
-            let table = self.p.input("mload(0x40)", Vec::new());
-            self.p.let_("table", &table)?;
-            for i in t - self.layout.diag_in_memory..t {
-                let c = self.p.constant(self.params.internal_diag_minus_one[i]);
-                let addr = self.table_addr(i);
-                self.p.mstore(&addr, &c)?;
+            let d = self.params.internal_diag_minus_one.clone();
+            if diag_lets > 0 {
+                self.p.comment(
+                    "diag constants as locals: solc copies a PUSH32 used more than once from code with few optimizer runs",
+                );
+                for (i, &d) in d.iter().enumerate().take(diag_lets) {
+                    let local = self.p.let_(&format!("diag{i}"), &self.p.constant(d))?;
+                    self.diag_locals.push(local);
+                }
+            }
+            if diag_scratch > 0 {
+                self.p.comment("diag constants in the scratch space");
+                for (i, &d) in d.iter().enumerate().skip(diag_lets).take(diag_scratch) {
+                    let addr = self.scratch_addr(i);
+                    self.p.mstore(addr, &self.p.constant(d))?;
+                }
+            }
+            if diag_in_memory > 0 {
+                self.p.comment(
+                    "diag constants that would not fit the code size as PUSH32, in free memory",
+                );
+                let table = self.p.input("mload(0x40)", Vec::new());
+                self.p.let_("table", &table)?;
+                for (i, &d) in d.iter().enumerate().skip(t - diag_in_memory) {
+                    let addr = self.table_addr(i);
+                    self.p.mstore(&addr, &self.p.constant(d))?;
+                }
             }
             self.p.blank();
             internal(&mut self)?;

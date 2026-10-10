@@ -22,14 +22,17 @@ use render::{library_name, render_array_library, render_forge_test, render_hash_
 use schedule::{Layout, Mode, build_permutation};
 
 /// Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
-/// via-IR): locals up to the DUP16 / SWAP16 reach, diag constants moved to
-/// memory only as far as the 24,576 byte code size of a contract using the
-/// library requires.
+/// via-IR, optimizer off, 200 and 1,000,000 runs): locals up to the DUP16 /
+/// SWAP16 reach, diag constants as locals where the reach allows, then in
+/// the scratch space, a few as PUSH32 and the rest in a memory table, as the
+/// 24,576 byte code size of a contract using the library requires.
 fn layout_for(t: usize) -> Layout {
     if t <= 4 {
         return Layout {
             stack_elements: t,
             diag_in_memory: 0,
+            diag_lets: if t == 4 { 4 } else { 0 },
+            diag_scratch: 0,
             m4_temps: 4,
             internal_let: true,
             internal_reduce_outputs: t == 2,
@@ -38,7 +41,9 @@ fn layout_for(t: usize) -> Layout {
     if t == 8 {
         return Layout {
             stack_elements: 8,
-            diag_in_memory: 2,
+            diag_in_memory: 0,
+            diag_lets: 4,
+            diag_scratch: 2,
             m4_temps: 4,
             internal_let: false,
             internal_reduce_outputs: false,
@@ -47,7 +52,9 @@ fn layout_for(t: usize) -> Layout {
     if t == 12 {
         return Layout {
             stack_elements: 12,
-            diag_in_memory: 10,
+            diag_in_memory: 9,
+            diag_lets: 0,
+            diag_scratch: 2,
             m4_temps: 2,
             internal_let: false,
             internal_reduce_outputs: false,
@@ -56,6 +63,8 @@ fn layout_for(t: usize) -> Layout {
     Layout {
         stack_elements: 11,
         diag_in_memory: t,
+        diag_lets: 0,
+        diag_scratch: 0,
         m4_temps: 2,
         internal_let: false,
         internal_reduce_outputs: false,
@@ -100,8 +109,13 @@ fn generate(t: usize) -> Result<Output> {
         .collect();
     let test = format!("test/Poseidon2YulT{t}.t.sol");
     let mut log = vec![format!(
-        "t={t} Rf={} Rp={}: {} locals, {} diag constants in memory, wrote {lib}, {test}",
-        params.rounds_f, params.rounds_p, layout.stack_elements, layout.diag_in_memory
+        "t={t} Rf={} Rp={}: {} locals, {} diag constants as locals, {} in the scratch space, {} in memory, wrote {lib}, {test}",
+        params.rounds_f,
+        params.rounds_p,
+        layout.stack_elements,
+        layout.diag_lets,
+        layout.diag_scratch,
+        layout.diag_in_memory
     )];
     if t > 12 {
         log.push(format!(

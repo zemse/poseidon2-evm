@@ -25,9 +25,10 @@ import {
 } from "./render.ts";
 
 // Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
-// via-IR): locals up to the DUP16 / SWAP16 reach, diag constants moved to
-// memory only as far as the 24,576 byte code size of a contract using the
-// library requires. From t = 16 the permutation alone exceeds that size, so
+// via-IR, optimizer off, 200 and 1,000,000 runs): locals up to the DUP16 /
+// SWAP16 reach, diag constants as locals where the reach allows, then in the
+// scratch space, a few as PUSH32 and the rest in a memory table, as the
+// 24,576 byte code size of a contract using the library requires. From t = 16 the permutation alone exceeds that size, so
 // those widths are generated for experiments only (their tests need
 // FOUNDRY_CODE_SIZE_LIMIT raised and have no Huff permutation to fuzz
 // against).
@@ -36,6 +37,8 @@ function layoutFor(t: number): Layout {
     return {
       stackElements: t,
       diagInMemory: 0,
+      diagLets: t === 4 ? 4 : 0,
+      diagScratch: 0,
       m4Temps: 4,
       internalLet: true,
       internalReduceOutputs: t === 2,
@@ -44,7 +47,9 @@ function layoutFor(t: number): Layout {
   if (t === 8) {
     return {
       stackElements: 8,
-      diagInMemory: 2,
+      diagInMemory: 0,
+      diagLets: 4,
+      diagScratch: 2,
       m4Temps: 4,
       internalLet: false,
       internalReduceOutputs: false,
@@ -53,7 +58,9 @@ function layoutFor(t: number): Layout {
   if (t === 12) {
     return {
       stackElements: 12,
-      diagInMemory: 10,
+      diagInMemory: 9,
+      diagLets: 0,
+      diagScratch: 2,
       m4Temps: 2,
       internalLet: false,
       internalReduceOutputs: false,
@@ -62,6 +69,8 @@ function layoutFor(t: number): Layout {
   return {
     stackElements: 11,
     diagInMemory: t,
+    diagLets: 0,
+    diagScratch: 0,
     m4Temps: 2,
     internalLet: false,
     internalReduceOutputs: false,
@@ -100,7 +109,8 @@ function generate(t: number) {
   writeFileSync(test, renderForgeTest(params, vectors, t <= 12));
   console.log(
     `t=${t} Rf=${params.roundsF} Rp=${params.roundsP}: ${layout.stackElements} locals, ` +
-      `${layout.diagInMemory} diag constants in memory, wrote ${lib}, ${test}`,
+      `${layout.diagLets} diag constants as locals, ${layout.diagScratch} in the scratch space, ` +
+      `${layout.diagInMemory} in memory, wrote ${lib}, ${test}`,
   );
   if (t > 12) {
     console.log(

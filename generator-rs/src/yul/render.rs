@@ -70,13 +70,21 @@ pub fn render_array_library(params: &Params, layout: &Layout, result: &BuildResu
     } else {
         String::new()
     };
+    let scratch = if layout.diag_scratch > 0 {
+        format!(
+            "\n/// @dev {} internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation",
+            layout.diag_scratch
+        )
+    } else {
+        String::new()
+    };
     format!(
         "{HEADER}
 pragma solidity >=0.6.0;
 
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, {placement}
-/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256{table}
+/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256{scratch}{table}
 /// {SECURITY}
 library {name} {{
     function permute(uint256[{t}] memory state) internal pure {{

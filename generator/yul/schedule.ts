@@ -29,6 +29,14 @@ export type Layout = {
   // how many of the trailing internal diag constants are kept in a memory
   // table (loaded with MLOAD) instead of PUSH32 literals, to save code size
   diagInMemory: number;
+  // how many of the leading internal diag constants are locals declared for
+  // the internal rounds (DUP, 3 gas like PUSH32 but 1 byte): solc's constant
+  // optimizer turns a PUSH32 used more than once into a CODECOPY and MLOAD
+  // (about 25 gas more per use) when it runs with few runs (200)
+  diagLets: number;
+  // how many of the following diag constants are kept in the scratch space
+  // (mload(0) and mload(0x20), 5 and 6 gas, no table pointer)
+  diagScratch: number;
   // M4 with two temporaries (t2, t3) instead of four: t0 and t1 are
   // recomputed (two extra ADDs per M4) so that a block of locals sitting 12
   // deep can still be assigned within SWAP16
@@ -63,6 +71,7 @@ class Builder {
   readonly mode: Mode;
   readonly inputs: bigint[][];
   state: Value[] = [];
+  diagLocals: Value[] = [];
 
   constructor(
     params: Params,
@@ -79,7 +88,11 @@ class Builder {
     this.p = new Program(inputs.length, indent);
     if (mode.kind === "hash" && (params.t !== 4 || layout.stackElements !== 4))
       throw new Error("hash mode is the t = 4 library with all locals");
-    if (layout.stackElements > params.t || layout.diagInMemory > params.t)
+    if (
+      layout.stackElements > params.t ||
+      layout.diagScratch > 2 ||
+      layout.diagLets + layout.diagScratch + layout.diagInMemory > params.t
+    )
       throw new Error("layout exceeds t");
   }
 
@@ -162,8 +175,15 @@ class Builder {
 
   diag(i: number): Value {
     const d = this.params.internalDiagMinusOne[i];
+    if (i < this.layout.diagLets) return this.diagLocals[i];
+    if (i < this.layout.diagLets + this.layout.diagScratch)
+      return this.p.mload(this.scratchAddr(i));
     if (i < this.t - this.layout.diagInMemory) return this.p.constant(d);
     return this.p.mload(this.tableAddr(i));
+  }
+
+  scratchAddr(i: number): string {
+    return i === this.layout.diagLets ? "0" : "0x20";
   }
 
   tableAddr(i: number): string {
@@ -438,17 +458,32 @@ class Builder {
         p.blank();
       }
     };
-    if (this.layout.diagInMemory > 0) {
+    const { diagLets, diagScratch, diagInMemory } = this.layout;
+    if (diagLets + diagScratch + diagInMemory > 0) {
       p.block(() => {
-        p.comment(
-          "diag constants that would not fit the code size as PUSH32, in free memory",
-        );
-        p.let("table", p.input("mload(0x40)", []));
-        for (let i = t - this.layout.diagInMemory; i < t; i++) {
-          p.mstore(
-            this.tableAddr(i),
-            p.constant(this.params.internalDiagMinusOne[i]),
+        const d = this.params.internalDiagMinusOne;
+        if (diagLets > 0) {
+          p.comment(
+            "diag constants as locals: solc copies a PUSH32 used more than once from code with few optimizer runs",
           );
+          for (let i = 0; i < diagLets; i++) {
+            this.diagLocals[i] = p.let(`diag${i}`, p.constant(d[i]));
+          }
+        }
+        if (diagScratch > 0) {
+          p.comment("diag constants in the scratch space");
+          for (let i = diagLets; i < diagLets + diagScratch; i++) {
+            p.mstore(this.scratchAddr(i), p.constant(d[i]));
+          }
+        }
+        if (diagInMemory > 0) {
+          p.comment(
+            "diag constants that would not fit the code size as PUSH32, in free memory",
+          );
+          p.let("table", p.input("mload(0x40)", []));
+          for (let i = t - diagInMemory; i < t; i++) {
+            p.mstore(this.tableAddr(i), p.constant(d[i]));
+          }
         }
         p.blank();
         internal();

@@ -6,7 +6,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 permutation for BN254 with t = 8, Rf = 8, Rp = 57, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
-/// @dev 2 of the 8 internal diag constants are kept in free memory (not allocated) to stay within the code size limit
+/// @dev 2 internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT8 {
     function permute(uint256[8] memory state) internal pure {
@@ -400,10 +400,14 @@ library LibPoseidon2YulT8 {
             }
 
             {
-                // diag constants that would not fit the code size as PUSH32, in free memory
-                let table := mload(0x40)
-                mstore(table, 0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d)
-                mstore(add(table, 0x20), 0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53)
+                // diag constants as locals: solc copies a PUSH32 used more than once from code with few optimizer runs
+                let diag0 := 0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d
+                let diag1 := 0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7
+                let diag2 := 0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00
+                let diag3 := 0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348
+                // diag constants in the scratch space
+                mstore(0, 0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb)
+                mstore(0x20, 0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937)
 
                 // round 4 (internal)
                 {
@@ -421,32 +425,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 5 (internal)
@@ -469,32 +461,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 6 (internal)
@@ -517,32 +497,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 7 (internal)
@@ -565,32 +533,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 8 (internal)
@@ -613,32 +569,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 9 (internal)
@@ -661,32 +605,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 10 (internal)
@@ -709,32 +641,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 11 (internal)
@@ -757,32 +677,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 12 (internal)
@@ -805,32 +713,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 13 (internal)
@@ -853,32 +749,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 14 (internal)
@@ -901,32 +785,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 15 (internal)
@@ -949,32 +821,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 16 (internal)
@@ -997,32 +857,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 17 (internal)
@@ -1045,32 +893,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 18 (internal)
@@ -1093,32 +929,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 19 (internal)
@@ -1141,32 +965,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 20 (internal)
@@ -1189,32 +1001,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 21 (internal)
@@ -1237,32 +1037,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 22 (internal)
@@ -1285,32 +1073,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 23 (internal)
@@ -1333,32 +1109,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 24 (internal)
@@ -1381,32 +1145,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 25 (internal)
@@ -1429,32 +1181,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 26 (internal)
@@ -1477,32 +1217,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 27 (internal)
@@ -1525,32 +1253,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 28 (internal)
@@ -1573,32 +1289,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 29 (internal)
@@ -1621,32 +1325,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 30 (internal)
@@ -1669,32 +1361,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 31 (internal)
@@ -1717,32 +1397,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 32 (internal)
@@ -1765,32 +1433,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 33 (internal)
@@ -1813,32 +1469,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 34 (internal)
@@ -1861,32 +1505,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 35 (internal)
@@ -1909,32 +1541,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 36 (internal)
@@ -1957,32 +1577,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 37 (internal)
@@ -2005,32 +1613,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 38 (internal)
@@ -2053,32 +1649,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 39 (internal)
@@ -2101,32 +1685,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 40 (internal)
@@ -2149,32 +1721,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 41 (internal)
@@ -2197,32 +1757,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 42 (internal)
@@ -2245,32 +1793,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 43 (internal)
@@ -2293,32 +1829,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 44 (internal)
@@ -2341,32 +1865,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 45 (internal)
@@ -2389,32 +1901,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 46 (internal)
@@ -2437,32 +1937,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 47 (internal)
@@ -2485,32 +1973,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 48 (internal)
@@ -2533,32 +2009,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 49 (internal)
@@ -2581,32 +2045,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 50 (internal)
@@ -2629,32 +2081,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 51 (internal)
@@ -2677,32 +2117,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 52 (internal)
@@ -2725,32 +2153,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 53 (internal)
@@ -2773,32 +2189,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 54 (internal)
@@ -2821,32 +2225,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 55 (internal)
@@ -2869,32 +2261,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 56 (internal)
@@ -2917,32 +2297,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 57 (internal)
@@ -2965,32 +2333,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 58 (internal)
@@ -3013,32 +2369,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 59 (internal)
@@ -3061,32 +2405,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
 
                 // round 60 (internal)
@@ -3109,32 +2441,20 @@ library LibPoseidon2YulT8 {
                             state0,
                             PRIME
                         )
-                    state0 := add(
+                    state0 := add(sum, mulmod(diag0, state0, PRIME))
+                    state1 := add(sum, mulmod(diag1, state1, PRIME))
+                    state2 := add(sum, mulmod(diag2, state2, PRIME))
+                    state3 := add(sum, mulmod(diag3, state3, PRIME))
+                    state4 := add(sum, mulmod(mload(0), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0x20), state5, PRIME))
+                    state6 := add(
                         sum,
-                        mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
+                        mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                     )
-                    state1 := add(
+                    state7 := add(
                         sum,
-                        mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
+                        mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                     )
-                    state2 := add(
-                        sum,
-                        mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
-                    )
-                    state3 := add(
-                        sum,
-                        mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
-                    )
-                    state4 := add(
-                        sum,
-                        mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
-                    )
-                    state5 := add(
-                        sum,
-                        mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
-                    )
-                    state6 := add(sum, mulmod(mload(table), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(add(table, 0x20)), state7, PRIME))
                 }
             }
             // round 61 (external)
