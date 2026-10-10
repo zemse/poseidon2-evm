@@ -448,3 +448,31 @@ Before fast-forward integration, the coordinator rebuilt the candidate and indep
 Fresh accounting is reproducible with `node generator-rs/stacksearch/gas-floor.mjs`. Coordinator artifacts are `/tmp/poseidon2-final-candidate-{rust,node,python,osaka,amsterdam,compact}.log`, `/tmp/poseidon2-final-search-rust.log`, `/tmp/poseidon2-final-floor.json`, `/tmp/poseidon2-final-t3-periodic.json`, `/tmp/poseidon2-serial-parity.RuK1gT` and `/tmp/poseidon2-final-foundry.log`. The committed non-Git Foundry snapshot is `/tmp/poseidon2-final-foundry.4CBwgQ`. These logs are transient; the tests, probes, corpus and generated code are committed.
 
 After integration, the main checkout independently passes the same 20 Rust, 11 Node and 28 Python tests, both-fork compiled verification and serial TS/Rust parity again. Its regenerated accounting is byte-identical to the reviewed candidate's JSON. The final main logs use `/tmp/poseidon2-final-main-{rust,node,python,osaka,amsterdam}.log`; parity artifacts are `/tmp/poseidon2-serial-parity.r2ncRg`. Subsequent source edits only correct scheduler comments; no generated opcode or parameter changes accompany the final documentation.
+
+
+## Wide widths: state elements held in memory
+
+Baseline 3a4db26, 2026-10-11. From t = 16 the `DUP16` reach cannot hold the state, so the consuming internal round keeps reach - 4 = 12 elements on the stack and the rest in memory, and the external rounds shadow their out-of-reach values. Per steady internal round (static opcode gas of the generated body), Osaka paid t = 16 637, t = 28 1,201 against Amsterdam's 555 and 935. Of the t = 28 gap of 266: 15 memory elements at 12 gas each (`PUSH MLOAD`, `PUSH MSTORE` beyond what a stack element pays) is 180, the sum chain's reductions 112 against 72 (a `MOD` of the partial sum before the `ADD` once the PRIME copies under the operands ran out of reach, two elements per reduction), and `s0^5` through memory 18.
+
+### Changes
+
+- 2b3db1e: every reduction of the sum chain is an `ADDMOD`. The copy goes under its operand where the later `DUP`s keep their reach; copies under elements loaded from memory cost none, so they are counted per step from the top instead of from the deepest slot. Otherwise the copy is `DUP`ed on top and `SWAP2`ed under the partial sum: the same 11 gas as the `MOD`, but it absorbs an element (three per reduction).
+- 91aa2b8: `consumeSlots`. With shadow, the option search also tries 13 and 14 stack elements for the `primeStack` + `sharedBody` schedules. Each element more saves its loads and store and takes a slot from the sum chain's PRIME copies. t = 16 takes 14, t = 20 and t = 28 13, t = 24 stays at 12. The Osaka search does about twice the builds (Rust `verify` of t = 16 to 28: 578 to 1,025 CPU s; the TS Osaka generation of `parity.sh` takes 64 min).
+
+| Fork  | Width |  Before | After (2b3db1e) | After (91aa2b8) | Saving | Runtime bytes after |
+| ----- | ----: | ------: | --------------: | --------------: | -----: | ------------------: |
+| Osaka |    12 |  35,718 |          35,696 |          35,696 |     22 |              21,009 |
+| Osaka |    16 |  53,927 |          53,066 |          51,792 |  2,135 |              24,420 |
+| Osaka |    20 |  69,398 |          69,387 |          67,175 |  2,223 |              24,453 |
+| Osaka |    24 |  85,043 |          82,342 |          82,342 |  2,701 |              24,337 |
+| Osaka |    28 | 105,773 |         102,480 |         102,130 |  3,643 |     23,020 + 23,126 |
+
+t = 28 is the cold-hop call (warm 103,273 to 99,630). t = 2, 3, 4, 8 and every Amsterdam width are byte-identical. The steady internal round is now t = 16 600, t = 28 1,144; 168 of the remaining 209 at t = 28 is the 14 memory elements' loads and stores.
+
+### Rejected or left open (estimates, not built)
+
+- Accumulating the memory elements' outputs into the next round's sum as they are stored (`DUP1` before the store, `ADD` after) saves 3 gas per element, but the running sum needs a stack slot (12 gas per round as a memory element, or a store and a load): at most 27 gas a round at t = 28, nothing at t = 16 and t = 20.
+- Updating a memory element every second round (`d^2 s + d S_j + S_(j+1)`) halves its loads and stores but the next round's sum still needs `d s`, so it takes three `MULMOD`s per two rounds instead of two: dearer.
+- Keeping `s0^5` on the stack instead of the 18-gas round trip takes a slot, which a memory element pays 12 to 15 for: about even.
+- t = 28 as one contract: 105,019 (period 3, diag constants in memory, which alone cost about 3 gas per use per round). The external rounds are 2,364 bytes each; running them through a shared body would free about 16 KB but costs about 200 gas a round (`CODECOPY` of 28 constants, `MLOAD` per lane, the jumps), for an estimated net 1.6K below the split.
+- External rounds: Osaka pays 348 (t = 16) to 648 (t = 28) gas a round over Amsterdam, almost all memory: every S-box output is shadowed (`DUP1 PUSH MSTORE`, 9) and replaced in place (`SWAPn POP`, 5), then loaded again for the column sums and the blocks. A block-wise schedule that consumes each block in place and shadows only what the reach loses is estimated at about 240 gas a round at t = 28 and 100 at t = 16 (2K and 0.8K a call).

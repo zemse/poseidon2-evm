@@ -6,7 +6,7 @@
 #
 #   generator-rs/parity.sh [amsterdam] [osaka] [paris] [yul]   (default: all)
 #
-# The TS runs go in parallel in the background; the osaka one takes ~15 min.
+# The TS runs go in parallel in the background; the osaka one takes ~65 min.
 # PARITY_KEEP=1 keeps the temporary directory.
 set -euo pipefail
 
