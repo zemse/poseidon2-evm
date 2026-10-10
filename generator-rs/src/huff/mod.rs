@@ -162,6 +162,14 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         to: step_count(&params),
     };
     let mut best = build_best(&params, &inputs, fork.code_size - overhead, *fork, range)?;
+    // the budget leaves room for the entry without shadow slots; with its
+    // own slots it may not fit
+    if best.as_ref().is_some_and(|b| {
+        b.result.bytes + entry_bytes(*fork, t, &b.result.input_slots, b.result.state_in_memory)
+            > fork.code_size
+    }) {
+        best = None;
+    }
     // a whole permutation that fits only through the sub-chains of a shorter
     // body pays for the size (the chains, the calls, diag constants in
     // memory), which a split may beat

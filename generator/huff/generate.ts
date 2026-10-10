@@ -91,6 +91,16 @@ function generate(t: number, fork: Fork) {
   const label = `t=${t} Rf=${params.roundsF} Rp=${params.roundsP} on ${fork.name}`;
 
   let best = buildBest(params, inputs, fork.codeSize - entryOverhead, fork);
+  // the budget leaves room for the entry without shadow slots; with its own
+  // slots it may not fit
+  if (
+    best &&
+    best.result.bytes +
+      entryBytes(fork, t, best.result.inputSlots, best.result.stateInMemory) >
+      fork.codeSize
+  ) {
+    best = undefined;
+  }
   // a whole permutation that fits only through the sub-chains of a shorter
   // body pays for the size (the chains, the calls, diag constants in
   // memory), which a split may beat
