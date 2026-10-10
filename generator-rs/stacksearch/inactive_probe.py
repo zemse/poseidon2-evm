@@ -108,7 +108,7 @@ def numeric_chains(path):
 class Schedule:
     """One clean-boundary last-use schedule, with charged top-based SWAP transport."""
     def __init__(self):
-        self.stack = ["a", "P", "b", "v"]
+        self.stack = ["a", "P", "v", "b"]
         self.ops = []
         self.gas = 0
 
@@ -173,8 +173,9 @@ def scheduled_chain(path):
     bias = path[-1][1][1]
     schedule.compute("sub", [f"bias:{bias}", "v"], "negv", {"v"})
     schedule.compute("addmod", ["u", "negv", "P"], "b", {"P"})
-    schedule.arrange(["a", "P", "b", "v"])
+    schedule.arrange(["a", "P", "v", "b"])
     return {"entry": entry, "rounds": rounds, "exit": schedule.gas - before,
+            "output_layout": schedule.stack.copy(),
             "total": schedule.gas, "dsl": " ".join(schedule.ops),
             "scope": "Fixed DAG order, last-use consumption, locally shortest stable-tail commutative transport, clean boundary every round; not joint synthesis."}
 
@@ -185,7 +186,7 @@ def replay_schedule(record):
         state = [rng.randrange(4 * L + 1) for _ in range(3)]
         if trial < 4:
             state = [[0, 1, L, 4 * L][trial]] * 3
-        stack = [state[0], P, state[1], state[2]]
+        stack = [state[0], P, state[2], state[1]]
         bounds = [4 * L, P, 4 * L, 4 * L]
         reference = [x % P for x in state]
         gas = 0
@@ -229,7 +230,7 @@ def replay_schedule(record):
             assert all(0 <= value <= bound <= MAX for value, bound in zip(stack, bounds))
             gas += 45 if op == "sbox" else 8 if op == "addmod" else 3
         assert len(stack) == 4 and stack[1] == P
-        assert [stack[0] % P, stack[2] % P, stack[3] % P] == reference
+        assert [stack[0] % P, stack[3] % P, stack[2] % P] == reference
         assert all(bounds[i] + L <= MAX for i in (0, 2, 3))
         assert gas == record["total"]
 

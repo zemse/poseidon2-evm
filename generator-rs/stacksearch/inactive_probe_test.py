@@ -3,9 +3,10 @@
 import itertools
 import json
 from pathlib import Path
+import subprocess
 import unittest
 
-from inactive_probe import B, DAG, L, MAX, P, basis, matmul, policies, probe, replay_schedule
+from inactive_probe import B, DAG, L, MAX, P, ROOT, Schedule, basis, matmul, policies, probe, replay_schedule
 
 
 class InactiveProbeTests(unittest.TestCase):
@@ -56,10 +57,22 @@ class InactiveProbeTests(unittest.TestCase):
         self.assertEqual(shear["linear_funded_56"], 2840)
         self.assertEqual(shear["rounds_plus_conversions_relaxation"], 5562)
         record = shear["scheduled_model"]
-        self.assertEqual((record["entry"], record["exit"], record["total"]), (29, 38, 8586))
+        self.assertEqual((record["entry"], record["exit"], record["total"]), (32, 41, 8592))
         self.assertEqual(record["total"], record["entry"] + sum(record["rounds"]) + record["exit"])
         self.assertEqual(len(record["rounds"]), 56)
         self.assertGreater(record["total"], shear["incumbent_internal_scheduled"])
+
+    def test_production_entry_and_external_reentry_order(self):
+        script = ("import {INTERNAL3_PERIODIC,TEMPLATES} from './generator/huff/templates.ts';"
+                  "console.log(JSON.stringify([Object.values(INTERNAL3_PERIODIC).map(x=>x[0].init),TEMPLATES[3].round.map(x=>x.init)]));")
+        internal, external = json.loads(subprocess.check_output(
+            ["node", "--input-type=module", "-e", script], cwd=ROOT, text=True))
+        production = ["s0", "P", "s2", "s1"]
+        self.assertEqual(internal, [production] * 4)
+        self.assertIn(production, external)
+        original = [{"s0": "a", "P": "P", "s2": "v", "s1": "b"}[x] for x in production]
+        self.assertEqual(Schedule().stack, original)
+        self.assertEqual(self.result["t3_shear"]["scheduled_model"]["output_layout"], original)
 
     def test_replay_rejects_unsafe_add_and_reversed_sub(self):
         record = self.result["t3_shear"]["scheduled_model"]
