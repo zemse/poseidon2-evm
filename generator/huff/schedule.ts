@@ -85,7 +85,8 @@ export type BuildOptions = {
   // else reduces the elements)
   internalReduceOutputs: boolean;
   // internal rounds: leave a PRIME copy under the new state only when the
-  // nearest copy would leave the reach, instead of every round
+  // nearest copy would leave the reach, instead of every round; t = 2
+  // with internalMul3 omits backing copies when false
   floatPrimeInternal: boolean;
   // internal rounds consume the old state in place: the sum chain DUPs
   // every element in advance and each element is then SWAPped to the top
@@ -127,9 +128,9 @@ export type BuildOptions = {
   // (INTERNAL4): one dead value a round instead of five, for three SWAPs;
   // t = 3 ones as INTERNAL3, with s1' and s2' reduced every round
   internalTemplate: boolean;
-  // t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3 and
-  // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op less per
-  // round, once s1 is clean)
+  // t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
+  // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
+  // (one op less per round, after the first generic bridge)
   internalMul3: boolean;
   // store PRIME in memory once and load it (PUSH, MLOAD) where no copy is
   // within reach instead of PUSH32 (3 gas more, 30 bytes less)
@@ -1292,7 +1293,6 @@ class Builder {
       // s1' = (3 s1 mod P) + s0^5 lazy on the PRIME copy for the next round,
       // s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
       if (this.opts.floatPrimeInternal) this.floatPrime();
-      else e.pushPrime();
       e.pushPrime();
       const m = e.compute(
         "mulmod",
@@ -1350,7 +1350,8 @@ class Builder {
         // the copies come from deeper until the nearest leaves the reach
         if (!collect || e.findPrime() === 0) {
           if (this.opts.floatPrimeInternal) this.floatPrime();
-          else e.pushPrime();
+          else if (!(t === 2 && this.opts.internalMul3 && !collect))
+            e.pushPrime();
         }
       }
       if (i === 0 && nextInternal) {

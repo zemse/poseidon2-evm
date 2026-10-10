@@ -64,7 +64,8 @@ pub struct BuildOptions {
     /// with ADDMOD (t <= 3)
     pub internal_reduce_outputs: bool,
     /// internal rounds: leave a PRIME copy under the new state only when the
-    /// nearest copy would leave the reach
+    /// nearest copy would leave the reach; t = 2 with internal_mul3 omits
+    /// backing copies when false
     pub float_prime_internal: bool,
     /// internal rounds consume the old state in place
     pub internal_consume: bool,
@@ -103,9 +104,9 @@ pub struct BuildOptions {
     /// (internal4): one dead value a round instead of five, for three SWAPs;
     /// t = 3 ones as internal3, with s1' and s2' reduced every round
     pub internal_template: bool,
-    /// t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3
-    /// and s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op
-    /// less per round, once s1 is clean)
+    /// t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
+    /// s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
+    /// (one op less per round, after the first generic bridge)
     pub internal_mul3: bool,
     /// store PRIME in memory once and load it (PUSH, MLOAD) where no copy
     /// is within reach instead of PUSH32 (3 gas more, 30 bytes less)
@@ -1668,8 +1669,6 @@ impl<'a> Builder<'a> {
             // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
             if self.opts.float_prime_internal {
                 self.float_prime()?;
-            } else {
-                self.e.push_prime()?;
             }
             self.e.push_prime()?;
             let m = self.e.compute(
@@ -1742,7 +1741,7 @@ impl<'a> Builder<'a> {
                 if !collect || self.e.find_prime() == 0 {
                     if self.opts.float_prime_internal {
                         self.float_prime()?;
-                    } else {
+                    } else if !(t == 2 && self.opts.internal_mul3 && !collect) {
                         self.e.push_prime()?;
                     }
                 }
@@ -3058,7 +3057,9 @@ mod tests {
         }
         for name in ["osaka", "amsterdam"] {
             for b in 1..=3 {
-                for final_prime in [false, true] {
+                for (final_prime, float_prime_internal) in
+                    [(false, false), (false, true), (true, false), (true, true)]
+                {
                     let bounds = vec![PRIME * u256(3) - u256(1), PRIME * u256(b) - u256(1)];
                     let inputs = vec![
                         vec![U256::ZERO, U256::ZERO],
@@ -3067,7 +3068,7 @@ mod tests {
                     ];
                     let opts = BuildOptions {
                         internal_mul3: true,
-                        float_prime_internal: true,
+                        float_prime_internal,
                         internal_reduce_outputs: true,
                         ..DEFAULT_OPTIONS
                     };

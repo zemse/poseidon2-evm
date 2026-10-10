@@ -589,6 +589,96 @@ mod tests {
         assert!(inputs(2).iter().flatten().any(|&x| x >= PRIME));
     }
 
+    #[test]
+    fn t2_omitted_backing_and_compact_budget() {
+        use crate::huff::render::{entry_bytes, render_entry, render_permutation};
+        use crate::huff::schedule::{Range, build_best, step_count};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let params = generate_params(2);
+        for name in ["osaka", "amsterdam"] {
+            let fork = fork(name).unwrap();
+            let width = super::super::generate(2, &fork).unwrap();
+            let files: HashMap<String, String> = width
+                .files()
+                .map(|(path, text)| (path.to_string(), text.to_string()))
+                .collect();
+            let Target::Entry { path, .. } = &width.target else {
+                panic!("expected t2 entry");
+            };
+            let permutation_path = files
+                .keys()
+                .find(|path| path.ends_with("/Permutation.huff"))
+                .unwrap();
+            let wrapper_bytes = entry_bytes(fork, 2, &[], false);
+            assert_eq!(wrapper_bytes, 51);
+            let compact_bytes = if name == "osaka" { 3918 } else { 4007 };
+            let compact_gas = if name == "osaka" { 5956 } else { 5917 };
+            for tight in [false, true] {
+                let budget = if tight { compact_bytes } else { fork.code_size } - wrapper_bytes;
+                let best = build_best(
+                    &params,
+                    &test_inputs(2),
+                    budget,
+                    fork,
+                    Range {
+                        from: 0,
+                        to: step_count(&params),
+                    },
+                )
+                .unwrap()
+                .unwrap();
+                assert!(best.opts.internal_mul3);
+                assert_eq!(best.opts.float_prime_internal, tight);
+                assert!(best.result.bytes <= budget);
+                assert!(best.result.max_dup <= fork.reach);
+                assert!(best.result.max_depth <= 1000);
+                let expected_gas = if tight { compact_gas } else { 5914 };
+                let expected_bytes = if tight {
+                    compact_bytes
+                } else if name == "osaka" {
+                    7424
+                } else {
+                    4014
+                };
+                assert_eq!(best.result.gas + 52, expected_gas);
+                let mut candidate = files.clone();
+                candidate.insert(
+                    permutation_path.clone(),
+                    render_permutation(
+                        &params,
+                        &best.result,
+                        &best.opts,
+                        if name == "amsterdam" {
+                            "../Utils.huff"
+                        } else {
+                            "../../Utils.huff"
+                        },
+                        &fork,
+                    ),
+                );
+                candidate.insert(path.clone(), render_entry(&params, &fork, &best.result));
+                let sources = Arc::new(Sources {
+                    root: root.clone(),
+                    files: candidate,
+                });
+                let compiled = compile(&sources, path, &fork).unwrap();
+                assert_eq!(compiled.runtime.len(), expected_bytes);
+                assert_eq!(compiled.runtime.len(), best.result.bytes + wrapper_bytes);
+                assert!(compiled.runtime.len() <= fork.code_size);
+                assert!(compiled.initcode.len() <= fork.initcode_size);
+                let mut chain = Chain::new(&fork);
+                let to = chain.deploy(compiled.initcode).unwrap();
+                let measured = check_permutation(&mut chain, to, &[], 2, name).unwrap();
+                assert_eq!(same_gas(&measured, name).unwrap(), expected_gas);
+                println!(
+                    "{name} tight={tight}: {} verified calls, {expected_gas} gas, {expected_bytes} runtime bytes",
+                    measured.len()
+                );
+            }
+        }
+    }
+
     /// the checked-in t = 2 (DUPN / SWAPN) runs on Amsterdam only
     #[test]
     fn eip8024_needs_amsterdam() {

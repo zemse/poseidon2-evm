@@ -4,6 +4,7 @@ import { generateParams } from "../../generator/round-constants/round-constants.
 import { PRIME } from "../../generator/shared/field.ts";
 import { FORKS } from "../../generator/huff/fork.ts";
 import {
+  buildBest,
   buildPermutation,
   DEFAULT_OPTIONS,
   stepCount,
@@ -29,7 +30,14 @@ for (const name of ["osaka", "amsterdam"]) {
   test(`t2 lazy MULMOD policy and external re-entry on ${name}`, () => {
     const params = generateParams(2);
     for (const rc of params.roundConstants) rc[0] = PRIME - 1n;
-    for (const b of [1n, 2n, 3n]) {
+    for (const [b, floatPrimeInternal] of [
+      [1n, false],
+      [1n, true],
+      [2n, false],
+      [2n, true],
+      [3n, false],
+      [3n, true],
+    ]) {
       const bounds = [3n * PRIME - 1n, b * PRIME - 1n];
       const inputs = [[0n, 0n], [1n, bounds[1]], bounds];
       // buildPermutation checks every output against permutationSteps.
@@ -39,7 +47,7 @@ for (const name of ["osaka", "amsterdam"]) {
         {
           ...DEFAULT_OPTIONS,
           internalMul3: true,
-          floatPrimeInternal: true,
+          floatPrimeInternal,
           internalReduceOutputs: true,
           externalTemplate: true,
         },
@@ -57,6 +65,34 @@ for (const name of ["osaka", "amsterdam"]) {
         assert.equal(round.add, 4);
       }
       assert.ok(result.outputs.every((v) => v.bound < PRIME));
+    }
+  });
+
+  test(`t2 omitted backing and tight-budget compact selection on ${name}`, () => {
+    const params = generateParams(2);
+    const inputs = [
+      [0n, 0n],
+      [1n, PRIME - 1n],
+      [PRIME - 1n, PRIME - 1n],
+    ];
+    const fork = FORKS[name];
+    const compactBytes = name === "osaka" ? 3867 : 3956;
+    const compactGas = name === "osaka" ? 5904 : 5865;
+    const plainBytes = name === "osaka" ? 7373 : 3963;
+    for (const tight of [false, true]) {
+      const best = buildBest(
+        params,
+        inputs,
+        tight ? compactBytes : fork.codeSize - 51,
+        fork,
+      );
+      assert.ok(best);
+      assert.equal(best.opts.internalMul3, true);
+      assert.equal(best.opts.floatPrimeInternal, tight);
+      assert.equal(best.result.bytes, tight ? compactBytes : plainBytes);
+      assert.equal(best.result.gas, tight ? compactGas : 5862);
+      assert.ok(best.result.maxDup <= fork.reach);
+      assert.ok(best.result.maxDepth <= 1000);
     }
   });
 

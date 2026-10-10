@@ -313,4 +313,67 @@ python3 "$SEARCH/inactive_probe.py" > /tmp/poseidon2-lane4-inactive.json
 python3 -m unittest discover -s "$SEARCH" -p inactive_probe_test.py -v
 ```
 
-Seven Python regressions regenerate [the portable evidence](results/lane4-inactive.json), check all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. The boundary regression ties both original-coordinate endpoints to all four production INTERNAL3_PERIODIC layouts and a matching next external template. Python uses the installed standard library and existing Node, with no dependency or lockfile changes. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy lead is the next bounded unit.
+Seven Python regressions regenerate [the portable evidence](results/lane4-inactive.json), check all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. The boundary regression ties both original-coordinate endpoints to all four production INTERNAL3_PERIODIC layouts and a matching next external template. Python uses the installed standard library and existing Node, with no dependency or lockfile changes. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy follow-up is recorded below.
+
+## Lane 4: t = 2 optional PRIME backing
+
+Production baseline ecdb664, remeasured after the boundary correction in branch `bhai/8cf2de96-db0dff`. Only optional backing copies change. The actual MULMOD modulus and next-S-box PRIME copies remain. Arithmetic, parameters, wrappers, bounds and output semantics are unchanged. No new option, memory cache or opcode support is needed.
+
+### Compiled variants and selected policy
+
+Each prototype generates the full t=2 permutation, compiles with huff-neo and verifies 24 shared-vector/full-word calls per fork in revm. These are measured call-frame gas and runtime bytes, not deployment/transaction/caller costs. Every model difference is zero.
+
+| Prototype                                       | Osaka call gas | Runtime bytes | Amsterdam call gas | Runtime bytes |
+| ----------------------------------------------- | -------------: | ------------: | -----------------: | ------------: |
+| Retained floated baseline                       |          5,956 |         3,918 |              5,917 |         4,007 |
+| Omit only specialized `else pushPrime`          |          5,917 |         7,201 |              5,917 |         4,008 |
+| Omit entire specialized optional backing stanza |          5,914 |         7,424 |              5,914 |         4,014 |
+
+The partial omission selects `floatPrimeInternal=false`, but still supplies an optional backing copy in the first generic bridge. Removing the entire specialized stanza permits the floated generic bridge, avoiding that extra three gas. These experiments remove copies; they are not the older rejected experiment that supplied a fresh backing copy every round.
+
+The final TS/Rust policy keeps `floatPrimeInternal=true` unchanged as the compact candidate. With `internalMul3` and `floatPrimeInternal=false`, specialized t=2 rounds omit optional backing, and a non-collecting generic t=2 bridge also omits it. This reaches the complete-omission cost without removing the compact option. Other widths and garbage-collecting paths retain their previous policy. `pushPrime` still emits a reachable DUP or literal PUSH32 at the same three gas, with no bound or reach bypass.
+
+| Final default | Before gas | After gas | Saving | Before bytes | After bytes | Growth |
+| ------------- | ---------: | --------: | -----: | -----------: | ----------: | -----: |
+| Osaka         |      5,956 |     5,914 |     42 |        3,918 |       7,424 |  3,506 |
+| Amsterdam     |      5,917 |     5,914 |      3 |        4,007 |       4,014 |      7 |
+
+The Osaka bytecode increase alone adds **701,200 code-deposit gas** at 200 gas/byte. This excludes all other deployment costs and is not a measured full-deployment gas figure. The Amsterdam runtime increase is seven bytes. Both defaults remain within their runtime limits (24,576 / 65,536 bytes), and the compiled tests also enforce the corresponding initcode limits. This is a small execution saving with a large Osaka deployment tradeoff, not a free win.
+
+### Tight-budget compact fallback
+
+The TS regression and compiled Rust regression both call `buildBest` with the old compact core-byte budget. The full wrapper is 51 bytes and 52 call gas. Selection restores `floatPrimeInternal=true` with the same arithmetic and floated-copy path as before; no new knob is introduced.
+
+| Fork      | Tight core `maxBytes` | Selected core bytes | Core gas | Compiled runtime bytes | Compiled call gas |
+| --------- | --------------------: | ------------------: | -------: | ---------------------: | ----------------: |
+| Osaka     |                 3,867 |               3,867 |    5,904 |                  3,918 |             5,956 |
+| Amsterdam |                 3,956 |               3,956 |    5,865 |                  4,007 |             5,917 |
+
+At the ordinary budget, both select the literal-capable candidate at 5,862 core gas, with 7,373 / 3,963 core bytes. The Rust gate compiles both selected budgets and checks all 24 reference inputs per case, giving 48 additional calls per fork. It asserts the chosen option, exact gas/bytes, maximum DUP reach, stack depth, runtime size and initcode size. The compact result is a verified budget fallback, not merely a manually forced option.
+
+### Accounting, safety and verification
+
+Fresh Osaka accounting gives internal gas 4,877 -> 4,835: one generic bridge at 105 and 55 rounds at 86, removing the fourteen backing-copy surcharges. The internal fixed-inventory floor remains 4,496; its surplus-supply gap falls 381 -> 339. Initial/external/wrapper costs remain 27 / 1,000 / 52. The same-wrapper floor remains 5,494, with total gap 462 -> 420 (57 SWAP gas plus 363 surplus supply). This recovers supply headroom, unlike lane 2's arithmetic saving. These remain fixed-inventory, fixed-boundary relaxations, not unrestricted EVM minima.
+
+All arithmetic still passes the emitter's inclusive overflow checks. The existing t=2 bounds/first-bridge/external-re-entry regressions now exercise both backing policies, inactive bounds below P/2P/3P, maximal constants, all 56 rounds, and in Rust both final next-PRIME flags. The specialized MULMOD policy still produces inactive output at most 2(P-1), and its active-output safety guard is unchanged. Final live stock includes PRIME under the reduced outputs in both schedules.
+
+- Both-fork CLI verification: 24 / 24 / 96 calls at 5,914 / 7,656 / 12,087, all model differences zero. t=3 runtime remains 6,719 bytes; t=4 remains 15,644 / 13,629 bytes. The t=4 hash entrypoints remain 11,910 / 11,932 / 12,005.
+- Full Rust suite: 20 tests (11 library, four generator, five compiled integration). Both small-width gas snapshots now assert 5,914 for t=2. t=16/24/28 snapshots and checked-in generator equality pass unchanged. The finite lane 3 compiled corpus also passes.
+- Eleven Node tests pass, including both t=2 backing policies and both ordinary/tight-budget selections. Fourteen Python regressions pass: seven linear probes and all seven corrected inactive-coordinate probes. The t=3 production DSL still replays 64 complete chains at 6,000 internal gas.
+- Serial TS/Rust parity passes on Osaka and Amsterdam for t=2/3/4 sources, tests and stdout. Only the intended tracked Amsterdam t=2 `Permutation.huff` changes after regeneration; its wrapper and test vectors are unchanged.
+- Cargo fmt, the existing Prettier and scoped whitespace checks pass. No dependency, lockfile, installation, Foundry invocation, merge or push. The parent owns final README reconciliation and independent Foundry verification in a committed non-Git snapshot.
+
+```sh
+ROOT=/absolute/path/to/this/worktree
+SEARCH="$ROOT/generator-rs/stacksearch"
+cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork osaka 2 3 4
+cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork amsterdam 2 3 4
+cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" t2_omitted_backing_and_compact_budget -- --test-threads=1 --nocapture
+cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
+node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
+python3 -m unittest discover -s "$SEARCH" -p '*probe_test.py' -v
+python3 "$SEARCH/t3_periodic.py"
+node "$SEARCH/gas-floor.mjs"
+```
+
+Transient evidence: `/tmp/poseidon2-lane4-t2-{partial,entire}-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane4-final-rust.log`, `/tmp/poseidon2-lane4-final-floor.json`, `/tmp/poseidon2-lane4-final-t3-periodic.json` and `/tmp/poseidon2-serial-parity.NkRYib`. The portable regressions and generated source preserve the selected policy and compact fallback; the unselected partial prototype is documented evidence only. No further investigation follows in this lane.
