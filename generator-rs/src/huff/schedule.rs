@@ -1656,6 +1656,22 @@ impl<'a> Builder<'a> {
         let sum = self.chain_sum(&old, "sum", cap)?;
         self.e.end_line();
 
+        // the round program after the last internal round adds its round
+        // constants with an ADD only to an output that fits, otherwise an
+        // ADDMOD and an S-box without its PRIME copy (14 gas) instead of
+        // reducing here (8)
+        let rf_half = self.params.rounds_f / 2;
+        let next_c = (self.opts.external_template
+            && t <= 3
+            && next_internal
+            && round == rf_half + self.params.rounds_p - 1)
+            .then(|| self.params.round_constants[round + 1].clone());
+        let tight = |bound: U512, i: usize| {
+            next_c
+                .as_ref()
+                .is_some_and(|c| i > 0 && bound + wide(c[i]) > wmax())
+        };
+
         let mut out = vec![0; t];
         // deepest element first, s0 last so it lands on the pre-placed PRIME;
         // shallowest first when the results replace the old slots in place
@@ -1691,11 +1707,12 @@ impl<'a> Builder<'a> {
             let reduce = lazy && i > 0;
             let name = format!("s{i}'");
             out[i] = if d == u256(1) {
-                self.pair_add(s, sum, &name, reduce)?
+                let r = reduce || tight(wide(self.bound(s)) + wide(self.bound(sum)), i);
+                self.pair_add(s, sum, &name, r)?
             } else if d == u256(2) {
                 if self.fits(s, s) {
                     let wide_sum = wide(self.bound(sum)) + wide(self.bound(s)) * U512::from(2u64);
-                    let r = reduce || wide_sum > wmax();
+                    let r = reduce || wide_sum > wmax() || tight(wide_sum, i);
                     let dname = format!("2s{i}");
                     self.add_to(
                         |b| b.e.compute(Op::Add, &[val(s), val(s)], &dname),
@@ -1704,7 +1721,8 @@ impl<'a> Builder<'a> {
                         r,
                     )?
                 } else {
-                    let r = reduce || !self.fits(sum, p);
+                    let lazy_bound = wide(self.bound(sum)) + wide(p1());
+                    let r = reduce || !self.fits(sum, p) || tight(lazy_bound, i);
                     let dname = format!("2s{i}");
                     self.add_to(
                         |b| {
@@ -1720,7 +1738,8 @@ impl<'a> Builder<'a> {
                     )?
                 }
             } else {
-                let r = reduce || !self.fits(sum, p);
+                let lazy_bound = wide(self.bound(sum)) + wide(p1());
+                let r = reduce || !self.fits(sum, p) || tight(lazy_bound, i);
                 let mname = format!("m{i}");
                 let diag = self.diag(i);
                 self.add_to(

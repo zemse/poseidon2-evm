@@ -8,7 +8,7 @@
 /// @dev takes [s0, s1, s2, PRIME] with clean inputs, returns [s0', s1', s2', PRIME, ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN (Eip8024.huff): runs on Amsterdam and later only
-/// @dev 7839 gas, max stack depth 244, max dup 121, 4974 bytes
+/// @dev 7827 gas, max stack depth 244, max dup 121, 4972 bytes
 /// @dev schedule options: floatPrimeInternal, externalTemplate
 #define macro POSEIDON2_PERMUTATION() = {
     // Initial linear layer
@@ -446,14 +446,14 @@
     // Round 59 (internal)
     0x268076b0054fb73f67cee9ea0e51e3ad50f27a6434b5dceb5bdde2299910a4c9 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, ...]
     DUP99() dup3 dup5 dup4 add addmod        // [sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', ...]
-    dup4 dup2 add                            // [s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', ...]
-    dup4 dup1 add dup3 add                   // [s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, ...]
+    DUP100() dup5 dup3 addmod                // [s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', ...]
+    DUP101() dup3 dup6 dup1 add addmod       // [s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, s0^5, ...]
     DUP102() dup5 dup5 add                   // [s0', P, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', ...]
 
     // Round 60 (external)
     0x1acd63c67fbc9ab1626ed93491bda32e5da18ea9d8e4f10178d04aa6f8747ad0 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, s2', s1', sum, s0^5, s2', s1', sum, s0^5, s2', s1', sum, ...]
-    DUP103() dup1 dup1 dup6 0x19f8a5d670e8ab66c4e3144be58ef6901bf93375e2323ec3ca8c86cd2a28b5a5 addmod dup2 dup2 dup1 mulmod dup3 swap1 dup1 mulmod dup3 swap2 mulmod // [x1, P, P, x0, s2', s1', sum, s0^5, s2', s1', sum, s0^5, ...]
-    swap4 0x1c0dc443519ad7a86efa40d2df10a011068193ea51f6c92ae1cfbb5f7b9b6893 addmod dup2 dup2 dup1 mulmod dup3 swap1 dup1 mulmod dup3 swap2 mulmod // [x2, P, x0, x1, s1', sum, s0^5, s2', s1', sum, s0^5, s2', ...]
+    DUP103() dup1 dup1 dup6 0x19f8a5d670e8ab66c4e3144be58ef6901bf93375e2323ec3ca8c86cd2a28b5a5 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, P, x0, s2', s1', sum, s0^5, s2', s1', sum, s0^5, ...]
+    swap4 0x1c0dc443519ad7a86efa40d2df10a011068193ea51f6c92ae1cfbb5f7b9b6893 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x2, P, x0, x1, s1', sum, s0^5, s2', s1', sum, s0^5, s2', ...]
     dup3 dup2 dup6 add                       // [s1+s2, x0, x2, P, x0, x1, s1', sum, s0^5, s2', s1', sum, ...]
     add                                      // [sum, x2, P, x0, x1, s1', sum, s0^5, s2', s1', sum, s0^5, ...]
     swap4 dup5 add                           // [s1', x2, P, x0, sum, s1', sum, s0^5, s2', s1', sum, s0^5, ...]

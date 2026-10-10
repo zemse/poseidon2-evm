@@ -248,7 +248,7 @@ Before is `2fb3452`; after is the paired TS/Rust template update. Except for the
 | t24 | 87,534 | 87,333 | 67,559 | 67,343 |
 | t28 | 106,606 | 105,773 | 80,301 | 80,049 |
 
-No call-gas regressions. The lower t3 re-entry program cost does not reduce the selected complete call's gas. Osaka t20 now uses one 23,910-byte contract rather than two parts. t24/t28 still use two parts; their warm-hop gas is 84,833/103,273. Amsterdam t8 is 24,090 to 24,018 core gas plus the unchanged 190-gas raw wrapper, so its comparable call saving is 72 gas.
+No call-gas regressions. The lower t3 re-entry program cost does not reduce the selected complete call's gas. The generator re-enters from `s0,P,s2,s1`, whose template already costs 189 like the searched `s0,P,s1,s2` program, so the layout has nothing to gain; the loss was the lazy outputs of the last internal round, whose s1 + c and s2 + c took an ADDMOD and the S-box without its PRIME copy (14 gas a lane). Reducing them in that round instead (8 a lane) gives t3 7,914 to 7,902 (Amsterdam) and 7,992 to 7,980 (Osaka). Osaka t20 now uses one 23,910-byte contract rather than two parts. t24/t28 still use two parts; their warm-hop gas is 84,833/103,273. Amsterdam t8 is 24,090 to 24,018 core gas plus the unchanged 190-gas raw wrapper, so its comparable call saving is 72 gas.
 
 Verification completed:
 

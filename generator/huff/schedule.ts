@@ -1274,6 +1274,20 @@ class Builder {
     const sum = this.chainSum(old, "sum", cap);
     e.endLine();
 
+    // the round program after the last internal round adds its round
+    // constants with an ADD only to an output that fits, otherwise an ADDMOD
+    // and an S-box without its PRIME copy (14 gas) instead of reducing here
+    // (8)
+    const nextC =
+      this.opts.externalTemplate &&
+      t <= 3 &&
+      nextInternal &&
+      round === this.params.roundsF / 2 + this.params.roundsP - 1
+        ? this.params.roundConstants[round + 1]
+        : undefined;
+    const tight = (bound: bigint, i: number) =>
+      nextC !== undefined && i > 0 && bound + nextC[i] > UINT256_MAX;
+
     const out: Value[] = new Array(t);
     // deepest element first, s0 last so it lands on the pre-placed PRIME;
     // shallowest first when the results replace the old slots in place with
@@ -1301,21 +1315,29 @@ class Builder {
       }
       const reduce = lazy && i > 0;
       if (d === 1n) {
-        out[i] = this.pairAdd(s, sum, `s${i}'`, reduce);
+        out[i] = this.pairAdd(
+          s,
+          sum,
+          `s${i}'`,
+          reduce || tight(s.bound + sum.bound, i),
+        );
       } else if (d === 2n) {
         if (e.fitsAdd(s, s)) {
+          const wideSum = sum.bound + 2n * s.bound;
           out[i] = this.addTo(
             () => e.compute("add", [s, s], `2s${i}`),
             sum,
             `s${i}'`,
-            reduce || sum.bound + 2n * s.bound > UINT256_MAX,
+            reduce || wideSum > UINT256_MAX || tight(wideSum, i),
           );
         } else {
           out[i] = this.addTo(
             () => e.compute("mulmod", [s, this.constant(2n), this.P], `2s${i}`),
             sum,
             `s${i}'`,
-            reduce || !e.fitsAdd(sum, this.P),
+            reduce ||
+              !e.fitsAdd(sum, this.P) ||
+              tight(sum.bound + (PRIME - 1n), i),
           );
         }
       } else {
@@ -1323,7 +1345,9 @@ class Builder {
           () => e.compute("mulmod", [s, this.diag(i), this.P], `m${i}`),
           sum,
           `s${i}'`,
-          reduce || !e.fitsAdd(sum, this.P),
+          reduce ||
+            !e.fitsAdd(sum, this.P) ||
+            tight(sum.bound + (PRIME - 1n), i),
         );
       }
       if (collect && i > 0) this.gc(s);
