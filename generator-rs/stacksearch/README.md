@@ -26,6 +26,12 @@ Two binaries, run from this directory after `cargo build --release`:
   t3int <s1 bound> <s2 bound> <s1' bound> <s2' bound> [max_garbage=2] [max_len=10] [s0' bound=4] [ub]
   ```
 
+- `target/release/cycle` (`src/bin/cycle.rs`) bounds the steady internal rounds of t = 3 and t = 4 with no layout fixed between rounds: the least mean cost per round over every cycle of rounds, the next round allowed to start before this one ends. It counts only the copies, SWAPs and POPs of the values of the linear layer; PRIME copies and constants are left out, so a SWAP that moved one becomes a move of a value to or from the top, 3 gas. Every layout a round can end in starts at 0, and value iteration over k rounds brackets the cycle mean between the least and largest change of D_k. Layers 0 prints one round from `s0,s1,...` back to it instead.
+
+  ```
+  cycle <t> [max_window=12] [layers=4]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:
