@@ -162,6 +162,23 @@ export const INTERNAL4: Template[] = [
   },
 ];
 
+// The t = 3 internal round with the internalTemplate option (stacksearch's
+// t3int): s1' and s2' are reduced on pre-placed PRIME copies and s1' is
+// swapped into the slot of s2, which comes up for 2 s2. The first program
+// takes reduced s1 and s2 and keeps the sum lazy (64 gas after the S-box),
+// the second lazy ones as the external round leaves them and reduces the
+// sum (72). Both leave s1 dead under the outputs and a PRIME copy under s0'.
+export const INTERNAL3: Template[] = [
+  {
+    init: layout("s0,P,s2,s1"),
+    ops: "sbox0 P dup4 dup4 dup4 add=x+s2 add=sum P P dup3 dup8 addmod=s1' swap5 dup1 dup4 add=sum+s2 addmod=s2' swap3 add=s0'",
+  },
+  {
+    init: layout("s0,P,s2,s1"),
+    ops: "sbox0 P P dup5 dup5 dup5 add=x+s2 addmod=sum P P dup3 dup8 addmod=s1' swap5 dup1 dup4 add=sum+s2 addmod=s2' swap3 add=s0'",
+  },
+];
+
 // The linear-only final M4 of t = 4 leaves a PRIME copy under its outputs.
 export const LINEAR_FINAL4: Template[] = [
   {

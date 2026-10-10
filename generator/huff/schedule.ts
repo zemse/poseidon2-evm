@@ -51,6 +51,7 @@ import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 import {
   BLOCKS,
+  INTERNAL3,
   INTERNAL4,
   LINEAR_FINAL4,
   TEMPLATES,
@@ -122,7 +123,8 @@ export type BuildOptions = {
   // so a round leaves at most one dead value and a block none
   externalTemplate: boolean;
   // t = 4 internal rounds as the stack program of templates.ts
-  // (INTERNAL4): one dead value a round instead of five, for three SWAPs
+  // (INTERNAL4): one dead value a round instead of five, for three SWAPs;
+  // t = 3 ones as INTERNAL3, with s1' and s2' reduced every round
   internalTemplate: boolean;
   // t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3 and
   // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op less per
@@ -1215,6 +1217,27 @@ class Builder {
         return;
       }
     }
+    if (this.opts.internalTemplate && t === 3) {
+      const b1 = this.state[1].bound;
+      const b2 = this.state[2].bound;
+      // the lazy ADDs: x + s1 + 2 s2 and 2 x + s1 + s2 (+ c in the next
+      // round) from reduced inputs, x + s2 and s2 + sum from lazy ones
+      const steady =
+        PRIME - 1n + b1 + 2n * b2 <= UINT256_MAX &&
+        3n * (PRIME - 1n) + b1 + b2 <= UINT256_MAX;
+      const lazy = PRIME - 1n + b2 <= UINT256_MAX;
+      const list = steady
+        ? INTERNAL3.slice(0, 1)
+        : lazy
+          ? INTERNAL3.slice(1)
+          : undefined;
+      if (list && this.template(list, this.state)) {
+        const names = Array.from({ length: t }, (_, i) => `s${i}'`);
+        this.state = this.runTemplate(list, this.state, names, round);
+        this.dead = [];
+        return;
+      }
+    }
     const s0 = this.state[0];
     if (e.top(0) !== s0 || e.top(1) !== this.P) {
       throw new Error("internal round expects [s0, P] on top");
@@ -2085,7 +2108,8 @@ export function buildBest(
                             for (const externalTemplate of templated
                               ? bools
                               : [false]) {
-                              for (const internalTemplate of params.t === 4 &&
+                              for (const internalTemplate of (params.t === 3 ||
+                                params.t === 4) &&
                               !gcInternal
                                 ? bools
                                 : [false]) {

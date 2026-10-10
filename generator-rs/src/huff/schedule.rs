@@ -31,7 +31,7 @@ use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
-    BlockKind, Template, TemplateKind, blocks, internal4, linear_final4, templates,
+    BlockKind, Template, TemplateKind, blocks, internal3, internal4, linear_final4, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -99,7 +99,8 @@ pub struct BuildOptions {
     /// operands, so a round leaves at most one dead value and a block none
     pub external_template: bool,
     /// t = 4 internal rounds as the stack program of templates.rs
-    /// (internal4): one dead value a round instead of five, for three SWAPs
+    /// (internal4): one dead value a round instead of five, for three SWAPs;
+    /// t = 3 ones as internal3, with s1' and s2' reduced every round
     pub internal_template: bool,
     /// t = 2 internal rounds: s1' = (3 s1 + s0^5) mod P with a MUL by 3
     /// and s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum (one op
@@ -1594,6 +1595,32 @@ impl<'a> Builder<'a> {
                 return Ok(());
             }
         }
+        if self.opts.internal_template && t == 3 {
+            let list = internal3();
+            let state = self.state.clone();
+            let b1 = wide(self.bound(state[1]));
+            let b2 = wide(self.bound(state[2]));
+            // the lazy ADDs: x + s1 + 2 s2 and 2 x + s1 + s2 (+ c in the next
+            // round) from reduced inputs, x + s2 and s2 + sum from lazy ones
+            let steady = wide(p1()) + b1 + b2 + b2 <= wmax()
+                && wide(p1()) * U512::from(3u64) + b1 + b2 <= wmax();
+            let lazy = wide(p1()) + b2 <= wmax();
+            let pick = if steady {
+                Some(&list[..1])
+            } else if lazy {
+                Some(&list[1..])
+            } else {
+                None
+            };
+            if let Some(list) = pick
+                && self.template(list, &state).is_some()
+            {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(list, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
+        }
         let x5 = self.round_start(round, None)?;
         let collect =
             self.opts.gc_internal && round - self.params.rounds_f / 2 >= self.opts.gc_internal_from;
@@ -2591,7 +2618,7 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                     };
                                                     for &external_template in pick(templated) {
                                                         for &internal_template in
-                                                            pick(t == 4 && !gc_internal)
+                                                            pick((t == 3 || t == 4) && !gc_internal)
                                                         {
                                                             for &internal_mul3 in pick(
                                                                 t == 2 && internal_reduce_outputs,
