@@ -1,9 +1,9 @@
 // Stack programs for the external rounds of t <= 4 and for the M4 of a
 // block of the externalD layer (t >= 8), searched with A* and replayed by
 // the schedule (Builder.runTemplate) with the externalTemplate option.
-// A lane's S-box is one search move. The full t = 4 rounds fix an S-box
-// prefix and search the linear layer separately, so they are not globally
-// optimal. Rounds may leave dead values below the outputs; blocks leave
+// A lane's S-box is one search move. The full t = 4 rounds fix the first
+// S-boxes (two for a round, three for the last) and search the others
+// together with the linear layer, so they are not globally optimal. Rounds may leave dead values below the outputs; blocks leave
 // nothing else.
 //
 // A program is a list of moves, space separated:
@@ -43,11 +43,11 @@ const layout = (s: string) => s.split(",");
 const ROUND4: Template[] = [
   {
     init: layout("s0,P,s1,s2,s3"),
-    ops: "sbox0 P dup3 sbox1 P dup6 sbox3 P dup6 sbox2 dup2 add=t1 P P dup3 4 mulmod=4t1 swap4 P P swap4 dup3 dup1 add=2s1 addmod=t2 swap6 add=t0 dup6 P dup3 4 mulmod=4t0 add=s1' swap4 dup1 add=2s3 addmod=t3 dup3 dup2 add=s0' swap4 add=s3' swap4 dup5 add=s2' swap3",
+    ops: "sbox0 P dup3 sbox1 dup1 dup1 add=2s1 swap2 add=t0 P P dup7 sbox3 P P dup5 dup4 dup1 add=2s3 addmod=t3 swap7 sbox2 add=t1 dup6 P dup3 4 mulmod=4t1 add=s3' swap4 addmod=t2 P dup4 dup3 add=s2' swap3 4 mulmod=4t0 add=s1' P dup2 dup7 add=s0'",
   },
   {
     init: layout("s0,s1,s2,s3"),
-    ops: "P swap1 sbox0 P dup3 sbox1 P dup6 sbox3 P dup6 sbox2 dup2 add=t1 P P dup3 4 mulmod=4t1 swap4 P P swap4 dup3 dup1 add=2s1 addmod=t2 swap6 add=t0 dup6 P dup3 4 mulmod=4t0 add=s1' swap4 dup1 add=2s3 addmod=t3 dup3 dup2 add=s0' swap4 add=s3' swap4 dup5 add=s2' swap3",
+    ops: "P swap1 sbox0 P dup3 sbox1 dup1 dup1 add=2s1 swap2 add=t0 P P dup7 sbox3 P P dup5 dup4 dup1 add=2s3 addmod=t3 swap7 sbox2 add=t1 dup6 P dup3 4 mulmod=4t1 add=s3' swap4 addmod=t2 P dup4 dup3 add=s2' swap3 4 mulmod=4t0 add=s1' P dup2 dup7 add=s0'",
   },
 ];
 
@@ -130,13 +130,19 @@ export const TEMPLATES: Record<number, Record<TemplateKind, Template[]>> = {
     ],
   },
   4: {
-    entry: [],
+    // the initial linear layer leaves the layout the rounds take
+    entry: [
+      {
+        init: layout("s0,s1,s2,s3,P"),
+        ops: "dup2 add=t0 P P dup3 dup7 dup1 add=2s3 addmod=t3 swap5 dup5 add=t1 dup6 P dup3 4 mulmod=4t1 add=s3' swap4 dup1 add=2s1 addmod=t2 P dup4 dup3 add=s2' swap3 4 mulmod=4t0 add=s1' P dup2 dup7 add=s0'",
+      },
+    ],
     round: ROUND4,
     exit: ROUND4,
     final: [
       {
         init: layout("s0,P,s1,s2,s3"),
-        ops: "sbox0 P dup3 sbox1 P dup5 sbox2 P dup7 sbox3 P P P swap6 dup6 add=t0 swap4 P dup6 dup6 dup1 add=2s3 addmod=t3 swap4 add=t1 P dup5 P dup4 4 mulmod=4t1 addmod=s3' swap6 dup1 add=2s1 addmod=t2 P P dup7 dup4 addmod=s2' swap5 4 mulmod=4t0 addmod=s1' swap1 P swap1 dup3 addmod=s0'",
+        ops: "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
       },
     ],
   },
