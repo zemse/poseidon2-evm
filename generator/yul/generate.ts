@@ -41,6 +41,7 @@ function layoutFor(t: number): Layout {
       diagScratch: 0,
       m4Temps: 4,
       internalLet: true,
+      primeFirst: t >= 3,
       internalReduceOutputs: t === 2,
     };
   }
@@ -52,6 +53,7 @@ function layoutFor(t: number): Layout {
       diagScratch: 2,
       m4Temps: 4,
       internalLet: false,
+      primeFirst: false,
       internalReduceOutputs: false,
     };
   }
@@ -63,6 +65,7 @@ function layoutFor(t: number): Layout {
       diagScratch: 2,
       m4Temps: 2,
       internalLet: false,
+      primeFirst: false,
       internalReduceOutputs: false,
     };
   }
@@ -73,6 +76,7 @@ function layoutFor(t: number): Layout {
     diagScratch: 0,
     m4Temps: 2,
     internalLet: false,
+    primeFirst: false,
     internalReduceOutputs: false,
   };
 }

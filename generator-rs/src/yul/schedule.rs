@@ -36,6 +36,9 @@ pub struct Layout {
     pub m4_temps: usize,
     /// keep the internal round's x^5 in a `let` that lives through the round
     pub internal_let: bool,
+    /// declare PRIME before the state locals (the deepest slot) and reduce
+    /// the inputs with it: one PUSH32 instead of one per input
+    pub prime_first: bool,
     /// internal rounds: keep the sum lazy and reduce every output but state0
     pub internal_reduce_outputs: bool,
 }
@@ -142,18 +145,26 @@ impl<'a> Builder<'a> {
     /// then the `mem` pointer that loads of memory elements go through.
     /// Anything else is within easy reach.
     fn rank(&self, v: &Value) -> usize {
+        let shift = usize::from(self.layout.prime_first);
+        if v.name == "PRIME" && self.layout.prime_first {
+            return 0;
+        }
         if let Some(digits) = v.name.strip_prefix("state")
             && !digits.is_empty()
             && digits.bytes().all(|b| b.is_ascii_digit())
             && let Ok(i) = digits.parse::<usize>()
             && self.is_local(i)
         {
-            return i;
+            return i + shift;
         }
         if v.name.starts_with("mload(mem") || v.name.starts_with("mload(add(mem") {
-            return self.layout.stack_elements;
+            return self.mem_rank();
         }
         UNRANKED
+    }
+
+    fn mem_rank(&self) -> usize {
+        self.layout.stack_elements + usize::from(self.layout.prime_first)
     }
 
     /// Whether v can be DUPed with `intermediates` values pushed above the
@@ -163,11 +174,7 @@ impl<'a> Builder<'a> {
         if i == UNRANKED {
             return true;
         }
-        let offset = if i == self.layout.stack_elements {
-            1
-        } else {
-            0
-        };
+        let offset = if i == self.mem_rank() { 1 } else { 0 };
         let above = self.p.live() as i64 - 1 - i as i64;
         above + (intermediates + offset + 1) as i64 <= 16
     }
@@ -545,10 +552,16 @@ impl<'a> Builder<'a> {
         let p_end = rf_half + self.params.rounds_p;
         let total = self.params.rounds_f + self.params.rounds_p;
 
-        // PRIME is declared after the state locals so that the locals, which
-        // are read with temporaries on top, are the deeper slots
+        // PRIME is declared after the state locals (unless prime_first) so
+        // that the locals, which are read with temporaries on top, are the
+        // deeper slots
         self.p.comment("inputs reduced mod PRIME");
-        let prime = self.p.constant(PRIME);
+        let prime = if self.layout.prime_first {
+            let c = self.p.constant(PRIME);
+            self.p.let_("PRIME", &c)?
+        } else {
+            self.p.constant(PRIME)
+        };
         let raw = |b: &Builder, i: usize| {
             let name = if b.mode == Mode::Hash {
                 format!("s{i}")
@@ -566,7 +579,9 @@ impl<'a> Builder<'a> {
             let mem = self.p.input("state", Vec::new());
             self.p.let_("mem", &mem)?;
         }
-        self.p.let_("PRIME", &prime)?;
+        if !self.layout.prime_first {
+            self.p.let_("PRIME", &prime)?;
+        }
         for i in self.layout.stack_elements..t {
             let e = self.p.expr(Op::Mod, &[&raw(&self, i), &self.p.p])?;
             self.state[i] = self.p.mstore(&Self::addr(i, "mem"), &e)?;

@@ -35,6 +35,7 @@ fn layout_for(t: usize) -> Layout {
             diag_scratch: 0,
             m4_temps: 4,
             internal_let: true,
+            prime_first: t >= 3,
             internal_reduce_outputs: t == 2,
         };
     }
@@ -46,6 +47,7 @@ fn layout_for(t: usize) -> Layout {
             diag_scratch: 2,
             m4_temps: 4,
             internal_let: false,
+            prime_first: false,
             internal_reduce_outputs: false,
         };
     }
@@ -57,6 +59,7 @@ fn layout_for(t: usize) -> Layout {
             diag_scratch: 2,
             m4_temps: 2,
             internal_let: false,
+            prime_first: false,
             internal_reduce_outputs: false,
         };
     }
@@ -67,6 +70,7 @@ fn layout_for(t: usize) -> Layout {
         diag_scratch: 0,
         m4_temps: 2,
         internal_let: false,
+        prime_first: false,
         internal_reduce_outputs: false,
     }
 }

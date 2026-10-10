@@ -11,12 +11,10 @@ library LibPoseidon2YulT3 {
     function permute(uint256[3] memory state) internal pure {
         assembly {
             // inputs reduced mod PRIME
-            let state0 := mod(mload(state), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state1 :=
-                mod(mload(add(state, 0x20)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state2 :=
-                mod(mload(add(state, 0x40)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+            let state0 := mod(mload(state), PRIME)
+            let state1 := mod(mload(add(state, 0x20)), PRIME)
+            let state2 := mod(mload(add(state, 0x40)), PRIME)
 
             // initial linear layer
             {

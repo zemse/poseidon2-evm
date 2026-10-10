@@ -23,11 +23,11 @@ library LibPoseidon2Yul {
     function poseidon2_core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) internal pure returns (uint256 result) {
         assembly {
             // inputs reduced mod PRIME
-            let state0 := mod(s0, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state1 := mod(s1, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state2 := mod(s2, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state3 := mod(s3, 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+            let state0 := mod(s0, PRIME)
+            let state1 := mod(s1, PRIME)
+            let state2 := mod(s2, PRIME)
+            let state3 := mod(s3, PRIME)
 
             // initial linear layer
             {

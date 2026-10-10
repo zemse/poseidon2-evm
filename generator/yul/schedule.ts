@@ -44,6 +44,11 @@ export type Layout = {
   // keep the internal round's x^5 in a `let` that lives through the round
   // instead of writing it back to state0 first; costs one slot of reach
   internalLet: boolean;
+  // declare PRIME before the state locals (the deepest slot) and reduce the
+  // inputs with it: PRIME is then one PUSH32 instead of one per input, which
+  // the constant optimizer would copy from code with few runs, and t = 3
+  // and t = 4 compile to fewer stack moves
+  primeFirst: boolean;
   // internal rounds: keep the sum lazy and reduce every output but state0
   // with addmod, instead of reducing the sum and letting the outputs grow
   // until a doubling needs mulmod (t = 2, where that is one reduction per
@@ -128,15 +133,22 @@ class Builder {
     return this.state[i];
   }
 
-  // Locals are stack slots in declaration order: state0 is the deepest,
-  // then the `mem` pointer that loads of memory elements go through.
-  // Anything else (temporaries, expressions) is within easy reach.
+  // Locals are stack slots in declaration order: state0 is the deepest
+  // (after PRIME with primeFirst), then the `mem` pointer that loads of
+  // memory elements go through. Anything else (temporaries, expressions) is
+  // within easy reach.
   rank(v: Value): number {
+    const shift = this.layout.primeFirst ? 1 : 0;
+    if (v.name === "PRIME" && this.layout.primeFirst) return 0;
     const m = /^state(\d+)$/.exec(v.name);
-    if (m && this.isLocal(Number(m[1]))) return Number(m[1]);
+    if (m && this.isLocal(Number(m[1]))) return Number(m[1]) + shift;
     if (v.name.startsWith("mload(mem") || v.name.startsWith("mload(add(mem"))
-      return this.layout.stackElements;
+      return this.memRank;
     return Infinity;
+  }
+
+  get memRank(): number {
+    return this.layout.stackElements + (this.layout.primeFirst ? 1 : 0);
   }
 
   // Whether v can be DUPed with `intermediates` values pushed above the
@@ -146,7 +158,7 @@ class Builder {
   reachable(v: Value, intermediates: number): boolean {
     const i = this.rank(v);
     if (i === Infinity) return true;
-    const offset = i === this.layout.stackElements ? 1 : 0;
+    const offset = i === this.memRank ? 1 : 0;
     const above = this.p.live - 1 - i;
     return above + intermediates + offset + 1 <= 16;
   }
@@ -422,10 +434,13 @@ class Builder {
     const pEnd = rfHalf + roundsP;
     const total = roundsF + roundsP;
 
-    // PRIME is declared after the state locals so that the locals, which
-    // are read with temporaries on top, are the deeper slots
+    // PRIME is declared after the state locals (unless primeFirst) so that
+    // the locals, which are read with temporaries on top, are the deeper
+    // slots
     p.comment("inputs reduced mod PRIME");
-    const prime = p.constant(PRIME);
+    const prime = this.layout.primeFirst
+      ? p.let("PRIME", p.constant(PRIME))
+      : p.constant(PRIME);
     const raw = (i: number) =>
       p.input(
         this.mode.kind === "hash" ? `s${i}` : `mload(${this.addr(i, "state")})`,
@@ -435,7 +450,7 @@ class Builder {
       this.state[i] = p.let(this.name(i), p.expr("mod", raw(i), prime));
     }
     if (this.inMemory > 0) p.let("mem", p.input("state", []));
-    p.let("PRIME", prime);
+    if (!this.layout.primeFirst) p.let("PRIME", prime);
     for (let i = this.layout.stackElements; i < t; i++) {
       this.state[i] = p.mstore(this.addr(i), p.expr("mod", raw(i), this.P));
     }
