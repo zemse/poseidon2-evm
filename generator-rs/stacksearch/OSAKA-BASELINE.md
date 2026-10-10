@@ -2,6 +2,8 @@
 
 Baseline `b7d7125`, measured 2026-10-10. BN254, exponent five, RF=8, RP=56. These are call-frame execution costs, excluding transaction intrinsic gas, deployment and the caller's CALL/STATICCALL overhead. Gas is deterministic, not a host CPU timing.
 
+This document preserves the starting measurements. See the [final accounting](OSAKA-OPTIMISATION.md#final-accounting) for implemented improvements and recalibrated floors.
+
 ## Reproduce
 
 From the repository root, with the existing dependencies and Node's native TypeScript support:

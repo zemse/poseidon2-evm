@@ -377,3 +377,74 @@ node "$SEARCH/gas-floor.mjs"
 ```
 
 Transient evidence: `/tmp/poseidon2-lane4-t2-{partial,entire}-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane4-final-rust.log`, `/tmp/poseidon2-lane4-final-floor.json`, `/tmp/poseidon2-lane4-final-t3-periodic.json` and `/tmp/poseidon2-serial-parity.NkRYib`. The portable regressions and generated source preserve the selected policy and compact fallback; the unselected partial prototype is documented evidence only. No further investigation follows in this lane.
+
+## Final accounting
+
+Original baseline b7d7125 versus integrated production 5d2d521, 2026-10-10. Measured gas below is call-frame execution gas, excluding transaction intrinsic gas, deployment and caller overhead. Gas is deterministic; host timing and warm medians are not the metric. The pinned parameters and reference outputs are unchanged.
+
+| Fork      | Width | Before |  After | Saving | Runtime bytes before |  After |
+| --------- | ----: | -----: | -----: | -----: | -------------------: | -----: |
+| Osaka     |     2 |  6,066 |  5,914 |    152 |                3,918 |  7,424 |
+| Osaka     |     3 |  7,768 |  7,656 |    112 |                6,733 |  6,719 |
+| Osaka     |     4 | 12,087 | 12,087 |      0 |               15,644 | 15,644 |
+| Amsterdam |     2 |  6,027 |  5,914 |    113 |                4,007 |  4,014 |
+| Amsterdam |     3 |  7,768 |  7,656 |    112 |                6,733 |  6,719 |
+| Amsterdam |     4 | 12,087 | 12,087 |      0 |               13,629 | 13,629 |
+
+The t=4 rows measure the raw permutation, not a hash entrypoint. Hash gas remains 11,910 / 11,932 / 12,005. The Osaka t=2 default minimizes execution gas, not total deployment-plus-use cost. Compared with the retained compact schedule, its extra code deposit alone takes 16,696 calls saving 42 gas to recover; other deployment costs are excluded. The compiled compact fallback retains the lane-2 improvement at 5,956 gas and 3,918 runtime bytes.
+
+### What the lower bound means
+
+No unrestricted theoretical minimum was established. The [fixed-mix relaxation](OSAKA-BASELINE.md#fixed-mix-relaxation) fixes arithmetic counts, live boundary stock, three-gas PUSH/DUP supply and the existing wrapper. It makes placement free. With `B = ADD + MUL + 2*ADDMOD + 2*MULMOD`, the core floor is arithmetic gas plus `3*B`. Changing the arithmetic, representation, stock or supply model requires recalibration.
+
+| Width | Arithmetic gas | Slots B | Same-wrapper floor | Actual call | Gap | SWAP gas | Surplus supply |
+| ----- | -------------: | ------: | -----------------: | ----------: | --: | -------: | -------------: |
+| 2     |          2,997 |     815 |              5,494 |       5,914 | 420 |       57 |            363 |
+| 3     |          3,813 |   1,043 |              7,017 |       7,656 | 639 |      444 |            195 |
+| 4     |          6,148 |   1,660 |             11,226 |      12,087 | 861 |      612 |            249 |
+
+These are scoped lower bounds, not attainable schedules or promised savings. Removing a DUP can require a SWAP, so the two gap columns cannot be harvested independently. Lane 2 lowers the arithmetic/inventory floors by the same 110/112 gas as the calls; only lane 4's omitted backing copies close the t=2 placement/supply gap, by 42 gas on Osaka.
+
+### Segment attribution
+
+The following accounts for the entire Osaka call. Every initial/external/wrapper segment is unchanged; all realized savings are internal. Wrapper floors are held equal to the current wrapper cost, not proved optimal. Boundary sharing may move credits between segments.
+
+| Width | Segment               | Before | After | Current floor | Gap |
+| ----- | --------------------- | -----: | ----: | ------------: | --: |
+| 2     | Initial linear        |     27 |    27 |            18 |   9 |
+| 2     | Eight external rounds |  1,000 | 1,000 |           928 |  72 |
+| 2     | 56 internal rounds    |  4,987 | 4,835 |         4,496 | 339 |
+| 2     | Wrapper               |     52 |    52 |            52 |   0 |
+| 3     | Initial linear        |     42 |    42 |            30 |  12 |
+| 3     | Eight external rounds |  1,539 | 1,539 |         1,416 | 123 |
+| 3     | 56 internal rounds    |  6,112 | 6,000 |         5,496 | 504 |
+| 3     | Wrapper               |     75 |    75 |            75 |   0 |
+| 4     | Initial linear        |    122 |   122 |           104 |  18 |
+| 4     | Eight external rounds |  2,571 | 2,571 |         2,400 | 171 |
+| 4     | 56 internal rounds    |  9,296 | 9,296 |         8,624 | 672 |
+| 4     | Wrapper               |     98 |    98 |            98 |   0 |
+
+Rank by absolute remaining headroom: t=4 internal 672 (504 SWAP + 168 surplus), t=3 internal 504 (336 + 168), then t=2 internal 339 (all surplus). The next segment is t=4 external at 171. Arithmetic and stack transport dominate; these cores have no EVM memory operations or calls.
+
+### Rejections and next targets
+
+- Renaming the existing t=4 bodies cannot improve their finite composition once adapters are charged. Visiting a different layout costs at least 9,314 for 56 rounds versus 9,296. The two larger opcode searches stopped at their memory guards with the old heuristic; neither is an exhaustion or optimality result.
+- The compiled t=4 final-round SHL variants add 3/6 gas, and raw-s1 reuse adds 9. Adjacent ADD+MOD controls tie. These reject the tested immediate-supply/order family only. A three-gas redundant SWAP in an unselected linear fallback remains unapplied and is not a default t=4 saving.
+- The t=3 shear has a 5,562 fixed-DAG funded relaxation, but the tested clean-boundary transport costs 8,592 with the real entry/exit order. A schedule that permits retained dead values or different operation ordering remains open; it has a 438-gas placement allowance to match the incumbent 6,000.
+- The t=4 observable-coordinate recurrence's naive unfactored DAG already needs 176 funded gas per round versus the scheduled incumbent 166. Other factorizations or shared products were not excluded.
+
+The next serious scheduling experiment should target a short joint t=4 window with naturally changing layouts or fused transitions, not repeat the renamed-body control or increase the old search's memory limit. Charge both external boundaries and every transition. For t=3, compare a productive original-basis schedule with a non-clean-boundary shear schedule. At t=2, consuming old inputs at their last use is the remaining transport lead, but the already rejected generic shared-sum implementation is not a new candidate. None of these leads is an implemented saving.
+
+### Independent integration gates
+
+Before fast-forward integration, the coordinator rebuilt the candidate and independently passed:
+
+- 20 generator Rust tests, including the compiled default/compact t=2 gate, the lane-3 compiled corpus and unchanged t=16/24/28 integrations; 11 additional Rust search tests.
+- 11 Node accounting/reduction/budget tests, all 28 Python search/linear/coordinate regressions, and the 64-chain t=3 production-DSL replay.
+- Compiled Osaka and Amsterdam reference checks at t=2/3/4: 24/24/96 calls per fork, exact model equality. The separate default/compact t=2 run checks 48 calls per fork.
+- Serial TS/Rust generation parity for both forks: byte-identical source, tests and stdout. Rust/TS formatting, scoped diffs, signed noreply commits and clean candidate status.
+- 29 Foundry tests across `Poseidon2Test`, `Poseidon2T2Test` and `Poseidon2T3Test`. These run from a non-Git archive of committed 5d2d521 with a symlink to the existing main `lib`, using `forge test --offline --match-contract '^Poseidon2(T[23])?Test$' --threads 1`. No dependency installation or lockfile change was needed.
+
+Fresh accounting is reproducible with `node generator-rs/stacksearch/gas-floor.mjs`. Coordinator artifacts are `/tmp/poseidon2-final-candidate-{rust,node,python,osaka,amsterdam,compact}.log`, `/tmp/poseidon2-final-search-rust.log`, `/tmp/poseidon2-final-floor.json`, `/tmp/poseidon2-final-t3-periodic.json`, `/tmp/poseidon2-serial-parity.RuK1gT` and `/tmp/poseidon2-final-foundry.log`. The committed non-Git Foundry snapshot is `/tmp/poseidon2-final-foundry.4CBwgQ`. These logs are transient; the tests, probes, corpus and generated code are committed.
+
+After integration, the main checkout independently passes the same 20 Rust, 11 Node and 28 Python tests, both-fork compiled verification and serial TS/Rust parity again. Its regenerated accounting is byte-identical to the reviewed candidate's JSON. The final main logs use `/tmp/poseidon2-final-main-{rust,node,python,osaka,amsterdam}.log`; parity artifacts are `/tmp/poseidon2-serial-parity.r2ncRg`. Subsequent source edits only correct scheduler comments; no generated opcode or parameter changes accompany the final documentation.

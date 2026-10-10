@@ -120,13 +120,13 @@ export type BuildOptions = {
   // each rotating on its own, for a shorter body (0: one chain)
   consumeGroup: number;
   // external rounds (t <= 4) and, with externalD, the M4 of every block as
-  // the stack programs of templates.ts, found by exhaustive search: the
+  // the stack programs of templates.ts, from restricted searches: the
   // lanes are S-boxed in place and the linear layer consumes its operands,
   // so a round leaves at most one dead value and a block none
   externalTemplate: boolean;
   // t = 4 internal rounds as the stack program of templates.ts
   // (INTERNAL4): one dead value a round instead of five, for three SWAPs;
-  // t = 3 ones as INTERNAL3, with s1' and s2' reduced every round
+  // t = 3 uses periodic bound-checked reductions, with INTERNAL3 fallbacks
   internalTemplate: boolean;
   // t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
   // s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum

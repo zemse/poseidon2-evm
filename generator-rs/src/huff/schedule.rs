@@ -96,13 +96,13 @@ pub struct BuildOptions {
     /// rest), each rotating on its own, for a shorter body (0: one chain)
     pub consume_group: usize,
     /// external rounds (t <= 4) and, with external_d, the M4 of every block
-    /// as the stack programs of templates.rs, found by exhaustive search:
+    /// as the stack programs of templates.rs, from restricted searches:
     /// the lanes are S-boxed in place and the linear layer consumes its
     /// operands, so a round leaves at most one dead value and a block none
     pub external_template: bool,
     /// t = 4 internal rounds as the stack program of templates.rs
     /// (internal4): one dead value a round instead of five, for three SWAPs;
-    /// t = 3 ones as internal3, with s1' and s2' reduced every round
+    /// t = 3 uses periodic bound-checked reductions, with internal3 fallbacks
     pub internal_template: bool,
     /// t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
     /// s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
