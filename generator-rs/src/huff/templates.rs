@@ -166,6 +166,38 @@ pub fn internal3() -> &'static [Template] {
     ]
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Internal3Kind {
+    Low,
+    High,
+    Reset,
+    Final,
+}
+
+/// The t = 3 periodic reduction policy: sum is reduced, s1' is reset above
+/// 3(P-1), and 2 s2 is reduced above 2(P-1). The final program reduces s2'
+/// before external re-entry. All leave s1 dead under [s0',P,s2',s1'].
+pub fn internal3_periodic(kind: Internal3Kind) -> &'static [Template] {
+    match kind {
+        Internal3Kind::Low => &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum dup1 dup6 add=s1' swap4 dup1 add=2s2 dup2 add=s2' swap3 add=s0'",
+        }],
+        Internal3Kind::High => &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P dup2 dup7 add=s1' swap5 dup1 addmod=2s2 dup2 add=s2' swap3 add=s0'",
+        }],
+        Internal3Kind::Reset => &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P P dup3 dup8 addmod=s1' swap5 dup1 addmod=2s2 dup2 add=s2' swap3 add=s0'",
+        }],
+        Internal3Kind::Final => &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P dup2 dup7 add=s1' swap5 dup1 dup4 add=sum+s2 addmod=s2' swap3 add=s0'",
+        }],
+    }
+}
+
 /// The linear-only final M4 of t = 4 leaves a PRIME copy under its outputs.
 pub fn linear_final4() -> &'static [Template] {
     &[Template {

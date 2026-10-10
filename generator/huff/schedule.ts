@@ -52,6 +52,7 @@ import { FORKS, type Fork } from "./fork.ts";
 import {
   BLOCKS,
   INTERNAL3,
+  INTERNAL3_PERIODIC,
   INTERNAL4,
   LINEAR_FINAL4,
   TEMPLATES,
@@ -1220,6 +1221,27 @@ class Builder {
     if (this.opts.internalTemplate && t === 3) {
       const b1 = this.state[1].bound;
       const b2 = this.state[2].bound;
+      const p1 = PRIME - 1n;
+      if (b1 <= 4n * p1 && b2 <= 5n * p1) {
+        const final =
+          !nextInternal ||
+          round === this.params.roundsF / 2 + this.params.roundsP - 1;
+        const kind =
+          b1 > 3n * p1
+            ? "reset"
+            : b2 > 2n * p1
+              ? "high"
+              : final
+                ? "final"
+                : "low";
+        const list = INTERNAL3_PERIODIC[kind];
+        if (this.template(list, this.state)) {
+          const names = Array.from({ length: t }, (_, i) => `s${i}'`);
+          this.state = this.runTemplate(list, this.state, names, round);
+          this.dead = [];
+          return;
+        }
+      }
       // the lazy ADDs: x + s1 + 2 s2 and 2 x + s1 + s2 (+ c in the next
       // round) from reduced inputs, x + s2 and s2 + sum from lazy ones
       const steady =

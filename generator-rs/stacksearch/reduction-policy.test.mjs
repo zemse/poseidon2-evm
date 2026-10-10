@@ -59,4 +59,38 @@ for (const name of ["osaka", "amsterdam"]) {
       assert.ok(result.outputs.every((v) => v.bound < PRIME));
     }
   });
+
+  test(`t3 periodic reductions and external re-entry on ${name}`, () => {
+    const params = generateParams(3);
+    for (const rc of params.roundConstants) rc[0] = PRIME - 1n;
+    const p1 = PRIME - 1n;
+    const result = buildPermutation(
+      params,
+      [
+        [0n, 0n, 0n],
+        [p1, p1, p1],
+        [1n, p1, 0n],
+      ],
+      { ...DEFAULT_OPTIONS, externalTemplate: true, internalTemplate: true },
+      FORKS[name],
+    );
+    const rounds = internalCounts(result.lines);
+    assert.equal(rounds.length, 56);
+    const mods = rounds.map((s) => s.addmod ?? 0);
+    assert.deepEqual(mods.slice(0, 5), [3, 1, 2, 1, 3]);
+    assert.equal(mods[55], 2);
+    assert.equal(mods.filter((n) => n === 1).length, 27);
+    assert.equal(mods.filter((n) => n === 2).length, 15);
+    assert.equal(mods.filter((n) => n === 3).length, 14);
+    assert.equal(
+      rounds.reduce((n, s) => n + s.add, 0),
+      293,
+    );
+    assert.equal(
+      rounds.reduce((n, s) => n + s.addmod, 0),
+      99,
+    );
+    assert.ok(rounds.every((s) => s.mulmod === 3));
+    assert.ok(result.outputs.every((v) => v.bound < PRIME));
+  });
 }

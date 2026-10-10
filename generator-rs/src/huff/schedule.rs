@@ -31,7 +31,8 @@ use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
-    BlockKind, Template, TemplateKind, blocks, internal3, internal4, linear_final4, templates,
+    BlockKind, Internal3Kind, Template, TemplateKind, blocks, internal3, internal3_periodic,
+    internal4, linear_final4, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -1600,6 +1601,26 @@ impl<'a> Builder<'a> {
             let state = self.state.clone();
             let b1 = wide(self.bound(state[1]));
             let b2 = wide(self.bound(state[2]));
+            if b1 <= wide(p1()) * U512::from(4u64) && b2 <= wide(p1()) * U512::from(5u64) {
+                let final_round =
+                    !next_internal || round == self.params.rounds_f / 2 + self.params.rounds_p - 1;
+                let kind = if b1 > wide(p1()) * U512::from(3u64) {
+                    Internal3Kind::Reset
+                } else if b2 > wide(p1()) * U512::from(2u64) {
+                    Internal3Kind::High
+                } else if final_round {
+                    Internal3Kind::Final
+                } else {
+                    Internal3Kind::Low
+                };
+                let periodic = internal3_periodic(kind);
+                if self.template(periodic, &state).is_some() {
+                    let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                    self.state = self.run_template(periodic, &state, &names, Some(round))?;
+                    self.dead.clear();
+                    return Ok(());
+                }
+            }
             // the lazy ADDs: x + s1 + 2 s2 and 2 x + s1 + s2 (+ c in the next
             // round) from reduced inputs, x + s2 and s2 + sum from lazy ones
             let steady = wide(p1()) + b1 + b2 + b2 <= wmax()
@@ -2908,6 +2929,126 @@ mod tests {
     use crate::field;
     use crate::huff::fork::fork;
     use crate::round_constants::generate_params_uncached;
+
+    #[test]
+    fn internal3_periodic_bounds_and_boundaries() {
+        let mut params = generate_params_uncached(3);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for (bb, cb, rounds) in [
+                (p1(), p1() * u256(2), 1),
+                (p1() * u256(2), p1() * u256(5), 1),
+                (p1() * u256(3), p1() * u256(2), 1),
+                (p1() * u256(4), p1() * u256(5), 1),
+                (p1() * u256(3) + u256(1), p1() * u256(2), 1),
+                (p1(), p1() * u256(2) + u256(1), 1),
+                (p1() * u256(4) + u256(1), p1() * u256(4), 1),
+                (p1() * u256(4), p1() * u256(4), 56),
+            ] {
+                for final_prime in [false, true] {
+                    let bounds = vec![p1() * u256(4), bb, cb];
+                    let inputs = vec![vec![U256::ZERO; 3], bounds.clone()];
+                    let mut builder = Builder::new(
+                        &params,
+                        &inputs,
+                        BuildOptions {
+                            internal_template: true,
+                            ..DEFAULT_OPTIONS
+                        },
+                        fork(name).unwrap(),
+                        Range {
+                            from: 0,
+                            to: step_count(&params),
+                        },
+                        HashSet::new(),
+                        false,
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    builder.e.set_stack(&[
+                        builder.state[0],
+                        builder.p(),
+                        builder.state[2],
+                        builder.state[1],
+                    ]);
+                    let mut reference = inputs.clone();
+                    let mut total = 0;
+                    for r in 0..rounds {
+                        let round = if rounds == 1 { 59 } else { 4 + r };
+                        let next = r + 1 < rounds || final_prime;
+                        let b = builder.bound(builder.state[1]);
+                        let c = builder.bound(builder.state[2]);
+                        let reset = b > p1() * u256(3);
+                        let high = c > p1() * u256(2);
+                        let final_round = !next || round == 59;
+                        let periodic = b <= p1() * u256(4) && c <= p1() * u256(5);
+                        let expected_bounds = if !periodic {
+                            vec![p1() * u256(2), p1(), p1()]
+                        } else {
+                            vec![
+                                p1() * u256(2),
+                                if reset { p1() } else { p1() + b },
+                                if reset || high {
+                                    p1() * u256(2)
+                                } else if final_round {
+                                    p1()
+                                } else {
+                                    p1() + c + c
+                                },
+                            ]
+                        };
+                        for state in &mut reference {
+                            let x = field::pow(field::add(state[0], p1()), u256(5));
+                            let sum = field::add(field::add(x, state[1]), state[2]);
+                            *state = vec![
+                                field::add(sum, x),
+                                field::add(sum, state[1]),
+                                field::add(sum, field::add(state[2], state[2])),
+                            ];
+                        }
+                        let gas = builder.e.gas;
+                        builder.internal_round(round, next).unwrap();
+                        let cost = builder.e.gas - gas;
+                        assert_eq!(
+                            cost,
+                            if reset || !periodic {
+                                117
+                            } else if high || final_round {
+                                109
+                            } else {
+                                101
+                            }
+                        );
+                        total += cost;
+                        for (i, &id) in builder.state.iter().enumerate() {
+                            let value = &builder.e.values[id];
+                            assert_eq!(value.bound, expected_bounds[i]);
+                            for (k, state) in reference.iter().enumerate() {
+                                assert_eq!(field::reduce(value.vals[k]), state[i]);
+                            }
+                        }
+                        assert_eq!(builder.e.top(0).unwrap(), builder.state[0]);
+                        assert_eq!(builder.e.top(1).unwrap(), builder.p());
+                        assert_eq!(builder.e.top(2).unwrap(), builder.state[2]);
+                        assert_eq!(builder.e.top(3).unwrap(), builder.state[1]);
+                        assert_eq!(builder.e.depth(), 5 + r);
+                        assert!(wide(builder.bound(builder.state[0])) + wide(p1()) <= wmax());
+                    }
+                    if rounds == 56 {
+                        assert_eq!(total, 6000);
+                        assert_eq!(builder.bound(builder.state[1]), p1() * u256(4));
+                        assert_eq!(builder.bound(builder.state[2]), p1());
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn internal_mul3_lazy_bounds_and_boundaries() {

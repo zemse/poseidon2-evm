@@ -179,6 +179,39 @@ export const INTERNAL3: Template[] = [
   },
 ];
 
+// The t = 3 periodic reduction policy: sum is reduced, s1' is reset above
+// 3(P-1), and 2 s2 is reduced above 2(P-1). The final program reduces s2'
+// before external re-entry. All leave s1 dead under [s0',P,s2',s1'].
+export const INTERNAL3_PERIODIC: Record<
+  "low" | "high" | "reset" | "final",
+  Template[]
+> = {
+  low: [
+    {
+      init: layout("s0,P,s2,s1"),
+      ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum dup1 dup6 add=s1' swap4 dup1 add=2s2 dup2 add=s2' swap3 add=s0'",
+    },
+  ],
+  high: [
+    {
+      init: layout("s0,P,s2,s1"),
+      ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P dup2 dup7 add=s1' swap5 dup1 addmod=2s2 dup2 add=s2' swap3 add=s0'",
+    },
+  ],
+  reset: [
+    {
+      init: layout("s0,P,s2,s1"),
+      ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P P dup3 dup8 addmod=s1' swap5 dup1 addmod=2s2 dup2 add=s2' swap3 add=s0'",
+    },
+  ],
+  final: [
+    {
+      init: layout("s0,P,s2,s1"),
+      ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum P dup2 dup7 add=s1' swap5 dup1 dup4 add=sum+s2 addmod=s2' swap3 add=s0'",
+    },
+  ],
+};
+
 // The linear-only final M4 of t = 4 leaves a PRIME copy under its outputs.
 export const LINEAR_FINAL4: Template[] = [
   {

@@ -140,3 +140,37 @@ The new fixed-mix core relaxation is `2,997 + 3*815 = 5,442`, and the same-wrapp
 - Rust uses cargo fmt; TS/tests/Markdown use the installed Prettier. Scoped generated diff and whitespace checks are run before committing. No dependencies or lockfiles changed.
 
 Transient evidence: `/tmp/poseidon2-lane2-{baseline,t2}-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane2-{baseline,t2}-floor.json`, and `/tmp/poseidon2-serial-parity.HgfZUw`. The commands use this lane's absolute worktree root and its freshly built `generator-rs/target/release/poseidon2-gen`, not an installed binary. No broad search, transformed representation or improved first bridge was attempted. t=3 is a separate follow-up.
+
+## Lane 2: t = 3 periodic reduction
+
+The coordinator supplied four concrete templates, independently numerically replayed before this implementation. TS and Rust now dispatch them by inclusive tracked bounds rather than a round-number cycle. The two previous templates remain fallbacks for unexpected bounds or layouts. All four use the same live boundary `[s0,P,s2,s1]`, preserve it as `[s0',P,s2',s1']` and add one dead old s1 per round. No adapter or expensive synthesis is needed.
+
+| Fork      | t=3 before | t=3 after | Saving | Runtime bytes before | After |
+| --------- | ---------: | --------: | -----: | -------------------: | ----: |
+| Osaka     |      7,768 |     7,656 |    112 |                6,733 | 6,719 |
+| Amsterdam |      7,768 |     7,656 |    112 |                6,733 | 6,719 |
+
+Both forks compile and execute t=2/3/4 against the reference again, with 24 / 24 / 96 verified calls and zero model differences. The committed t=2 costs remain 5,956 / 5,917; t=4 raw and all hash costs remain unchanged. Parameters, pinned external known answers and shared vectors are unchanged. The tracked t=3 permutation is regenerated using Amsterdam; its wrapper and vectors do not change.
+
+### Policy and bounds
+
+Let x be the normalized S-box result, b=s1, c=s2 and L=P-1. Form `q=x+b` with ADD, then `s=(q+c) mod P` and `a'=s+x`. Dispatch only when b's bound is at most 4L and c's at most 5L:
+
+- Reset when b's bound exceeds 3L: reduce b'=s+b and d=2c, then c'=s+d. This also handles the initial (4,4) bridge.
+- Otherwise high when c's bound exceeds 2L: leave b'=s+b lazy, reduce d=2c and leave c'=s+d lazy.
+- Otherwise low: leave b'=s+b, d=2c and c'=s+d lazy. At the final internal round or a part boundary, use the final variant to reduce c' instead.
+
+The ordinary cycle is (1,2) -> (2,5) -> (3,2) -> (4,5) -> (1,2), in multiples of L for exact generator bounds. q is at most 5L < 2^256 even when c is lazy at 5L; x+c would not be safe in that phase. Active output is at most 2L, low c' at most 5L, high/reset c' at most 2L. The final low-phase reduction gives (2,4,1); high/reset final outputs are also safe for external constants. All ADDs remain emitter-checked. The corrected common prefix uses DUP5 for x, not the rejected prototype's DUP4.
+
+### Recalibrated accounting and verification
+
+Internal model and compiled execution agree at 6,000 instead of 6,112: 27 low rounds at 101, 14 high at 109, 14 reset at 117 and one final at 109. Linear arithmetic is 237 ADD / 99 ADDMOD instead of 223 / 113. The saving is 70 arithmetic gas plus 42 from fourteen fewer net consumed slots, not recovered placement overhead. The new internal fixed-mix floor is `56*48 + 2,808 = 5,496`; its placement/supply gap remains 504. Initial/external/wrapper costs remain 42 / 1,539 / 75. The new core relaxation is `3,813 + 3*1,043 = 6,942`, same-wrapper 7,017; the 639-gas total gap is unchanged (444 SWAP, 195 surplus supply). These are scoped new-arithmetic floors, not unrestricted minima.
+
+- Full Rust suite: nine library, four generator and five compiled verifier tests. Both forks now have strict small-width gas assertions, alongside the unchanged t=16/24/28 snapshots.
+- Nine Node tests check accounting, both t=2 policies and both t=3 policies. Rust checks the first bridge, all phases, exact inclusive bounds and threshold-plus-one fallbacks, maximal constants, retained garbage/layout, and final entry with either next-round flag. TS checks the full generated arithmetic counts and external re-entry against the reference.
+- Both-fork serial TS/Rust parity passes for t=2/3/4 sources, tests and stdout. Cargo fmt, Prettier, scoped generated diffs and whitespace checks are run before committing.
+- `python3 "$ROOT/generator-rs/stacksearch/t3_periodic.py"` reads the production TS DSL and independently replays 64 complete 56-round chains, retaining garbage and checking PRIME, outputs, cost and strict bounds. This numeric probe is not a compiled measurement; the revm runs above provide that separate evidence.
+
+No A\* sweep, transformed representation, t=4 search, dependency or lockfile change was needed. An additional `forge test --offline --match-contract 'Poseidon2T[23]Test'` did not reach execution: source-only submodules triggered unsuccessful dependency discovery, and the nested stringutils source was missing. No dependency installation succeeded. `/tmp/poseidon2-lane2-foundry.log` records this environment failure; compiled huff-neo/revm verification and the full Rust suite pass independently.
+
+Transient evidence: `/tmp/poseidon2-lane2-t3-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane2-t3-floor.json` and `/tmp/poseidon2-serial-parity.IQUskN`. No claim of global optimality or further placement recovery is made. Remaining work is the parent's independent rebuild/parity gate, then any improved first bridge or joint placement policy as a separate investigation.
