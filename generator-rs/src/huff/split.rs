@@ -79,7 +79,7 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
         ..probe_opts
     };
     let mut groups = vec![0];
-    groups.extend(group_candidates(params, &fork).first());
+    groups.extend(group_candidates(params, &fork, 0).first());
     let fits = |opts: &BuildOptions, range: Range| -> bool {
         match build_permutation_with(params, inputs, opts, fork, range, false, &boundary(range)) {
             Ok(r) => r.max_depth <= 1000 && r.bytes <= budget(range),

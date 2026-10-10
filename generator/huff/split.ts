@@ -73,7 +73,7 @@ export function splitPermutation(
     primeStack: true,
     sharedBody: true,
   };
-  const groups = [0, ...groupCandidates(params, fork).slice(0, 1)];
+  const groups = [0, ...groupCandidates(params, fork, 0).slice(0, 1)];
   const fits = (opts: BuildOptions, range: Range): boolean => {
     try {
       const r = buildPermutation(

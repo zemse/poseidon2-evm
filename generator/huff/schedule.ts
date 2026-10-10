@@ -119,6 +119,10 @@ export type BuildOptions = {
   // another in sub-chains of consumeGroup slots (the last takes the rest),
   // each rotating on its own, for a shorter body (0: one chain)
   consumeGroup: number;
+  // with internalConsume, the elements the stack holds when the reach
+  // cannot hold them all (0: reach - 4); each one more takes a slot of the
+  // sum chain's PRIME copies and saves its loads and store
+  consumeSlots: number;
   // external rounds (t <= 4) and, with externalD, the M4 of every block as
   // the stack programs of templates.ts, from restricted searches: the
   // lanes are S-boxed in place and the linear layer consumes its operands,
@@ -156,6 +160,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   sharedBody: false,
   bodyInline: 0,
   consumeGroup: 0,
+  consumeSlots: 0,
   externalTemplate: false,
   internalTemplate: false,
   internalMul3: false,
@@ -240,11 +245,27 @@ export function steadyRounds(
   return { first, steady: Math.max(last - first + 1, 0) };
 }
 
+// elements the consuming round holds on the stack: consumeSlots, or as
+// many as leave 4 slots of the reach ([output, sum, m0] and a PRIME copy)
+export function heldSlots(
+  t: number,
+  reach: number,
+  consumeSlots: number,
+): number {
+  if (consumeSlots > 0) return Math.min(consumeSlots, t - 1);
+  return Math.min(t - 1, reach - 4);
+}
+
 // elements the consuming round holds on the stack: the rounds the layout
 // takes to rotate back, the length of the shared body; in sub-chains of
 // `group` slots each rotates on its own, so the lcm of their lengths
-export function bodyPeriod(params: Params, fork: Fork, group = 0): number {
-  const slots = Math.min(params.t - 1, fork.reach - 4);
+export function bodyPeriod(
+  params: Params,
+  fork: Fork,
+  consumeSlots: number,
+  group = 0,
+): number {
+  const slots = heldSlots(params.t, fork.reach, consumeSlots);
   if (group === 0 || group >= slots) return slots;
   const rem = slots % group;
   return rem === 0 ? group : lcm(group, rem);
@@ -258,11 +279,15 @@ function lcm(a: number, b: number): number {
 // The sub-chain lengths worth trying, by the period they give, shortest
 // first: the one with the fewest chains per period (the chains cost a SWAP
 // each, the calls of a shorter body their overhead)
-export function groupCandidates(params: Params, fork: Fork): number[] {
-  const slots = bodyPeriod(params, fork);
+export function groupCandidates(
+  params: Params,
+  fork: Fork,
+  consumeSlots: number,
+): number[] {
+  const slots = bodyPeriod(params, fork, consumeSlots);
   const byPeriod = new Map<number, number>();
   for (let group = 1; group < slots; group++) {
-    const period = bodyPeriod(params, fork, group);
+    const period = bodyPeriod(params, fork, consumeSlots, group);
     if (period >= slots) continue;
     const prev = byPeriod.get(period);
     if (
@@ -324,7 +349,12 @@ class Builder {
     this.diagBase = this.stateInMemory ? 32 * this.t : DIAG_MEMORY_BASE;
     this.rcBase =
       this.diagBase + (opts.diagInMemory ? 32 * (this.t - opts.diagPush32) : 0);
-    this.period = bodyPeriod(params, fork, opts.consumeGroup);
+    this.period = bodyPeriod(
+      params,
+      fork,
+      opts.consumeSlots,
+      opts.consumeGroup,
+    );
     this.e.slotBase =
       this.rcBase + (opts.sharedBody ? 32 * (this.period + 2) : 0);
     if (opts.primeInMemory) this.e.slotBase += 32;
@@ -1493,10 +1523,12 @@ class Builder {
   // its MULMOD; the last ADD consumes the sum and m0 together.
   //
   // The stack holds reach - 4 such elements ([output, sum, m0] and the
-  // PRIME copy below take the rest of the reach); beyond that the first
-  // indices live in memory (block 0 and whole blocks, so that the external
-  // layer after finds its blocks in place), loaded for the chain and their
-  // MULMOD and stored again, and s0^5 joins the chain from memory as well.
+  // PRIME copy below take the rest of the reach), or consumeSlots, one or
+  // two more at the price of the sum chain's PRIME copies; beyond that the
+  // first indices live in memory (block 0 and whole blocks, so that the
+  // external layer after finds its blocks in place), loaded for the chain
+  // and their MULMOD and stored again, and s0^5 joins the chain from memory
+  // as well.
   // The first round gets them all on the stack: the ones the region does
   // not hold are loaded from where they sit (shadowed when out of reach),
   // each following an element whose output moves to memory so that
@@ -1513,7 +1545,7 @@ class Builder {
     if (e.top(0) !== s0 || e.top(1) !== this.P) {
       throw new Error("internal round expects [s0, P] on top");
     }
-    const slots = Math.min(t - 1, e.maxReach - 4);
+    const slots = heldSlots(t, e.maxReach, this.opts.consumeSlots);
     const mem = t - 1 - slots;
     const c0 = this.params.roundConstants[round][0];
     let c: Operand;
@@ -2175,6 +2207,7 @@ export function buildBest(
                                     sharedBody,
                                     bodyInline: 0,
                                     consumeGroup: 0,
+                                    consumeSlots: 0,
                                     externalTemplate,
                                     internalTemplate,
                                     internalMul3,
@@ -2195,7 +2228,14 @@ export function buildBest(
         }
       }
     }
-    return list;
+    // with shadow, a consuming schedule whose elements the reach cannot
+    // hold all also with one and two more on the stack
+    const extra = [fork.reach - 3, fork.reach - 2].filter((n) => n < params.t);
+    return list.flatMap((opts) =>
+      shadow && opts.primeStack && opts.sharedBody
+        ? [opts, ...extra.map((consumeSlots) => ({ ...opts, consumeSlots }))]
+        : [opts],
+    );
   };
   const attempt = (opts: BuildOptions): BuildResult | undefined => {
     try {
@@ -2241,7 +2281,7 @@ export function buildBest(
           // a body too large for the code size: sub-chains shorten it,
           // the longest period that fits (the shorter, the more chains
           // and calls)
-          const groups = groupCandidates(params, fork);
+          const groups = groupCandidates(params, fork, opts.consumeSlots);
           const fits = (n: number) => {
             const r = attempt({ ...opts, consumeGroup: groups[n] });
             return r !== undefined && r.bytes <= maxBytes;
@@ -2271,7 +2311,12 @@ export function buildBest(
           // a remainder call and the mid exit cost more than the 3 gas
           // per round the body charges, so the largest count that leaves
           // none when one fits
-          const period = bodyPeriod(params, fork, opts.consumeGroup);
+          const period = bodyPeriod(
+            params,
+            fork,
+            opts.consumeSlots,
+            opts.consumeGroup,
+          );
           const extra = (period - ((steady - bodyInline) % period)) % period;
           if (bodyInline >= extra && fits(bodyInline - extra)) {
             bodyInline -= extra;

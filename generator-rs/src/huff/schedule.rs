@@ -95,6 +95,10 @@ pub struct BuildOptions {
     /// another in sub-chains of consume_group slots (the last takes the
     /// rest), each rotating on its own, for a shorter body (0: one chain)
     pub consume_group: usize,
+    /// with internal_consume, the elements the stack holds when the reach
+    /// cannot hold them all (0: reach - 4); each one more takes a slot of
+    /// the sum chain's PRIME copies and saves its loads and store
+    pub consume_slots: usize,
     /// external rounds (t <= 4) and, with external_d, the M4 of every block
     /// as the stack programs of templates.rs, from restricted searches:
     /// the lanes are S-boxed in place and the linear layer consumes its
@@ -132,6 +136,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     shared_body: false,
     body_inline: 0,
     consume_group: 0,
+    consume_slots: 0,
     external_template: false,
     internal_template: false,
     internal_mul3: false,
@@ -226,6 +231,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.consume_group > 0 {
         enabled.push(format!("consumeGroup={}", opts.consume_group));
     }
+    if opts.consume_slots > 0 {
+        enabled.push(format!("consumeSlots={}", opts.consume_slots));
+    }
     if opts.external_template {
         enabled.push("externalTemplate".to_string());
     }
@@ -281,11 +289,20 @@ pub fn steady_rounds(params: &Params, range: Range) -> (usize, usize) {
     (first as usize, (last - first + 1).max(0) as usize)
 }
 
+/// elements the consuming round holds on the stack: consume_slots, or as
+/// many as leave 4 slots of the reach ([output, sum, m0] and a PRIME copy)
+pub fn held_slots(t: usize, reach: usize, consume_slots: usize) -> usize {
+    if consume_slots > 0 {
+        return consume_slots.min(t - 1);
+    }
+    (t - 1).min(reach - 4)
+}
+
 /// elements the consuming round holds on the stack: the rounds the layout
 /// takes to rotate back, the length of the shared body; in sub-chains of
 /// `group` slots each rotates on its own, so the lcm of their lengths
-pub fn body_period(params: &Params, fork: &Fork, group: usize) -> usize {
-    let slots = (params.t - 1).min(fork.reach - 4);
+pub fn body_period(params: &Params, fork: &Fork, consume_slots: usize, group: usize) -> usize {
+    let slots = held_slots(params.t, fork.reach, consume_slots);
     if group == 0 || group >= slots {
         return slots;
     }
@@ -303,11 +320,11 @@ fn lcm(a: usize, b: usize) -> usize {
 /// The sub-chain lengths worth trying, by the period they give, shortest
 /// first: the one with the fewest chains per period (the chains cost a
 /// SWAP each, the calls of a shorter body their overhead)
-pub fn group_candidates(params: &Params, fork: &Fork) -> Vec<usize> {
-    let slots = body_period(params, fork, 0);
+pub fn group_candidates(params: &Params, fork: &Fork, consume_slots: usize) -> Vec<usize> {
+    let slots = body_period(params, fork, consume_slots, 0);
     let mut by_period: BTreeMap<usize, usize> = BTreeMap::new();
     for group in 1..slots {
-        let period = body_period(params, fork, group);
+        let period = body_period(params, fork, consume_slots, group);
         if period >= slots {
             continue;
         }
@@ -412,7 +429,7 @@ impl<'a> Builder<'a> {
             } else {
                 0
             };
-        let period = body_period(params, &fork, opts.consume_group);
+        let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
         e.slot_base = rc_base
             + if opts.shared_body {
                 32 * (period + 2)
@@ -1899,8 +1916,9 @@ impl<'a> Builder<'a> {
 
     /// Internal round that consumes the old state in place. Expects [s0, P]
     /// on top, the other elements right under them and a PRIME copy under
-    /// the state. Beyond reach - 4 elements the first indices live in memory,
-    /// loaded for the chain and their MULMOD and stored again. Each element
+    /// the state. Beyond reach - 4 elements (or consume_slots) the first
+    /// indices live in memory, loaded for the chain and their MULMOD and
+    /// stored again. Each element
     /// swapped to the top gets a PRIME copy swapped under it, or with
     /// prime_stack lands on one of the copies stacked under m0 beforehand.
     fn internal_round_consume(
@@ -1911,7 +1929,7 @@ impl<'a> Builder<'a> {
     ) -> Result<()> {
         let t = self.t;
         let p = self.p();
-        let slots = (t - 1).min(self.e.max_reach - 4);
+        let slots = held_slots(t, self.e.max_reach, self.opts.consume_slots);
         let mem = t - 1 - slots;
         let x5 = self.round_start(round, rc)?;
         // the external round before leaves an M4 temporary among the state;
@@ -2612,8 +2630,9 @@ pub struct Best {
 }
 
 /// The option combinations that make sense for t, in the TS enumeration
-/// order.
-fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
+/// order; with shadow, a consuming schedule whose elements the reach
+/// cannot hold all also with one and two more on the stack.
+fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
     let bools = [false, true];
     let only_false: &[bool] = &[false];
     let pick = |cond: bool| -> &[bool] { if cond { &bools } else { only_false } };
@@ -2673,6 +2692,7 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
                                                                     shared_body,
                                                                     body_inline: 0,
                                                                     consume_group: 0,
+                                                                    consume_slots: 0,
                                                                     external_template,
                                                                     internal_template,
                                                                     internal_mul3,
@@ -2693,7 +2713,20 @@ fn candidates(t: usize, shadow: bool) -> Vec<BuildOptions> {
             }
         }
     }
-    list
+    let extra: Vec<usize> = (reach - 3..=reach - 2).filter(|&n| n < t).collect();
+    list.into_iter()
+        .flat_map(|opts| {
+            let more: &[usize] = if shadow && opts.prime_stack && opts.shared_body {
+                &extra
+            } else {
+                &[]
+            };
+            std::iter::once(opts).chain(more.iter().map(move |&consume_slots| BuildOptions {
+                consume_slots,
+                ..opts
+            }))
+        })
+        .collect()
 }
 
 /// What the search learns from one candidate: whether its first build
@@ -2787,7 +2820,7 @@ pub fn build_best_with(
                     // a body too large for the code size: sub-chains shorten
                     // it, the longest period that fits (the shorter, the
                     // more chains and calls)
-                    let groups = group_candidates(params, &fork);
+                    let groups = group_candidates(params, &fork, opts.consume_slots);
                     let fits = |n: usize| {
                         attempt(&BuildOptions {
                             consume_group: groups[n],
@@ -2825,7 +2858,7 @@ pub fn build_best_with(
                     // a remainder call and the mid exit cost more than the
                     // 3 gas per round the body charges, so the largest count
                     // that leaves none when one fits
-                    let period = body_period(params, &fork, opts.consume_group);
+                    let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
                     let extra = (period - (steady - body_inline) % period) % period;
                     if body_inline >= extra && fits(body_inline - extra) {
                         body_inline -= extra;
@@ -2897,9 +2930,17 @@ pub fn build_best_with(
         }
         built
     };
-    let mut built = search(candidates(params.t, false), &mut best, &mut failures);
+    let mut built = search(
+        candidates(params.t, false, fork.reach),
+        &mut best,
+        &mut failures,
+    );
     if built == 0 {
-        built += search(candidates(params.t, true), &mut best, &mut failures);
+        built += search(
+            candidates(params.t, true, fork.reach),
+            &mut best,
+            &mut failures,
+        );
     }
     if built == 0 {
         let mut reasons: Vec<(String, usize)> = Vec::new();
