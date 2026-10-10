@@ -92,11 +92,13 @@ Ranked by absolute gap, with the same relaxation throughout:
 | t=3 initial  |       42 |            30 |  12 |
 | t=2 initial  |       27 |            18 |   9 |
 
-- t=4 internal: 166 per round, versus 154 relaxed. The twelve-gas gap is three SWAPs and one surplus supplied slot. The existing internal search additionally charges a necessary placement move, giving 157 within its model and 504 total remaining headroom there. Its four-lane search did not finish proving optimality.
+- t=4 internal: 166 per round, versus 154 relaxed. The twelve-gas gap is three SWAPs and one surplus supplied slot. The existing internal search reports a root heuristic of 157 after charging a placement move; this is not an independently certified stronger floor. Its four-lane search did not finish proving optimality.
 - t=3 internal: 109 steady, versus 100 relaxed; the first round is 117 versus 108 because external outputs are lazy. The previous search exhausted cheaper than the 64-gas post-S-box program only within its configured positive-linear-form, garbage and depth domain.
 - t=2 internal: 88 steady, versus 82 relaxed; the first round is 105 versus 96. Fourteen rounds pay another three gas for PRIME refresh. Amsterdam still needs one such refresh, explaining the 39-gas fork difference.
 
 The external searches already exhausted cheaper candidates in their configured graphs for t=2/t=3 and the regular t=4 round. The t=4 final-round search did not exhaust. [README.md](README.md) and [RESULTS.md](RESULTS.md) specify the restrictions; none is a proof over all equivalent EVM programs.
+
+An independent diagnostic found that the baseline internal-search heuristic overestimates some completion costs with two allowed garbage slots. From top-first `[dead0, P, out1, out2, out3, dead1, out0]`, one SWAP6 reaches `[out0, P, out1, out2, out3]` with two trailing garbage slots for three gas, but the heuristic returns four. It incorrectly treats both dead entries above the deepest output as mandatory POPs. This does not change the opcode-accounting floors or measured contract gas; search admissibility needs a separate regression and correction.
 
 ## Initial rejected options
 
