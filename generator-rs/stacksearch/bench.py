@@ -14,6 +14,7 @@ import sys
 import time
 
 from check import verify
+from internal_check import verify as verify_internal
 
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -40,11 +41,11 @@ with (out / "stdout.txt").open("w") as stdout, (out / "stderr.txt").open("w") as
         peak_rss = max(peak_rss, rss)
         elapsed = time.monotonic() - start
         text = (out / "stderr.txt").read_text()
-        matches = re.findall(r"expanded (\d+)(?: nodes, (\d+) states|, states (\d+)), open (\d+)", text)
-        expanded, states, opened = (0, 0, 0)
+        matches = re.findall(r"expanded (\d+)(?: nodes, (\d+) states|, states (\d+))(?:, open (\d+))?", text)
+        expanded, states, opened = (0, 0, None)
         if matches:
             e, final_states, running_states, o = matches[-1]
-            expanded, states, opened = int(e), int(final_states or running_states), int(o)
+            expanded, states, opened = int(e), int(final_states or running_states), int(o) if o else None
         if rss > rss_gib * 1024**3:
             reason = f"{rss_gib:g} GiB process-group RSS guard"
         elif elapsed > seconds:
@@ -52,7 +53,7 @@ with (out / "stdout.txt").open("w") as stdout, (out / "stderr.txt").open("w") as
         snapshot = {
             "status": "running", "summary": out.name,
             "tracks": [{"id": "expanded", "current": expanded, "unit": "expansions"}],
-            "details": [f"states {states}, queue entries {opened}"],
+            "details": [f"states {states}, queue entries {opened if opened is not None else 'unreported'}"],
             "metrics": [{"label": "elapsed", "value": round(elapsed, 1), "unit": "s"},
                         {"label": "RSS", "value": round(rss / 1024**2, 1), "unit": "MiB"}],
             "conditions": {},
@@ -68,11 +69,17 @@ m = re.search(r"^cost (\d+)$", text, re.M)
 verified = False
 if process.returncode == 0 and m:
     try:
-        verify(text, command[1:])
+        if Path(command[0]).name == "internal":
+            verify_internal(text, command[1:], "UNORDERED" in os.environ)
+        else:
+            verify(text, command[1:])
         verified = True
     except (AssertionError, IndexError, KeyError, TypeError, ValueError) as error:
         reason = f"replay failed: {error}"
 result = {"command": command, "elapsed": time.monotonic() - start,
+          "environment": {key: os.environ[key] for key in
+                          ("UB", "MAXF", "UNORDERED", "SINGLE", "NO_SUM_WASTE", "LOOSE_DUP", "NO_POP", "REPLAY", "RSS_GIB")
+                          if key in os.environ},
           "sampled_peak_rss": peak_rss, "returncode": process.returncode,
           "cost": int(m[1]) if m else None, "verified": verified, "stopped": reason}
 (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")

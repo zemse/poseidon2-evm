@@ -14,7 +14,7 @@ Two binaries, run from this directory after `cargo build --release`:
 
 - `target/release/stacksearch` (`src/main.rs`) is the earlier single-opcode search with the same value model; slower, kept for reference.
 
-- `target/release/internal` (`src/bin/internal.rs`) searches the t = 4 internal round over single opcodes (the S-box of lane 0 one move), with the products `d_i * s_i` and the outputs `m_i + sum` as classes. Beyond the ops and copies left, its bound counts one DUP or SWAP for the sum while two outputs are to go (its deepest entry can only be consumed by the first output) and for a needed value frozen under an output; a DUP is only made for a use left that no entry can serve in place. `REPLAY="<program>"` scores a program in the template DSL instead.
+- `target/release/internal` (`src/bin/internal.rs`) searches the t = 4 internal round over single opcodes (the S-box of lane 0 one move), with the products `d_i * s_i` and the outputs `m_i + sum` as classes. Its conservative bound charges missing output ADDs and product MULMODs, with the greater of net stack supply and mandatory diagonal/PRIME supply; only the raw t = 4 five-slot boundary with bounds 2 also uses the 154-gas fixed-arithmetic relaxation. Copy, garbage and placement charges were removed after allowed-state completion counterexamples. The strict DUP filter remains a generation restriction, not a proved-complete rule. `O` accepts any unplaced output; `UNORDERED=1` accepts any permutation of the goal's outputs and PRIME copies. Goals require every output exactly once, with its lane-specific bound. `UB=<gas>` prunes f >= gas before inserting a node. `REPLAY="<program>"` scores a program in the template DSL instead and emits the same cost/layout/DSL records for independent replay.
 
   ```
   internal <lanes> <init> <goal> [max_garbage=0] [max_depth=16] [s=<bounds>;o=<bounds>]
@@ -57,7 +57,9 @@ The bound requires complete computation history and every output. The CLI theref
 
 ## Profiling
 
-`bench.py <output-directory> <seconds> <binary> <arguments...>` runs one search under `/usr/bin/time -l`, samples process-group RSS, and stops at the time limit or 48 GiB RSS (`RSS_GIB` overrides this up to 56). It writes a live `snapshot.json`, stdout, stderr and a result record. Successful programs are independently replayed on 64 deterministic BN254 inputs, including boundaries, with checks for ADD overflow, operands, output order, reduction and gas. `check.py <result-file> <arguments...>` runs the same replay separately.
+`bench.py <output-directory> <seconds> <binary> <arguments...>` runs one search under `/usr/bin/time -l`, samples process-group RSS, and stops at the time limit or 48 GiB RSS (`RSS_GIB` overrides this up to 56). It writes a live `snapshot.json`, stdout, stderr and a result record, including the search environment. Successful programs are independently replayed on 64 deterministic BN254 inputs, including boundaries, with checks for ADD overflow, operands, output order, reduction and gas. `check.py <result-file> <arguments...>` runs the macro replay separately. The `internal` binary uses `internal_check.py` instead, also runnable with the same result-file/arguments convention (`UNORDERED=1` matches the search). Its numeric replay is not a symbolic proof over all inputs.
+
+`python3 internal_layouts.py` evaluates the six inactive-lane renamings of the current t = 4 internal template with shortest SWAP-only adapters, including both boundaries of two and 56 rounds. `python3 -m unittest discover -s . -p internal_test.py` tests the numeric replay, adapters and runner. [OSAKA-OPTIMISATION.md](OSAKA-OPTIMISATION.md) records the lane's bounded searches and exact scope.
 
 Build the profiling features separately:
 

@@ -14,33 +14,30 @@
 //   internal <lanes> <init> <goal> [max_garbage=0] [max_depth=16] [bounds]
 //
 // init / goal: comma separated classes, top first: s<i> the lanes before the
-// round (in the goal output i), P a PRIME copy. `bounds` is
+// round (in the goal output i), P a PRIME copy, O any unplaced output. The
+// goal requires each output once. UNORDERED=1 accepts any permutation of
+// its outputs and PRIME copies. UB=<gas> prunes f >= gas before insertion.
+// `bounds` is
 // `s=<b0>,<b1>,...` for the input bounds in units of P (default 2 for every
 // lane: m_i + sum below 2P), optionally followed by `;o=<b0>,...` for the
 // outputs' (default the inputs'). Below the goal prefix at most
 // max_garbage dead values may remain.
 //
-// The heuristic counts the ops still needed (an ADD per missing output, the
-// adds of the cheapest cover of the sum by the partial sums present, one
-// ADDMOD when that cover is over the outputs' bound, a MULMOD per missing
-// product and the S-box steps left) and the pushes and DUPs both the copies
-// of every value still to be used and the stack balance force (every op
-// takes one slot, the mod ops two, the goal needs its slots), 3 gas each.
-// On top of that it counts one DUP or SWAP more while two outputs or more
-// are to go: the deepest entry of the sum can only be consumed by the first
-// output, after which no entry is left for the others, so it stays (or a
-// SWAP moves an output under it); and it freezes what is under it like an
-// output, so a value still needed whose every entry is frozen takes one copy
-// more (or a SWAP), counted once with the sum's. Dead values above an
-// output must be popped.
+// The heuristic counts only a final ADD per missing output, a MULMOD per
+// missing product, and the greater of net stack supply and mandatory diag /
+// PRIME supply. It does not charge copies, garbage, placement, sum formation
+// or S-box work at arbitrary states. At the raw five-slot t = 4 boundary
+// with bounds 2 it retains the fixed-arithmetic relaxation of 154 gas.
+// This bound can decrease faster than a move costs; the queue revisits lower
+// f buckets. It is not a certificate over arbitrary EVM implementations.
 //
 // A DUP is only made while the entries of a value are fewer than its uses
 // left, or as many when every entry is frozen (LOOSE_DUP=1 allows one more
-// in any case); so the search is optimal within that rule, the depth and the
-// garbage limit. SINGLE=1 runs the S-box as single opcodes, NO_POP=1 leaves
-// POP out, MAXF=<gas> stops past that f, and REPLAY="<program>" prints g, h
-// and the stack after every move of a program in the template DSL instead
-// of searching.
+// in any case). These generation restrictions are not proved complete.
+// SINGLE=1 runs the S-box as single opcodes, NO_POP=1 leaves POP out,
+// MAXF=<gas> stops past that f, and REPLAY="<program>" prints g, h and the
+// stack after every move of a program in the template DSL instead of
+// searching. NO_SUM_WASTE is retained for compatibility but has no effect.
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -193,6 +190,41 @@ enum GoalSlot {
     Class(u8),
     // output lane, max bound
     Out(usize, u8),
+    AnyOut,
+}
+
+fn parse_goal(names: &[String], bounds: &[u8]) -> (Vec<GoalSlot>, u32) {
+    let mut goal = Vec::new();
+    let mut goal_p = 0;
+    let mut seen = vec![false; bounds.len()];
+    let mut any = 0;
+    for n in names {
+        if n == "P" {
+            goal.push(GoalSlot::Class(P));
+            goal_p += 1;
+        } else if n == "O" {
+            goal.push(GoalSlot::AnyOut);
+            any += 1;
+        } else {
+            let i: usize = n
+                .strip_prefix('s')
+                .expect("output name")
+                .parse()
+                .expect("output index");
+            assert!(
+                n == &format!("s{i}") && i < bounds.len() && !seen[i],
+                "duplicate or invalid output"
+            );
+            seen[i] = true;
+            goal.push(GoalSlot::Out(i, bounds[i]));
+        }
+    }
+    assert_eq!(
+        seen.iter().filter(|&&b| b).count() + any,
+        bounds.len(),
+        "goal must contain every output once"
+    );
+    (goal, goal_p)
 }
 
 struct Problem {
@@ -201,11 +233,13 @@ struct Problem {
     init: Stack,
     goal: Vec<GoalSlot>, // top first
     goal_p: u32,
+    unordered_goal: bool,
     in_bound: Vec<u8>,
     out_bound: Vec<u8>,
     max_garbage: u32,
     max_depth: usize,
     single_ops: bool,
+    #[allow(dead_code)] // legacy toggle; all heuristic placement charges are disabled
     no_sum_waste: bool,
     strict_dup: bool,
     no_pop: bool,
@@ -527,18 +561,15 @@ impl Problem {
         n
     }
 
-    /// classes with an entry free to be consumed in place, classes with an
-    /// entry under an output (or under the sum's deepest entry while two
-    /// outputs or more are to go, which is never consumed), and the dead
-    /// entries
+    /// placement categories used by the restricted DUP filter, not a bound
+    /// on which entries can be consumed by a completion
     fn placement(&self, st: &Stack, inf: &Info) -> ([bool; NCLASS], [bool; NCLASS], u32) {
         let mut dead = 0u32;
         let mut seen_out = false;
         let mut free = [false; NCLASS];
         let mut frozen = [false; NCLASS];
-        // with two outputs or more to go, the deepest entry of the sum is
-        // never consumed (see the sum's waste below), so it freezes what is
-        // under it like an output
+        // The DUP filter treats the deepest sum as frozen while two outputs
+        // remain. Recomputation can consume other entries classified dead.
         let mut deepest_full = usize::MAX;
         if inf.missing >= 2 {
             for k in 0..st.len as usize {
@@ -568,63 +599,73 @@ impl Problem {
     }
 
     fn heuristic(&self, st: &Stack, inf: &Info) -> u32 {
-        let n = self.need(inf);
-        if !n.feasible {
-            return u32::MAX / 4;
-        }
-        // dead entries above the deepest output must leave (POP at least)
-        let mut dead_above = 0u32;
-        let (free, frozen, dead) = self.placement(st, inf);
-        let mut deepest_out = None;
-        for k in 0..st.len as usize {
-            if is_out(st.top(k)) {
-                deepest_out = Some(k);
+        // Only MULMOD creates a product and ADD / ADDMOD creates an output.
+        let adds = inf.missing;
+        let mut mods = 0;
+        let mut diag = 0;
+        for l in 0..self.t {
+            if !inf.has_out[l] && !inf.has_prod[l] {
+                mods += 1;
+                diag += !inf.has_d[l] as u32;
             }
         }
-        if let Some(d) = deepest_out {
-            for k in 0..d {
-                let c = st.top(k);
-                if c != P && !is_out(c) && !self.live(inf, c) {
-                    dead_above += 1;
-                }
-            }
-        }
-        let mut stuck = false;
-        for c in 0..NCLASS {
-            if frozen[c] && !free[c] {
-                let c = c as u8;
-                let used = match c {
-                    _ if is_part(c) || (PROD..PROD + 4).contains(&c) => self.uses_left(inf, c) > 0,
-                    _ => false,
-                };
-                if used {
-                    stuck = true;
-                }
-            }
-        }
-        let pops = dead.saturating_sub(self.max_garbage).max(dead_above);
-        let goal_len = self.goal.len() as i64;
-        let slot = goal_len - st.len as i64
-            + n.adds as i64
-            + 2 * (n.addmods + n.mods) as i64
-            + pops as i64;
-        let pneed = (n.mods + n.addmods + self.goal_p).saturating_sub(inf.p_count);
-        let pd = (slot.max(0) as u32).max(n.copies + n.pushes + pneed);
-        // the sum's deepest entry and what is stuck (see the top), once
-        let waste = if (inf.missing >= 2 || stuck) && !self.no_sum_waste {
-            3
+        // Other arithmetic and POPs consume more slots, never supply them.
+        let slots = self.goal.len() as i64 - st.len as i64 + adds as i64 + 2 * mods as i64;
+        let primes = (mods + self.goal_p).saturating_sub(inf.p_count);
+        let supply = (slots.max(0) as u32).max(diag + primes);
+        let bound = 3 * adds + 8 * mods + 3 * supply;
+        let raw = [S0, P, part(2, 2), part(4, 2), part(8, 2)];
+        if self.t == 4
+            && st.len == 5
+            && self.goal.len() == 5
+            && self.goal_p == 1
+            && self.in_bound.as_slice() == [2; 4]
+            && self.out_bound.as_slice() == [2; 4]
+            && raw.iter().all(|c| st.slice().contains(c))
+        {
+            // Seven ADDs, eight mod ops: 85 gas and 23 net consumed slots.
+            // The sum's bound 7 needs at least one ADDMOD in this class graph.
+            bound.max(85 + 3 * 23)
         } else {
-            0
-        };
-        3 * n.adds + 8 * (n.mods + n.addmods) + 2 * pops + 3 * pd + waste
+            bound
+        }
     }
 
     fn is_goal(&self, st: &Stack) -> bool {
         if (st.len as usize) < self.goal.len() {
             return false;
         }
+        if self.unordered_goal {
+            let mut seen = [false; MAXT];
+            let mut primes = 0;
+            for k in 0..self.goal.len() {
+                let c = st.top(k);
+                if c == P {
+                    primes += 1;
+                } else if is_out(c) {
+                    let l = out_lane(c);
+                    if l >= self.t || seen[l] || out_b(c) > self.out_bound[l] {
+                        return false;
+                    }
+                    seen[l] = true;
+                } else {
+                    return false;
+                }
+            }
+            return seen[..self.t].iter().all(|&b| b)
+                && primes == self.goal_p
+                && (st.len as usize - self.goal.len()) as u32 <= self.max_garbage;
+        }
+        let mut seen = [false; MAXT];
         for (k, g) in self.goal.iter().enumerate() {
             let c = st.top(k);
+            if is_out(c) {
+                let l = out_lane(c);
+                if l >= self.t || seen[l] {
+                    return false;
+                }
+                seen[l] = true;
+            }
             match *g {
                 GoalSlot::Class(x) => {
                     if c != x {
@@ -633,6 +674,11 @@ impl Problem {
                 }
                 GoalSlot::Out(l, b) => {
                     if !is_out(c) || out_lane(c) != l || out_b(c) > b {
+                        return false;
+                    }
+                }
+                GoalSlot::AnyOut => {
+                    if !is_out(c) || out_b(c) > self.out_bound[out_lane(c)] {
                         return false;
                     }
                 }
@@ -834,7 +880,15 @@ fn class_of_input(name: &str, bounds: &[u8]) -> u8 {
     if name == "P" {
         return P;
     }
-    let i: usize = name[1..].parse().expect("lane index");
+    let i: usize = name
+        .strip_prefix('s')
+        .expect("input name")
+        .parse()
+        .expect("lane index");
+    assert!(
+        name == format!("s{i}") && i < bounds.len(),
+        "input lane index"
+    );
     if i == 0 {
         S0
     } else {
@@ -877,30 +931,47 @@ fn main() {
     let out_b = out_bd.unwrap_or_else(|| in_b.clone());
     let init_names = parse_layout(&args[1]);
     let goal_names = parse_layout(&args[2]);
+    assert_eq!(in_b.len(), t, "input bounds length");
+    assert_eq!(out_b.len(), t, "output bounds length");
+    assert!(
+        in_b.iter().chain(&out_b).all(|&b| (1..=MAXB).contains(&b)),
+        "bounds must be in 1..=5"
+    );
+    assert!(in_b[0] <= 4, "constant ADD bound");
+    assert!(
+        max_depth <= MAXD && init_names.len() <= max_depth,
+        "depth limit"
+    );
     let mut init = Stack {
         len: 0,
         s: [0; MAXD],
     };
+    let mut seen_inputs = vec![false; t];
     for n in init_names.iter().rev() {
-        init.push(class_of_input(n, &in_b));
-    }
-    let mut goal = Vec::new();
-    let mut goal_p = 0;
-    for n in &goal_names {
-        if n == "P" {
-            goal.push(GoalSlot::Class(P));
-            goal_p += 1;
-        } else {
-            let i: usize = n[1..].parse().expect("output index");
-            goal.push(GoalSlot::Out(i, out_b[i]));
+        let c = class_of_input(n, &in_b);
+        if c != P {
+            let l = if c == S0 {
+                0
+            } else {
+                part_mask(c).trailing_zeros() as usize
+            };
+            assert!(!seen_inputs[l], "duplicate input lane");
+            seen_inputs[l] = true;
         }
+        init.push(c);
     }
+    assert!(
+        seen_inputs.iter().all(|&b| b),
+        "initial layout must contain every lane once"
+    );
+    let (goal, goal_p) = parse_goal(&goal_names, &out_b);
     let p = Problem {
         t,
         full: ((1u32 << t) - 1) as u8,
         init,
         goal,
         goal_p,
+        unordered_goal: std::env::var("UNORDERED").is_ok(),
         in_bound: in_b.clone(),
         out_bound: out_b.clone(),
         max_garbage,
@@ -933,6 +1004,7 @@ fn main() {
             let name = tok.split('=').next().unwrap();
             let m = match name {
                 "P" => Move::PushP,
+                "c" => Move::PushC,
                 "pop" => Move::Pop,
                 "add" => Move::Add,
                 "addmod" => Move::Addmod,
@@ -955,9 +1027,24 @@ fn main() {
             let h = p.heuristic(&st, &inf);
             println!("{tok:<16} g {g:>4} h {h:>4} f {:>4} [{}]", g + h, show(&st));
         }
-        println!("goal {}", p.is_goal(&st));
+        let goal = p.is_goal(&st);
+        println!("goal {goal}");
+        println!("cost {g}");
+        println!("layout {}", show(&st));
+        println!("dsl {prog}");
+        if !goal {
+            std::process::exit(1);
+        }
         return;
     }
+    let ub: u32 = std::env::var("UB")
+        .ok()
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(u32::MAX);
+    let max_f: u32 = std::env::var("MAXF")
+        .ok()
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(u32::MAX);
     let mut nodes: Vec<Node> = Vec::new();
     let mut index: FxMap<Stack, u32> = FxMap::default();
     let mut buckets: Vec<Vec<Vec<u32>>> = Vec::new();
@@ -981,15 +1068,13 @@ fn main() {
         }
         buckets[f][g].push(i);
     };
-    push(&mut buckets, h0, 0, 0);
-    eprintln!("h0 {h0}");
+    if h0 < ub && h0 <= max_f {
+        push(&mut buckets, h0, 0, 0);
+    }
+    eprintln!("h0 {h0}, UB {ub}, MAXF {max_f}");
     let mut f = 0usize;
     let mut expanded = 0usize;
     let mut last_f = 0u32;
-    let max_f: u32 = std::env::var("MAXF")
-        .ok()
-        .map(|v| v.parse().unwrap())
-        .unwrap_or(u32::MAX);
     let moves_cache: Vec<Vec<Move>> = (0..=MAXD)
         .map(|len| {
             let st = Stack {
@@ -1040,6 +1125,9 @@ fn main() {
                 continue;
             }
             let f2 = g2 + h;
+            if f2 >= ub || f2 > max_f {
+                continue;
+            }
             match index.get(&ch) {
                 Some(&j) => {
                     if nodes[j as usize].g as u32 <= g2 {
@@ -1062,6 +1150,8 @@ fn main() {
                     push(&mut buckets, f2, g2 as u16, j);
                 }
             }
+            // The conservative bound is admissible but not consistent.
+            f = f.min(f2 as usize);
         }
     };
     eprintln!("expanded {expanded} nodes, {} states", nodes.len());
@@ -1106,4 +1196,219 @@ fn main() {
         dsl.push(tok);
     }
     println!("dsl {}", dsl.join(" "));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn problem(goal: &str) -> Problem {
+        let bounds = vec![2; 4];
+        let (goal, goal_p) = parse_goal(&parse_layout(goal), &bounds);
+        Problem {
+            t: 4,
+            full: 15,
+            init: Stack {
+                len: 0,
+                s: [0; MAXD],
+            },
+            goal,
+            goal_p,
+            unordered_goal: false,
+            in_bound: bounds.clone(),
+            out_bound: bounds,
+            max_garbage: 1,
+            max_depth: 16,
+            single_ops: false,
+            no_sum_waste: false,
+            strict_dup: true,
+            no_pop: false,
+        }
+    }
+
+    fn stack(top: &[u8]) -> Stack {
+        let mut st = Stack {
+            len: 0,
+            s: [0; MAXD],
+        };
+        for &c in top.iter().rev() {
+            st.push(c);
+        }
+        st
+    }
+
+    fn check_completion(p: &Problem, mut st: Stack, moves: &[Move]) {
+        let mut remaining: u32 = moves.iter().map(|&m| m.cost()).sum();
+        assert!(p.heuristic(&st, &p.info(&st)) <= remaining);
+        for &m in moves {
+            st = p
+                .apply(&st, &p.info(&st), m)
+                .expect("completion move allowed");
+            remaining -= m.cost();
+            assert!(p.heuristic(&st, &p.info(&st)) <= remaining);
+        }
+        assert!(p.is_goal(&st));
+        assert_eq!(p.heuristic(&st, &p.info(&st)), 0);
+    }
+
+    #[test]
+    fn recomputation_consumes_entries_classified_dead() {
+        let mut p = problem("s1,s0,P,s2,s3");
+        p.out_bound = vec![3; 4];
+        p.goal = parse_goal(&parse_layout("s1,s0,P,s2,s3"), &p.out_bound).0;
+        p.max_garbage = 0;
+        let st = stack(&[
+            part(3, 1),
+            part(12, 1),
+            PROD,
+            PROD + 1,
+            part(15, 1),
+            P,
+            out(2, 2),
+            out(3, 2),
+        ]);
+        p.init = st;
+        assert!(p.strict_dup);
+        assert_eq!(p.heuristic(&st, &p.info(&st)), 6);
+        check_completion(&p, st, &[Move::Add, Move::Add, Move::Swap(2), Move::Add]);
+    }
+
+    #[test]
+    fn dead_entries_above_outputs_can_be_swapped_below() {
+        let mut p = problem("s0,P,s1,s2,s3");
+        p.max_garbage = 2;
+        let st = stack(&[
+            part(1, 1),
+            P,
+            out(1, 2),
+            out(2, 2),
+            out(3, 2),
+            part(2, 2),
+            out(0, 2),
+        ]);
+        p.init = st;
+        assert!(p.strict_dup);
+        assert_eq!(p.heuristic(&st, &p.info(&st)), 0);
+        check_completion(&p, st, &[Move::Swap(6)]);
+    }
+
+    #[test]
+    fn small_product_and_output_completions() {
+        let mut p = problem("s0,P,s1,s2,s3");
+        p.max_garbage = 0;
+        check_completion(
+            &p,
+            stack(&[PROD, part(15, 1), P, out(1, 2), out(2, 2), out(3, 2)]),
+            &[Move::Add],
+        );
+        check_completion(
+            &p,
+            stack(&[
+                D0,
+                part(1, 1),
+                P,
+                part(15, 1),
+                P,
+                out(1, 2),
+                out(2, 2),
+                out(3, 2),
+            ]),
+            &[Move::Mulmod, Move::Add],
+        );
+    }
+
+    #[test]
+    fn raw_floor_and_incumbent_prefix_completions() {
+        let mut p = problem("s0,P,s1,s2,s3");
+        let st = stack(&[S0, P, part(2, 2), part(4, 2), part(8, 2)]);
+        p.init = st;
+        assert_eq!(p.heuristic(&st, &p.info(&st)), 154);
+        let after_sbox = p.apply(&st, &p.info(&st), Move::Sbox).unwrap();
+        assert!(45 + p.heuristic(&after_sbox, &p.info(&after_sbox)) < 154);
+        let text = include_str!("../../results/t4-internal-incumbent.txt");
+        let program = text
+            .lines()
+            .find_map(|line| line.strip_prefix("dsl "))
+            .unwrap();
+        let moves: Vec<Move> = program
+            .split_whitespace()
+            .map(|token| {
+                let name = token.split('=').next().unwrap();
+                match name {
+                    "P" => Move::PushP,
+                    "sbox0" => Move::Sbox,
+                    "add" => Move::Add,
+                    "addmod" => Move::Addmod,
+                    "mulmod" => Move::Mulmod,
+                    _ if name.starts_with("dup") => Move::Dup(name[3..].parse().unwrap()),
+                    _ if name.starts_with("swap") => Move::Swap(name[4..].parse().unwrap()),
+                    _ if name.starts_with('d') => Move::PushD(name[1..].parse().unwrap()),
+                    _ => panic!("move {token}"),
+                }
+            })
+            .collect();
+        check_completion(&p, st, &moves);
+    }
+
+    #[test]
+    fn wildcard_requires_distinct_bounded_outputs() {
+        let p = problem("s0,P,O,O,O");
+        assert!(p.is_goal(&stack(&[out(0, 2), P, out(3, 1), out(1, 2), out(2, 2)])));
+        assert!(!p.is_goal(&stack(&[out(0, 2), P, out(3, 1), out(3, 2), out(2, 2)])));
+        assert!(!p.is_goal(&stack(&[out(0, 2), P, out(3, 3), out(1, 2), out(2, 2)])));
+        assert!(!p.is_goal(&stack(&[out(0, 2), P, part(8, 2), out(1, 2), out(2, 2)])));
+    }
+
+    #[test]
+    fn fixed_goal_and_garbage_limit() {
+        let p = problem("s0,P,s1,s2,s3");
+        let mut st = stack(&[out(0, 2), P, out(1, 2), out(2, 2), out(3, 2), part(8, 2)]);
+        assert!(p.is_goal(&st));
+        st.s[0] = part(4, 2);
+        st.push(part(8, 2));
+        assert!(!p.is_goal(&st));
+        assert!(!p.is_goal(&stack(&[out(0, 2), P, out(2, 2), out(1, 2), out(3, 2)])));
+    }
+
+    #[test]
+    fn unordered_goal_charges_the_same_boundary_slots() {
+        let mut p = problem("s0,P,s1,s2,s3");
+        let st = stack(&[out(3, 2), out(0, 2), out(2, 1), P, out(1, 2), part(8, 2)]);
+        assert!(!p.is_goal(&st));
+        p.unordered_goal = true;
+        assert!(p.is_goal(&st));
+        assert_eq!(p.heuristic(&st, &p.info(&st)), 0);
+        assert!(!p.is_goal(&stack(&[out(3, 2), out(0, 2), P, P, out(1, 2)])));
+        assert!(!p.is_goal(&stack(&[out(3, 2), out(0, 2), out(2, 3), P, out(1, 2)])));
+    }
+
+    #[test]
+    fn truncated_and_nonuniform_goals() {
+        let mut p = problem("s0,P,O,O,O");
+        p.out_bound[2] = 1;
+        for unordered in [false, true] {
+            p.unordered_goal = unordered;
+            assert!(!p.is_goal(&stack(&[out(0, 2), P, out(1, 2), out(2, 1)])));
+            assert!(!p.is_goal(&stack(&[out(0, 2), P, out(1, 2), out(2, 2), out(3, 2)])));
+            assert!(p.is_goal(&stack(&[out(0, 2), P, out(1, 2), out(2, 1), out(3, 2)])));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate or invalid output")]
+    fn invalid_goal_lane_rejected() {
+        problem("s0,P,s1,s2,s4");
+    }
+
+    #[test]
+    #[should_panic(expected = "goal must contain every output once")]
+    fn incomplete_goal_rejected() {
+        problem("s0,P,O,O");
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate or invalid output")]
+    fn duplicate_goal_rejected() {
+        problem("s0,P,s1,s1,O");
+    }
 }
