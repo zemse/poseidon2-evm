@@ -275,3 +275,42 @@ Portable evidence: [model and DSL records](results/lane3-linear.json), [compiled
 No incumbent gas or placement gap was recovered. Avoid repeating adjacent ADD+MOD replacements or this immediate-supply transport family. Free PRIME preplacement, different arithmetic order, fused boundaries, other raw shared values and SHL+MOD or MUL+MOD product schedules remain untested. The redundant fallback SWAP is safe locally, but any production patch should first show a benefit on an actual selected option path. Ordinary external-round shifts need their own downstream bound/reduction accounting.
 
 Lane 4's transformed inactive coordinates remain a separate investigation. Keep the incumbent controls, charge entry/exit and all 56 rounds, and distinguish inventory filters from compiled measurements. [EIP-145](https://eips.ethereum.org/EIPS/eip-145) is the operand-order and three-gas SHL prior art; revm compilation/execution supplies the independent checks here.
+
+## Lane 4: bounded inactive-coordinate probe
+
+Baseline ecdb664, 2026-10-10, independently rebuilt in branch `bhai/8cf2de96-db0dff`. Both compiled fork checks reproduce Osaka 5,956 / 7,656 / 12,087 and Amsterdam 5,917 / 7,656 / 12,087, with 24 / 24 / 96 calls per fork and zero model differences. Runtime bytes are 3,918 / 6,719 / 15,644 on Osaka and 4,007 / 6,719 / 13,629 on Amsterdam. The unchanged t=4 hash entrypoints cost 11,910 / 11,932 / 12,005. No coordinate representation is applied to production.
+
+### t = 3 finite family and shear
+
+`inactive_probe.py` checks all 104 integer 2x2 transforms with entries in -2..2 and determinant +/-1, including identity. It computes the exact inverse, `T B T^-1`, forcing `T [1,1]` and active observation `[1,1] T^-1`. Absolute coefficient sums are filters only, not arithmetic costs or scheduled gas. The discriminant of `x^2-5x+5` is 5, and its Legendre symbol is P-1 for the pinned scalar field. This excludes triangular/diagonal base-field similarity, not coupled bases.
+
+For `u=b+c, v=c`, the transformed inactive matrix is `[[3,1],[1,2]]`, forcing `[2,1]`, active row `[1,0]`. The probe uses the six-addition DAG `q=z+u; s=q+v; a'=q+z; v'=s+v; h=s+q; u'=h+u`. A finite dynamic program considers all 64 ADD/ADDMOD masks per round, charges 6/14 funded gas respectively, and carries inclusive multiples of L=P-1 through all 56 rounds. ADD requires a bound at most UINT256_MAX, and each active output is at most 4L so the next constant ADD fits. This is a fixed-DAG policy minimum, not a schedule minimum.
+
+Entry reduces u with ADDMOD from b,c <=4L and keeps v=c, giving a funded allowance of 14. Exit uses `b=(u+(kP-v)) mod P`, c=v, with k equal to v's final bound in multiples of L. Requiring k<=4 ensures both a nonnegative subtraction and `kP <= UINT256_MAX`, and permits external constant additions. SUB plus ADDMOD adds 20 funded gas. These allowances exclude placement and extra stock.
+
+| Evidence for this specific shear/DAG                      |   Gas |
+| --------------------------------------------------------- | ----: |
+| Minimum 56-round linear funded inventory                  | 2,840 |
+| S-boxes plus that inventory and entry/exit allowances     | 5,562 |
+| Incumbent internal fixed-inventory floor                  | 5,496 |
+| Incumbent scheduled internal chain                        | 6,000 |
+| One clean-boundary scheduled model, including conversions | 8,586 |
+
+The scheduled control uses fixed DAG order, last-use consumption, locally shortest commutative top-based SWAP transport with a stable tail, and clean `[a,P,u,v]` boundaries. Its entry/exit cost 29/38, with every literal PRIME, DUP and SWAP charged. The complete portable DSL is numerically replayed on 64 chains, including inclusive input endpoints and maximal constants. The replay also propagates independent intervals and checks ADD overflow, SUB order/nonnegativity, exact PRIME operands, reach, output parity and safe external re-entry. There is no compiled coordinate candidate. The 8,586 model rejects only this deliberately bounded transport policy; the 5,562 relaxation leaves 438 gas of possible placement allowance below the incumbent, so the basis itself is not rejected. No larger schedule search follows in this lane.
+
+### t = 4 observable basis
+
+The probe derives the actual diagonal-minus-one constants with the TS generator after its pinned Barretenberg assertion. For inactive `B=D+J`, rows `1^T, 1^T B, 1^T B^2` have determinant equal modulo P to the Vandermonde product of diagonal differences, here nonzero. It checks the characteristic coefficients and recurrence on 64 trials and records all constants in the portable JSON.
+
+The direct recurrence has coefficients `d0+1, c1, c2, -q0, -q1, -q2`, all nonzero and outside +/-5 modulo P. Here `c1=sum(d)+9`, `c2=sum(d^2)+6sum(d)+27`, `q2=-sum(d)-3`, `q1=sum_pairs(d)+2sum(d)` and `q0=-product(d)-sum_pairs(d)`. Its six independent generic MULMODs, one small product by three and six additions have optimistic funded linear inventory 128, or 176 with the S-box. This already exceeds the incumbent scheduled 166 before conversion, extra reductions or placement. Only that naive unfactored DAG is rejected; generic coefficients do not prove that shared products or other factorizations cannot help. No new transform, opcode or parameter infrastructure is added to either production generator.
+
+### Reproduction and verification
+
+```sh
+ROOT=/absolute/path/to/this/worktree
+SEARCH="$ROOT/generator-rs/stacksearch"
+python3 "$SEARCH/inactive_probe.py" > /tmp/poseidon2-lane4-inactive.json
+python3 -m unittest discover -s "$SEARCH" -p inactive_probe_test.py -v
+```
+
+Six Python regressions regenerate [the portable evidence](results/lane4-inactive.json), check all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. Python uses the installed standard library and existing Node, with no dependency or lockfile changes. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy lead is the next bounded unit.

@@ -1,0 +1,594 @@
+{
+  "evidence": "Exact algebra, inclusive interval policies and numeric replay; no compiled gas or global optimality.",
+  "t3_family": {
+    "entry_range": [-2, 2],
+    "determinants": [-1, 1],
+    "count": 104,
+    "identity": {
+      "T": [
+        [1, 0],
+        [0, 1]
+      ],
+      "inverse": [
+        [1, 0],
+        [0, 1]
+      ],
+      "B1": [
+        [2, 1],
+        [1, 3]
+      ],
+      "forcing": [1, 1],
+      "observation": [1, 1],
+      "coefficient_filter": 11,
+      "negative_coefficients": 0
+    },
+    "best_filters": [
+      {
+        "T": [
+          [-1, 1],
+          [1, 0]
+        ],
+        "inverse": [
+          [0, 1],
+          [1, 1]
+        ],
+        "B1": [
+          [2, 1],
+          [1, 3]
+        ],
+        "forcing": [0, 1],
+        "observation": [1, 2],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [0, 1],
+          [1, 0]
+        ],
+        "inverse": [
+          [0, 1],
+          [1, 0]
+        ],
+        "B1": [
+          [3, 1],
+          [1, 2]
+        ],
+        "forcing": [1, 1],
+        "observation": [1, 1],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [0, 1],
+          [1, 1]
+        ],
+        "inverse": [
+          [-1, 1],
+          [1, 0]
+        ],
+        "B1": [
+          [2, 1],
+          [1, 3]
+        ],
+        "forcing": [1, 2],
+        "observation": [0, 1],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [1, 0],
+          [-1, 1]
+        ],
+        "inverse": [
+          [1, 0],
+          [1, 1]
+        ],
+        "B1": [
+          [3, 1],
+          [1, 2]
+        ],
+        "forcing": [1, 0],
+        "observation": [2, 1],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [1, 0],
+          [0, 1]
+        ],
+        "inverse": [
+          [1, 0],
+          [0, 1]
+        ],
+        "B1": [
+          [2, 1],
+          [1, 3]
+        ],
+        "forcing": [1, 1],
+        "observation": [1, 1],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [1, 1],
+          [0, 1]
+        ],
+        "inverse": [
+          [1, -1],
+          [0, 1]
+        ],
+        "B1": [
+          [3, 1],
+          [1, 2]
+        ],
+        "forcing": [2, 1],
+        "observation": [1, 0],
+        "coefficient_filter": 11,
+        "negative_coefficients": 0
+      },
+      {
+        "T": [
+          [0, 1],
+          [1, -1]
+        ],
+        "inverse": [
+          [1, 1],
+          [1, 0]
+        ],
+        "B1": [
+          [4, 1],
+          [-1, 1]
+        ],
+        "forcing": [1, 0],
+        "observation": [2, 1],
+        "coefficient_filter": 11,
+        "negative_coefficients": 1
+      },
+      {
+        "T": [
+          [1, -1],
+          [0, 1]
+        ],
+        "inverse": [
+          [1, 1],
+          [0, 1]
+        ],
+        "B1": [
+          [1, -1],
+          [1, 4]
+        ],
+        "forcing": [0, 1],
+        "observation": [1, 2],
+        "coefficient_filter": 11,
+        "negative_coefficients": 1
+      }
+    ],
+    "scope": "Absolute coefficient sum only; not DAG cost, schedule gas or exhaustive bases."
+  },
+  "t3_shear": {
+    "T": [
+      [1, 1],
+      [0, 1]
+    ],
+    "inverse": [
+      [1, -1],
+      [0, 1]
+    ],
+    "B1": [
+      [3, 1],
+      [1, 2]
+    ],
+    "forcing": [2, 1],
+    "observation": [1, 0],
+    "coefficient_filter": 11,
+    "negative_coefficients": 0,
+    "dag": [
+      ["q", "z", "u"],
+      ["s", "q", "v"],
+      ["a", "q", "z"],
+      ["v1", "s", "v"],
+      ["h", "s", "q"],
+      ["u1", "h", "u"]
+    ],
+    "linear_funded_56": 2840,
+    "entry_funded": 14,
+    "exit_funded": 20,
+    "rounds_plus_conversions_relaxation": 5562,
+    "incumbent_internal_scheduled": 6000,
+    "incumbent_internal_floor": 5496,
+    "numeric_chains": 64,
+    "scheduled_model": {
+      "entry": 29,
+      "rounds": [
+        154, 154, 154, 146, 162, 143, 154, 154, 154, 146, 162, 143, 154, 154,
+        154, 146, 162, 143, 154, 154, 154, 146, 162, 143, 154, 154, 154, 146,
+        162, 143, 154, 154, 154, 146, 162, 143, 154, 154, 154, 146, 162, 143,
+        154, 154, 154, 146, 162, 143, 154, 154, 154, 146, 162, 151, 151, 143
+      ],
+      "exit": 38,
+      "total": 8586,
+      "dsl": "dup4 dup3 swap2 swap3 swap4 addmod=u swap2 swap1 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 P swap2 addmod=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 P swap2 swap4 swap1 swap3 addmod=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h swap1 swap2 swap3 add=u1 P swap1 swap2 swap3 sbox dup1 dup3 P swap2 addmod=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 P swap2 swap3 swap4 swap5 swap6 addmod=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 sbox dup1 dup3 add=q dup1 dup5 add=s dup2 swap3 swap1 swap2 add=a dup2 swap3 swap4 swap5 swap1 swap2 add=v1 swap2 swap1 swap3 add=h P swap2 swap3 swap4 addmod=u1 P swap1 swap2 swap3 bias:4 dup5 swap1 sub=negv dup3 swap2 swap3 swap4 addmod=b swap2 swap1",
+      "scope": "Fixed DAG order, last-use consumption, locally shortest stable-tail commutative transport, clean boundary every round; not joint synthesis."
+    },
+    "scope": "Exact minimum among the 64 masks per round of this fixed DAG; free placement, fixed normalized entry, no shared boundary credit.",
+    "policies": [
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 4],
+        "output_uv": [4, 1],
+        "mask": 10,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [4, 1],
+        "output_uv": [1, 3],
+        "mask": 33,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 3],
+        "output_uv": [2, 1],
+        "mask": 24,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [2, 1],
+        "output_uv": [5, 3],
+        "mask": 1,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [5, 3],
+        "output_uv": [1, 1],
+        "mask": 41,
+        "a_bound": 2
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 1],
+        "mask": 40,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 1],
+        "mask": 40,
+        "a_bound": 3
+      },
+      {
+        "input_uv": [1, 1],
+        "output_uv": [1, 4],
+        "mask": 32,
+        "a_bound": 3
+      }
+    ]
+  },
+  "t3_discriminant_legendre": "21888242871839275222246405745257275088548364400416034343698204186575808495616",
+  "t4_observable": {
+    "diagonal_minus_one": [
+      "7626475329478847982857743246276194948757851985510858890691733676098590062311",
+      "5498568565063849786384470689962419967523752476452646391422913716315471115275",
+      "148936322117705719734052984176402258788283488576388928671173547788498414613",
+      "15456385653678559339152734484033356164266089951521103188900320352052358038155"
+    ],
+    "transform": [
+      ["1", "1", "1"],
+      [
+        "5498568565063849786384470689962419967523752476452646391422913716315471115278",
+        "148936322117705719734052984176402258788283488576388928671173547788498414616",
+        "15456385653678559339152734484033356164266089951521103188900320352052358038158"
+      ],
+      [
+        "6992184763435345622052216229517437053557662993097234486647197481725696979910",
+        "3436879990285252122482159829989403219896470481531399943685322799528019710656",
+        "1404534424314939285510325689517740916589885790519280911494463130175201317490"
+      ]
+    ],
+    "determinant_mod_P": "11740023209328063547297471161094192575776626036854972580289246897374993955122",
+    "coefficients_mod_P": [
+      "7626475329478847982857743246276194948757851985510858890691733676098590062312",
+      "21103890540860114845271258158172178390578125916550138508994407616156327568052",
+      "11833599178035537030044701749024581190044019265147915341826983411428918008056",
+      "5866620604749937725031685682807287853854434383303126232579830567884734770584",
+      "15463019113621960236858602774469822291299182964591764889098499865538390089602",
+      "21103890540860114845271258158172178390578125916550138508994407616156327568046"
+    ],
+    "coefficient_order": ["d0+1", "c1", "c2", "-q0", "-q1", "-q2"],
+    "naive_funded_linear": 128,
+    "naive_funded_round": 176,
+    "numeric_trials": 64,
+    "scope": "Six independent generic products, product by three, six additions; no conversions or extra reductions."
+  }
+}
