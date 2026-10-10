@@ -567,6 +567,10 @@ pub fn verify(root: &Path, fork: &Fork, widths: &[Width]) -> Result<Vec<Report>>
 }
 
 #[cfg(test)]
+#[path = "../../stacksearch/linear_probe.rs"]
+mod linear_probe;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::PRIME;

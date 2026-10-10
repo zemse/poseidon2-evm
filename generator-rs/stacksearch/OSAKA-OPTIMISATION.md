@@ -189,3 +189,89 @@ source snapshot of commit 95dcf5b with the existing main dependency tree.
 This avoids worktree dependency discovery; no download or installation was
 needed. The command is `forge test --offline --match-contract 'Poseidon2T[23]Test' --threads 1`.
 The log is `/tmp/poseidon2-lane2-independent-foundry.log`.
+
+## Lane 3: finite SHL and standalone MOD probes
+
+Baseline a3f442e, 2026-10-10, measured in branch `bhai/8cf2de96-16957d` before the probes. No production arithmetic, templates, wrappers, parameters or generated outputs change. The test-only verifier hook compiles portable candidate DSL with the existing huff-neo/revm dependencies. No default speedup was found.
+
+### Baseline and final execution
+
+Both the initial compiled CLI runs and final full Rust suite reproduce these call-frame costs, excluding transaction, deployment and caller overhead:
+
+| Fork      | t=2 raw | t=3 raw | t=4 raw | t=4 hash_1 | hash_2 | hash_3 |
+| --------- | ------: | ------: | ------: | ---------: | -----: | -----: |
+| Osaka     |   5,956 |   7,656 |  12,087 |     11,910 | 11,932 | 12,005 |
+| Amsterdam |   5,917 |   7,656 |  12,087 |     11,910 | 11,932 | 12,005 |
+
+Each baseline/final fork verifies 24 / 24 / 96 calls against the reference, with zero model differences. Pinned external known answers, shared vectors and deterministic full-word inputs are unchanged. Gas is deterministic, not CPU timing. The same-wrapper fixed-mix floors remain 5,494 / 7,017 / 11,226, with gaps 462 / 639 / 861. The t=4 final external round remains 352 against the scoped 328 relaxation.
+
+### Finite family and bound checks
+
+`linear_probe.py` reads the incumbent final-round and `LINEAR_FINAL4` TS templates. Production template replay and the external A\* search moves do not support SHL or standalone MOD; neither is extended here. The emitter already uses MOD for input reduction. The family contains 13 final-round and 12 linear-only programs:
+
+- Incumbent and four t0/t1 shift masks, including the unchanged mask. For each selected sum, ADD becomes ADDMOD with immediate `P swap2` supply. Its product PRIME supply is removed and MULMOD by four becomes ordered SHL by two. Existing arithmetic order, slot lifetimes and projected stack layouts are held fixed. DUP depths are remapped; each projected SWAP uses shortest top-based SWAP-only transport, treating equal values as interchangeable. This is not joint arithmetic/placement synthesis.
+- Six individual ADDMOD-to-ADD+MOD controls and one all-six control per boundary. Every exposed sum has an inclusive uint256 bound before MOD. Adjacent replacement preserves arithmetic and net consumed slots, so these are tie controls, not a claimed new policy.
+- One final-round raw-sharing candidate: retain the unreduced s1 sum for s0's ADDMOD, then MOD s1 and restore the canonical output prefix. All three new SWAPs are charged. This is an actual shared intermediate, but only one delayed-reduction schedule.
+
+Each program has independent inclusive-bound replay and 64 deterministic numeric trials, including zero, one, P-1, maximal input bounds and maximal round constants. Final-round inputs are at most 4(P-1), linear-only inputs at most P-1; S-box constant additions are at most 5(P-1). An early-reduced sum is at most P-1, so shifting it gives at most 4(P-1) < 2^256. Shifting the unreduced sum can reach 8(P-1) > UINT256_MAX and is rejected even on a zero-valued numeric trial. Final consumers already use ADDMOD, so the lazy shifted products do not need another reduction in these programs. This does not justify the substitution in regular rounds.
+
+MOD takes the value before the modulus; SHL takes the shift before the value. Focused regressions reject reversed operands, wrong modulus, unsafe ADD/SHL, invalid input/constant bounds, excessive reach and unsupported operations. Small five-slot BFS independently checks the SWAP transport helper with distinct and repeated values. These checks certify the interval conditions and replayed family, not completeness of a larger search space.
+
+### Compiled candidate results
+
+Every program is compiled and executed on both forks. For each of the 13 full-round programs, only round 63 of the generated raw t=4 permutation is replaced in memory. Its actual input/output wrappers and the other rounds remain unchanged. Each candidate checks all four permutation outputs on the existing eight shared vectors and sixteen deterministic full-word inputs. The hash programs are not replaced by these probes; their unchanged gas is checked separately by the full suite.
+
+| Final-round program                     | Segment model | Compiled raw call, both forks | Against incumbent |
+| --------------------------------------- | ------------: | ----------------------------: | ----------------: |
+| Incumbent / unchanged shift mask        |           352 |                        12,087 |                 0 |
+| Early t0 reduction, then SHL            |           355 |                        12,090 |                +3 |
+| Early t1 reduction, then SHL            |           355 |                        12,090 |                +3 |
+| Both early reductions and SHLs          |           358 |                        12,093 |                +6 |
+| Share raw s1, delay its MOD             |           361 |                        12,096 |                +9 |
+| Six individual / all-six ADD+MOD splits |           352 |                        12,087 |                 0 |
+
+All candidate model differences are zero. Shift replacements preserve the 184 arithmetic gas and 48 net consumed slots, but this immediate-supply policy adds one SWAP per replacement. Raw sharing preserves the same inventory and adds three SWAPs. These compiled regressions reject these exact programs, not alternative factorizations, arithmetic orders, PRIME preplacement or fused boundaries.
+
+Each linear-only program is separately compiled behind the same fixed four-input reduction/output wrapper and compared with the reference M4 on 24 full-word inputs per fork. The wrapper costs 95 gas: 55 input, 23 stores, 5 return and 12 memory expansion, including three PUSH0s. It is an isolated linear-layer harness, not the default permutation or an actual fallback option path.
+
+| Linear-only program                          | Segment model | Compiled isolated call, both forks |
+| -------------------------------------------- | ------------: | ---------------------------------: |
+| Incumbent                                    |           163 |                                258 |
+| Unchanged shift mask, redundant SWAP removed |           160 |                                255 |
+| Either single shift                          |           163 |                                258 |
+| Both shifts                                  |           166 |                                261 |
+| Individual / all-six ADD+MOD splits          |           163 |                                258 |
+
+The unchanged mask removes exactly `swap1` from `P P swap1 swap6` in `LINEAR_FINAL4`; exchanging identical PRIME copies is redundant. A regression compares its complete stack and bounds with the incumbent. This is a tested unused-path lead, not an applied production improvement or a three-gas default t=4 saving. Relative to the no-op-free control, each shift again adds three gas.
+
+In total, the compiled probe checks 600 calls per fork (25 programs times 24), separately from baseline/final verification. The Python probe checks 1,600 numeric replays. The JSON reports model evidence; the Rust gate provides the separate compiled measurements above.
+
+### Reproduction and verification
+
+```sh
+ROOT=/absolute/path/to/this/worktree
+SEARCH="$ROOT/generator-rs/stacksearch"
+
+cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork osaka 2 3 4
+cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork amsterdam 2 3 4
+python3 "$SEARCH/linear_probe.py" > /tmp/poseidon2-lane3-linear.json
+python3 "$SEARCH/linear_probe.py" --programs > /tmp/poseidon2-lane3-linear.program
+python3 -m unittest discover -s "$SEARCH" -p linear_probe_test.py -v
+cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" finite_linear_arithmetic_candidates -- --test-threads=1 --nocapture
+cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
+node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
+python3 "$SEARCH/t3_periodic.py"
+cargo fmt --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --check
+```
+
+All 19 Rust tests, nine Node tests, seven Python regressions and the 64-chain production t=3 replay pass. The Python regressions regenerate and compare both portable corpora, preventing stale DSL/model records. The full Rust suite includes both-fork small-width verification and unchanged t=16/24/28 snapshots, plus checked-in generator-output equality. The first test-only build attempted to use transitive serde_json, then switched to a tab-separated corpus without adding a dependency. The isolated wrapper's initial 98-gas estimate was corrected to 95 after observing its three PUSH0s; its source was not changed to obtain the correction.
+
+Rust uses cargo fmt; JSON/Markdown use the existing Prettier. No production generator changes require regeneration or new TS/Rust parity. No dependency, lockfile, search heuristic or opcode-accounting guard changes. No broad search, installation, Foundry invocation, merge or push was performed.
+
+Portable evidence: [model and DSL records](results/lane3-linear.json), [compiled corpus](results/lane3-linear.program), `linear_probe.py`, `linear_probe_test.py` and test-only `linear_probe.rs`. Transient logs: `/tmp/poseidon2-lane3-baseline-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane3-rust.log`, `/tmp/poseidon2-lane3-t3-periodic.json`.
+
+### Handoff to lane 4
+
+No incumbent gas or placement gap was recovered. Avoid repeating adjacent ADD+MOD replacements or this immediate-supply transport family. Free PRIME preplacement, different arithmetic order, fused boundaries, other raw shared values and SHL+MOD or MUL+MOD product schedules remain untested. The redundant fallback SWAP is safe locally, but any production patch should first show a benefit on an actual selected option path. Ordinary external-round shifts need their own downstream bound/reduction accounting.
+
+Lane 4's transformed inactive coordinates remain a separate investigation. Keep the incumbent controls, charge entry/exit and all 56 rounds, and distinguish inventory filters from compiled measurements. [EIP-145](https://eips.ethereum.org/EIPS/eip-145) is the operand-order and three-gas SHL prior art; revm compilation/execution supplies the independent checks here.
