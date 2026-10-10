@@ -267,15 +267,16 @@ The t = 4 internal round the scheduler built costs 169 gas (S-box 45, sum 29, la
 
 Extended by hand to four lanes (`internal4.replay`, replayed at 166 from the bounds of the first internal round, s = 3,2,3,2) the round costs 166: one dead value and three SWAPs. With it the t = 4 permutation is 12,252 to 12,067 gas and hash_1/2/3 12,149/12,171/12,244 to 11,964/11,986/12,059 on Amsterdam; on Osaka, whose rounds had to leave a PRIME copy within DUP16 reach above the growing garbage, hash_2 is 12,249 to 11,986. The stack depth falls from 319 to 93.
 
-`cycle` bounds the internal rounds with no layout fixed between them (any sequence of rounds, the next one free to start early). Its relaxation drops PRIME copies, constants and the S-box's own copies (each a fixed cost) and counts the copies, SWAPs and POPs of the linear layer's values, with the DAG fixed (the sum as merges of partial sums; t = 4 d_i * s_i + sum; t = 3 x + sum, s1 + sum, (sum + s2) + s2 or 2 s2 + sum, two ADDMODs). Over every layout a round can end in, value iteration gives the least cycle mean exactly (the least and largest change of D_k agree from k = 2):
+`cycle` bounds the internal rounds with no layout fixed between them (any sequence of rounds, the next one free to start early). Its relaxation drops PRIME copies, constants and the S-box's own copies (each a fixed cost) and counts the copies, SWAPs and POPs of the linear layer's values, with the DAG fixed (the sum as merges of partial sums; t = 4 d_i * s_i + sum; t = 3 x + sum, s1 + sum, (sum + s2) + s2 or 2 s2 + sum). Over every layout a round can end in, value iteration gives the least cycle mean exactly (the least and largest change of D_k agree from k = 2):
 
-| Width | Window | End layouts | States a round | Cycle mean | Round (fixed part + mean) | Wall |
-| :---- | -----: | ----------: | -------------: | ---------: | ------------------------: | ---: |
-| t=4   |      7 |      27,530 |      1,842,225 |         33 |                 133 + 33 = 166 | 83 s |
-| t=4   |      8 |     176,610 |     18,334,540 |         33 |                 133 + 33 = 166 | 1,160 s |
-| t=3   |      8 |      16,590 |      4,989,712 |         27 |                  82 + 27 = 109 | 235 s |
+| Width | Window | End layouts | States a round | Cycle mean | Round (fixed part + mean) |                Wall |
+| :---- | -----: | ----------: | -------------: | ---------: | ------------------------: | ------------------: |
+| t=4   |      7 |      27,530 |      1,842,225 |         33 |            133 + 33 = 166 |                83 s |
+| t=4   |      8 |     176,610 |     18,334,540 |         33 |            133 + 33 = 166 |             1,160 s |
+| t=3   |      8 |      16,590 |      4,989,712 |         27 |             82 + 27 = 109 |               235 s |
+| t=3   |      9 |      39,172 |     25,042,752 |         27 |             82 + 27 = 109 | stopped after k = 2 |
 
-The window counts values above the deepest live one (PRIME copies and constants not included); the 166 program needs 8. Both rounds in the repository are therefore optimal over every multi-round schedule in this model: a cyclic search has nothing to find. One round alone from a free layout to a free one costs 27 (t = 4) and 21 (t = 3), so a free start and end save at most 6 gas a hash. Outside the model are other DAGs (outputs not built as product plus sum, more additions), other reduction counts (t = 3 floor DP 1.7 a round against 2) and S-boxes interleaved with other values.
+The window counts values above the deepest live one (PRIME copies and constants not included); the 166 program needs 8. t = 4 with window 9 did not finish its first round in 43 minutes (10 GB) and was stopped. The relaxation does not see which ADD reduces, so the t = 3 mean holds for any reduction policy: the four periodic templates (low 101, high 109, reset 117, final 109) take 27 like the earlier 109 one (nine value DUPs and SWAPs), only their fixed part differs (74, 82, 90, 82). The rounds in the repository are therefore optimal over every multi-round schedule in this model: a cyclic search has nothing to find. One round alone from a free layout to a free one costs 27 (t = 4) and 21 (t = 3), so a free start and end save at most 6 gas a hash. Outside the model are other DAGs (outputs not built as product plus sum, more additions) and S-boxes interleaved with other values.
 
 ## Changes and rejected approaches
 
