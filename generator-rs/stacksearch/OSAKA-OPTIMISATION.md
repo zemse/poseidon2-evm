@@ -173,4 +173,19 @@ Internal model and compiled execution agree at 6,000 instead of 6,112: 27 low ro
 
 No A\* sweep, transformed representation, t=4 search, dependency or lockfile change was needed. An additional `forge test --offline --match-contract 'Poseidon2T[23]Test'` did not reach execution: source-only submodules triggered unsuccessful dependency discovery, and the nested stringutils source was missing. No dependency installation succeeded. `/tmp/poseidon2-lane2-foundry.log` records this environment failure; compiled huff-neo/revm verification and the full Rust suite pass independently.
 
-Transient evidence: `/tmp/poseidon2-lane2-t3-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane2-t3-floor.json` and `/tmp/poseidon2-serial-parity.IQUskN`. No claim of global optimality or further placement recovery is made. Remaining work is the parent's independent rebuild/parity gate, then any improved first bridge or joint placement policy as a separate investigation.
+Transient evidence: `/tmp/poseidon2-lane2-t3-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane2-t3-floor.json` and `/tmp/poseidon2-serial-parity.IQUskN`. No claim of global optimality or further placement recovery is made. The independent integration checks below pass. An improved first bridge or joint placement policy remains a separate investigation.
+
+### Independent integration checks
+
+The coordinator rebuilt and passed 18 Rust tests, nine Node tests and the
+64-chain production-DSL replay. Separate compiled runs verify 144 calls per
+fork at 5,956 / 7,656 / 12,087 on Osaka and 5,917 / 7,656 / 12,087 on Amsterdam.
+All model differences are zero. Serial TS/Rust source, test and stdout parity
+passes on both forks. Fresh opcode accounting reproduces the revised floors
+and unchanged gaps above.
+
+Foundry also passes all 18 t=2/t=3 tests, including input sanitization, in a
+source snapshot of commit 95dcf5b with the existing main dependency tree.
+This avoids worktree dependency discovery; no download or installation was
+needed. The command is `forge test --offline --match-contract 'Poseidon2T[23]Test' --threads 1`.
+The log is `/tmp/poseidon2-lane2-independent-foundry.log`.
