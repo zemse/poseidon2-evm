@@ -38,7 +38,7 @@ fn amsterdam_t2_t4() {
         within(report);
     }
     // forge: test/Poseidon2T2.t.sol and the hash_* of test/Poseidon2.t.sol
-    assert_eq!(reports[0].gas.measured, 6027);
+    assert_eq!(reports[0].gas.measured, 5917);
     let hashes = reports[1].hashes.expect("hash entry");
     assert_eq!(hashes.map(|g| g.measured), [11910, 11932, 12005]);
 }

@@ -112,3 +112,31 @@ Portable artifacts: [incumbent](results/t4-internal-incumbent.txt), [historical 
 Keep 166 as the verified incumbent, not a proved minimum. Do not use historical f=157 cutoffs as exhaustion or a certified floor. The corrected conservative bound is weaker away from the root; a compact macro/preplacement graph or productive restriction is preferable to an uncontrolled larger-memory search.
 
 A naturally layout-changing body, changed retained values or joint-round synthesis is still untested. Charge the external exit, every internal transition and external re-entry before accepting it. The finite renaming probe supplies adapters and whole-chain replay, not new bodies. Any production candidate still needs symbolic overflow/shared-vector checks, compiled full-word Osaka verification, both-fork TS/Rust parity and the independent coordinator gate.
+
+## Lane 2: t = 2 reduction placement
+
+Baseline ab0df8a, 2026-10-10, measured again in branch `bhai/8cf2de96-85c43b`. The first generic internal bridge is unchanged. The other 55 rounds replace `(3b+x) mod P` with `(3b mod P)+x`, moving x's DUP after MULMOD without adding a SWAP. TS and Rust use the same policy, with the existing PRIME refresh and output construction.
+
+| Fork      | t=2 before | t=2 after | Saving | t=3 raw | t=4 raw |
+| --------- | ---------: | --------: | -----: | ------: | ------: |
+| Osaka     |      6,066 |     5,956 |    110 |   7,768 |  12,087 |
+| Amsterdam |      6,027 |     5,917 |    110 |   7,768 |  12,087 |
+
+These are compiled huff-neo/revm call-frame gas, not host timing. Both baseline and candidate verified 24 calls at t=2, 24 at t=3 and 96 at t=4 per fork, including shared vectors and deterministic full-word inputs. Every model difference is zero. The t=4 hash entrypoints remain 11,910 / 11,932 / 12,005. Runtime size is unchanged: t=2 is 3,918 bytes on Osaka, 4,007 on Amsterdam.
+
+For reduced x, the new inactive output is below 2P. The bridge gives active/inactive bounds (2,1); subsequent rounds have active output `2x+b < 4P` and inactive output below 2P. The active output plus its next constant is below 5P < 2^256. The inclusive guard `3*(P-1)+bound(b) <= UINT256_MAX` admits b below 2P but not the initial b below 3P. Final bounds (4,2) permit external re-entry. MULMOD itself cannot overflow.
+
+### Recalibrated accounting
+
+The internal segment changes 4,987 -> 4,877 gas. The first round remains 105; steady rounds change 88 -> 86, with the same fourteen three-gas PRIME refreshes on Osaka. The 110-gas saving is arithmetic, not recovered placement overhead. Initial/external/wrapper costs remain 27 / 1,000 / 52.
+
+The new fixed-mix core relaxation is `2,997 + 3*815 = 5,442`, and the same-wrapper relaxation is 5,494. The measured 5,956 still has a 462-gas gap: 57 in SWAPs and 405 in surplus supply. The internal relaxation is 4,496, gap 381. These floors hold the new arithmetic and live-slot model fixed; neither the old nor new floor is an unrestricted optimum.
+
+### Verification and artifacts
+
+- `cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml"`: eight library, four generator and four compiled verifier tests. The strict Amsterdam t=2 snapshot is updated to the independently measured 5,917; large-width snapshots are unchanged.
+- `node --test "$ROOT/generator-rs/stacksearch/gas-floor.test.mjs" "$ROOT/generator-rs/stacksearch/reduction-policy.test.mjs"`: seven tests. Focused TS/Rust regressions cover inactive bounds P/2P/3P, maximal constants, the first bridge, all 56 rounds and external re-entry. Rust also checks exact inclusive bounds and the last round with or without a retained PRIME.
+- Both-fork serial parity compares generated Huff, tests and stdout for t=2/3/4 byte-for-byte. The checked-in t=2 permutation is regenerated using the existing Amsterdam convention; generated wrapper and vectors are unchanged.
+- Rust uses cargo fmt; TS/tests/Markdown use the installed Prettier. Scoped generated diff and whitespace checks are run before committing. No dependencies or lockfiles changed.
+
+Transient evidence: `/tmp/poseidon2-lane2-{baseline,t2}-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane2-{baseline,t2}-floor.json`, and `/tmp/poseidon2-serial-parity.HgfZUw`. The commands use this lane's absolute worktree root and its freshly built `generator-rs/target/release/poseidon2-gen`, not an installed binary. No broad search, transformed representation or improved first bridge was attempted. t=3 is a separate follow-up.

@@ -1265,20 +1265,19 @@ class Builder {
       this.opts.internalMul3 &&
       t === 2 &&
       !collect &&
-      3n * s1.bound <= UINT256_MAX
+      3n * (PRIME - 1n) + s1.bound <= UINT256_MAX
     ) {
-      // s1' = (3 s1 + s0^5) mod P on the PRIME copy for the next round,
+      // s1' = (3 s1 mod P) + s0^5 lazy on the PRIME copy for the next round,
       // s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
       if (this.opts.floatPrimeInternal) this.floatPrime();
       else e.pushPrime();
       e.pushPrime();
-      e.dup(x5);
-      const m = e.compute("mul", [this.constant(3n), s1], "3s1");
-      const out1 = e.compute(
-        "addmod",
-        [inplace(m), inplace(x5), inplace(this.P)],
-        "s1'",
+      const m = e.compute(
+        "mulmod",
+        [this.constant(3n), s1, inplace(this.P)],
+        "3s1",
       );
+      const out1 = e.compute("add", [x5, inplace(m)], "s1'");
       e.endLine();
       if (nextInternal) e.pushPrime();
       const d = e.compute("add", [x5, x5], "2s0^5");

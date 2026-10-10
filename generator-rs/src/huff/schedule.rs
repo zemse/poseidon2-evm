@@ -1641,9 +1641,9 @@ impl<'a> Builder<'a> {
         if self.opts.internal_mul3
             && t == 2
             && !collect
-            && wide(self.bound(s1)) * U512::from(3u64) <= wmax()
+            && wide(p1()) * U512::from(3u64) + wide(self.bound(s1)) <= wmax()
         {
-            // s1' = (3 s1 + s0^5) mod P on the PRIME copy for the next
+            // s1' = (3 s1 mod P) + s0^5 lazy on the PRIME copy for the next
             // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
             if self.opts.float_prime_internal {
                 self.float_prime()?;
@@ -1651,13 +1651,12 @@ impl<'a> Builder<'a> {
                 self.e.push_prime()?;
             }
             self.e.push_prime()?;
-            self.e.dup(x5)?;
-            let m = self
-                .e
-                .compute(Op::Mul, &[constant_hex(u256(3)), val(s1)], "3s1")?;
-            let out1 = self
-                .e
-                .compute(Op::Addmod, &[inplace(m), inplace(x5), inplace(p)], "s1'")?;
+            let m = self.e.compute(
+                Op::Mulmod,
+                &[constant_hex(u256(3)), val(s1), inplace(p)],
+                "3s1",
+            )?;
+            let out1 = self.e.compute(Op::Add, &[val(x5), inplace(m)], "s1'")?;
             self.e.end_line();
             if next_internal {
                 self.e.push_prime()?;
@@ -2900,5 +2899,93 @@ pub fn build_best_with(
             Ok(Some(Best { result, opts }))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::field;
+    use crate::huff::fork::fork;
+    use crate::round_constants::generate_params_uncached;
+
+    #[test]
+    fn internal_mul3_lazy_bounds_and_boundaries() {
+        let mut params = generate_params_uncached(2);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for b in 1..=3 {
+                for final_prime in [false, true] {
+                    let bounds = vec![PRIME * u256(3) - u256(1), PRIME * u256(b) - u256(1)];
+                    let inputs = vec![
+                        vec![U256::ZERO, U256::ZERO],
+                        vec![u256(1), bounds[1]],
+                        bounds.clone(),
+                    ];
+                    let opts = BuildOptions {
+                        internal_mul3: true,
+                        float_prime_internal: true,
+                        internal_reduce_outputs: true,
+                        ..DEFAULT_OPTIONS
+                    };
+                    let mut builder = Builder::new(
+                        &params,
+                        &inputs,
+                        opts,
+                        fork(name).unwrap(),
+                        Range {
+                            from: 0,
+                            to: step_count(&params),
+                        },
+                        HashSet::new(),
+                        false,
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    builder.e.push_prime().unwrap();
+                    builder.e.swap(1).unwrap();
+                    let mut reference = inputs.clone();
+                    for round in 4..60 {
+                        for state in &mut reference {
+                            let x = field::pow(field::add(state[0], p1()), u256(5));
+                            *state = vec![
+                                field::add(field::add(x, x), state[1]),
+                                field::add(x, field::mul(u256(3), state[1])),
+                            ];
+                        }
+                        let old_bound = builder.bound(builder.state[1]);
+                        let bridge = round == 4 && b == 3;
+                        builder
+                            .internal_round(round, round < 59 || final_prime)
+                            .unwrap();
+                        let expected = if bridge {
+                            vec![p1() * u256(2), p1()]
+                        } else {
+                            vec![p1() * u256(2) + old_bound, p1() * u256(2)]
+                        };
+                        for (i, &id) in builder.state.iter().enumerate() {
+                            let value = &builder.e.values[id];
+                            assert_eq!(value.bound, expected[i]);
+                            for (k, state) in reference.iter().enumerate() {
+                                assert_eq!(field::reduce(value.vals[k]), state[i]);
+                            }
+                        }
+                        assert!(wide(builder.bound(builder.state[0])) + wide(p1()) <= wmax());
+                        assert_eq!(builder.e.top(0).unwrap(), builder.state[0]);
+                        if round < 59 || final_prime {
+                            assert_eq!(builder.e.top(1).unwrap(), builder.p());
+                        }
+                    }
+                    assert!(builder.bound(builder.state[0]) < PRIME * u256(4));
+                    assert!(builder.bound(builder.state[1]) < PRIME * u256(2));
+                }
+            }
+        }
     }
 }
