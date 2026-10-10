@@ -20,6 +20,12 @@ Two binaries, run from this directory after `cargo build --release`:
   internal <lanes> <init> <goal> [max_garbage=0] [max_depth=16] [s=<bounds>;o=<bounds>]
   ```
 
+- `target/release/t3int` (`src/bin/t3int.rs`) searches the t = 3 internal round after its S-box over single opcodes, from `[x, s2, s1]` to `[s0', P, s2', s1']`: values are linear forms over x, s1, s2 with a bound in units of P (ADD while the bound stays at most 5), so diag 1, 1, 2 needs no products. Its bound counts the final op of every missing output (an ADDMOD with its PRIME copy for an output reduced below P), the PRIME copies, one DUP per output a leaf must still reach beyond its entries, and a POP per dead value beyond the garbage limit.
+
+  ```
+  t3int <s1 bound> <s2 bound> <s1' bound> <s2' bound> [max_garbage=2] [max_len=10] [s0' bound=4] [ub]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:
