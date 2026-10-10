@@ -63,7 +63,7 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 53927);
+    assert_eq!(reports[0].gas.measured, 53066);
 }
 
 /// t = 24 fits one contract with PRIME loaded from memory
@@ -72,7 +72,7 @@ fn osaka_prime_in_memory_t24() {
     let reports = run("osaka", &[24]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 85043);
+    assert_eq!(reports[0].gas.measured, 82342);
 }
 
 #[test]
@@ -81,5 +81,5 @@ fn osaka_split_t28() {
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 2);
     // forge, with every part cold
-    assert_eq!(reports[0].gas.measured, 105773);
+    assert_eq!(reports[0].gas.measured, 102480);
 }

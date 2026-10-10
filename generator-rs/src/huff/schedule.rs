@@ -643,15 +643,17 @@ impl<'a> Builder<'a> {
 
     /// Sum of values with every operand DUPed in advance, deepest value
     /// first, so the chain runs in place and leaves nothing behind. A
-    /// reduction is an ADDMOD with a PRIME copy placed under its operand
-    /// while the reach allows, then a MOD of the accumulator before the ADD;
-    /// the one the cap forces at the end is a MOD after it.
+    /// reduction (where a partial sum would overflow or the final one exceed
+    /// cap) is an ADDMOD with a PRIME copy placed under its operand while
+    /// the reach of the later DUPs allows (loads from memory have none), the
+    /// first steps first, else an ADDMOD with a copy DUPed on top and
+    /// swapped under the accumulator (3 gas more, no slot).
     fn chain_sum_in_place(&mut self, values: &[Id], name: &str, cap: U256) -> Result<Id> {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Step {
             Add,
             Addmod,
-            Mod,
+            AddmodTop,
         }
         let n = values.len();
         if n < 2 {
@@ -663,28 +665,36 @@ impl<'a> Builder<'a> {
             .rev()
             .map(|i| values[i])
             .collect();
-        let primes = self.e.max_reach as i64 - self.e.find(order[n - 1]) as i64;
         let cap = wide(cap);
         let mut steps = Vec::with_capacity(n);
-        let mut used = 0i64;
         let mut bound = wide(self.bound(order[0]));
         for (j, &v) in order.iter().enumerate().skip(1) {
-            let vb = wide(self.bound(v));
-            let lazy = bound + vb;
+            let lazy = bound + wide(self.bound(v));
             let last = j == n - 1;
             if lazy <= wmax() && !(last && lazy > cap) {
                 steps.push(Step::Add);
                 bound = lazy;
-            } else if used < primes {
-                steps.push(Step::Addmod);
-                used += 1;
-                bound = wide(p1());
-            } else if lazy <= wmax() {
-                steps.push(Step::Add);
-                bound = lazy;
             } else {
-                steps.push(Step::Mod);
-                bound = wide(p1()) + vb;
+                steps.push(Step::AddmodTop);
+                bound = wide(p1());
+            }
+        }
+        // the slots each DUPed operand has left: order[i] is DUPed after
+        // the n - 1 - i operands below it and the copies placed under them
+        let mut room: Vec<Option<usize>> = (0..n)
+            .map(|i| {
+                let at = self.e.find(order[i]);
+                let index = at + (n - 1 - i);
+                (at > 0 && index <= self.e.max_reach).then(|| self.e.max_reach - index)
+            })
+            .collect();
+        for j in 1..n {
+            if steps[j - 1] == Step::AddmodTop && room[..j].iter().all(|r| r.is_none_or(|r| r > 0))
+            {
+                steps[j - 1] = Step::Addmod;
+                for r in room[..j].iter_mut().flatten() {
+                    *r -= 1;
+                }
             }
         }
         for j in (1..n).rev() {
@@ -697,23 +707,25 @@ impl<'a> Builder<'a> {
         let p = self.p();
         let mut acc = order[0];
         for j in 1..n {
-            if steps[j - 1] == Step::Addmod {
-                acc = self.e.compute(
+            acc = match steps[j - 1] {
+                Step::Add => self
+                    .e
+                    .compute(Op::Add, &[inplace(acc), inplace(order[j])], name)?,
+                Step::Addmod => self.e.compute(
                     Op::Addmod,
                     &[inplace(acc), inplace(order[j]), inplace(p)],
                     name,
-                )?;
-            } else {
-                if steps[j - 1] == Step::Mod {
-                    acc = self.mod_top(acc)?;
+                )?,
+                Step::AddmodTop => {
+                    self.e.push_prime()?;
+                    self.e.swap(2)?;
+                    self.e.compute(
+                        Op::Addmod,
+                        &[inplace(order[j]), inplace(acc), inplace(p)],
+                        name,
+                    )?
                 }
-                acc = self
-                    .e
-                    .compute(Op::Add, &[inplace(acc), inplace(order[j])], name)?;
-            }
-        }
-        if wide(self.bound(acc)) > cap {
-            return self.mod_top(acc);
+            };
         }
         Ok(acc)
     }

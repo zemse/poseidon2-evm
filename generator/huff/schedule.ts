@@ -487,11 +487,12 @@ class Builder {
   // Sum of values with every operand DUPed in advance, deepest value first
   // (its DUP happens before the copies pile up; values in memory are
   // loaded last), so the chain runs in place and leaves nothing behind. A
-  // reduction is an ADDMOD with a PRIME copy placed under its operand
-  // while the reach allows (every copy pushes the later DUPs one deeper,
-  // so the deepest value's slot sets the budget), then a MOD of the
-  // accumulator before the ADD (3 gas more, no slot); the one the cap
-  // forces at the end is a MOD after it.
+  // reduction (where a partial sum would overflow or the final one exceed
+  // cap) is an ADDMOD with a PRIME copy placed under its operand while the
+  // reach of the later DUPs allows (every copy pushes them one deeper;
+  // loads from memory have no reach), the first steps first, else an
+  // ADDMOD with a copy DUPed on top and swapped under the accumulator
+  // (3 gas more, no slot).
   chainSumInPlace(values: Value[], name: string, cap: bigint): Value {
     const e = this.e;
     const n = values.length;
@@ -499,11 +500,9 @@ class Builder {
     const order = this.byDepth(values)
       .reverse()
       .map((i) => values[i]);
-    const primes = e.maxReach - e.find(order[n - 1]);
-    // per step: "addmod" (PRIME under the operand), "mod" (before the ADD)
-    // or "add"
-    const steps: ("add" | "addmod" | "mod")[] = [];
-    let used = 0;
+    // per step: "addmod" (PRIME under the operand), "addmodTop" (PRIME
+    // swapped under the accumulator) or "add"
+    const steps: ("add" | "addmod" | "addmodTop")[] = [];
     let bound = order[0].bound;
     for (let j = 1; j < n; j++) {
       const lazy = bound + order[j].bound;
@@ -511,16 +510,27 @@ class Builder {
       if (lazy <= UINT256_MAX && !(last && lazy > cap)) {
         steps.push("add");
         bound = lazy;
-      } else if (used < primes) {
-        steps.push("addmod");
-        used++;
-        bound = PRIME - 1n;
-      } else if (lazy <= UINT256_MAX) {
-        steps.push("add");
-        bound = lazy;
       } else {
-        steps.push("mod");
-        bound = PRIME - 1n + order[j].bound;
+        steps.push("addmodTop");
+        bound = PRIME - 1n;
+      }
+    }
+    // the slots each DUPed operand has left: order[i] is DUPed after the
+    // n - 1 - i operands below it and the copies placed under them
+    const room: (number | undefined)[] = order.map((v, i) => {
+      const at = e.find(v);
+      const index = at + (n - 1 - i);
+      return at > 0 && index <= e.maxReach ? e.maxReach - index : undefined;
+    });
+    for (let j = 1; j < n; j++) {
+      if (
+        steps[j - 1] === "addmodTop" &&
+        room.slice(0, j).every((r) => r === undefined || r > 0)
+      ) {
+        steps[j - 1] = "addmod";
+        for (let i = 0; i < j; i++) {
+          if (room[i] !== undefined) room[i]!--;
+        }
       }
     }
     for (let j = n - 1; j >= 1; j--) {
@@ -530,18 +540,25 @@ class Builder {
     e.dup(order[0]);
     let acc = order[0];
     for (let j = 1; j < n; j++) {
-      if (steps[j - 1] === "addmod") {
+      if (steps[j - 1] === "add") {
+        acc = e.compute("add", [inplace(acc), inplace(order[j])], name);
+      } else if (steps[j - 1] === "addmod") {
         acc = e.compute(
           "addmod",
           [inplace(acc), inplace(order[j]), inplace(this.P)],
           name,
         );
       } else {
-        if (steps[j - 1] === "mod") acc = this.modTop(acc);
-        acc = e.compute("add", [inplace(acc), inplace(order[j])], name);
+        e.pushPrime();
+        e.swap(2);
+        acc = e.compute(
+          "addmod",
+          [inplace(order[j]), inplace(acc), inplace(this.P)],
+          name,
+        );
       }
     }
-    return acc.bound > cap ? this.modTop(acc) : acc;
+    return acc;
   }
 
   // v % PRIME for v on top: [PRIME] swap1 mod
