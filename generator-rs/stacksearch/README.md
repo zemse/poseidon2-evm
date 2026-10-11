@@ -38,6 +38,12 @@ Two binaries, run from this directory after `cargo build --release`:
   hashdag <n> '<name>=<op>(<a>,<b>);...' [max_depth=12] [ub]
   ```
 
+- `target/release/ecycle` (`src/bin/ecycle.rs`) is `cycle` for the steady t = 4 external rounds: the least mean cost per round of the copies, SWAPs, moves and POPs of the round's values over every cycle of rounds, the linear layer as ROUND4 builds it or through t23, PRIME copies and constants left out (`PRIME=1` keeps the PRIME copies as tokens, each pushed for 3).
+
+  ```
+  ecycle [max_window=8] [layers=4]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:

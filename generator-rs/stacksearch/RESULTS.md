@@ -302,6 +302,19 @@ Each program above consumes the PRIME copy SETUP pushes. The rounds after then h
 
 ROUND4 copies p1 and p3 and leaves the originals dead. A program that fused the forms with the round could consume them in place, at most 6 gas an arity by the copy count; it was not searched (the round alone takes 881 s and 7.6 GB under `UB=317`).
 
+## External rounds without fixed layouts (t = 4)
+
+The steady external round costs 317 (ROUND4), optimal in the macro graph only from `s0,P,s1,s2,s3` to `t6,P,t5,t7,t4`; floor B is 296. `ecycle` (`src/bin/ecycle.rs`) asks whether freeing the layouts between rounds helps, the way `cycle` did for the internal rounds. It keeps the round's values as tokens (s_i, x_i, t0, t1, 2x1, 2x3, t2, t3, 4t0, 4t1 and t23), leaves out PRIME copies and constants (a fixed part of 266: S-boxes 180, the linear layer's ops 62, its 8 PRIME copies 24), so the S-box and MULMOD by 4 are unary moves on the top token, and counts DUPs (3), SWAPs and moves of one token to or from any depth (3) and POPs (2). The linear layer allows every production of the macro graph for these classes: s0' = s1' + t3 and s2' = s3' + t2, or through t23 = t2 + t3 (its ADD charged). The next round may start before this one ends. Value iteration over every end layout (closure from the inputs in every order) brackets the least cycle mean. ROUND4 costs 51 in this model (13 DUPs, 4 SWAPs) and needs window 9.
+
+| Window | End layouts | States a round | One round from the inputs | Cycle mean bracket | Bound | Wall | Peak RSS |
+| -----: | ----------: | -------------: | ------------------------: | :----------------- | :---- | ---: | -------: |
+| 6 | none | | | | (no round fits) | 0.2 s | |
+| 7 | 3,632 | 1.4M | 57 | 54 (k = 3) | 266 + 54 = 320 | 17 s | 0.2 GB |
+| 8 | 21,240 | 12.8M | 57 | [51, 54] (k = 2, 3) | 266 + 51 = 317 | 381 s | 1.4 GB |
+| 9 | 112,590 | 114M | 57 | stopped in k = 2 at the 30 min limit (D_1 done: 30) | | 1,800 s | 7.0 GB |
+
+So no schedule of any number of rounds that stays within window 8 beats 317 a round, even with the PRIME copies placed for free; window 9, the first that holds ROUND4 itself, did not finish its second layer in 30 minutes (one layer takes about 13 minutes at 114M states). `PRIME=1` keeps the PRIME copies as tokens (the S-box and MULMOD by 4 take one under their operand, ADDMOD one under its two, each pushed for 3, a SWAP with a copy below everything moving the top to the bottom), which only raises the costs: window 7 gives 81, 242 + 81 = 323 (6,140 end layouts, 2.4M states, 59 s, 0.4 GB). The bound is within the window and over these productions; up to (317 - 296) x 6 = 126 gas a permutation stays unclaimed above window 8 only.
+
 ## Changes and rejected approaches
 
 - Release an exhausted f bucket instead of retaining every historical frontier's capacity.
