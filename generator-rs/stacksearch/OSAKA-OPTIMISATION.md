@@ -505,7 +505,7 @@ t = 28 before is the cold / warm hop. t = 2 to 12 and every Amsterdam width are 
 
 ### Left open (estimates, not built)
 
-- A searched program for a block's M4 run into its four S-boxes and stores: the PRIME copy under each output costs a `DUP` and a `SWAP` (6) where a copy placed during the M4 would cost 3, and a kept lane its swap up (3). At most about 50 gas a round at t = 16 and 90 at t = 28 (0.35K and 0.6K a call); `macro` models the S-box before the linear layer only, so it needs a new search.
+- A searched program for a block's M4 run into its four S-boxes and stores: done, see the streamed block programs below (0.7K to 1.2K a call, more than estimated: the search also drops some of the template's own SWAPs).
 - One shared body for the streamed layers (as the internal rounds have): a t = 28 layer is about 1.8 KB, 0.9 KB of it round constants, so six calls would free about 5 KB, enough for an internal body period of 3 or 4 instead of 2 (about 29 calls of 50 gas and the sub-chain swaps). But each call pays `CODECOPY` of 28 words and an `MLOAD` per constant (about 170 gas), the kept blocks alternate with period 2, and the slots must match between calls: about even at t = 28, a loss below.
 - The internal rounds are now most of the gap to Amsterdam: t = 28 1,171 a steady round against 935 (the 14 memory elements and the period-2 body's calls).
 
@@ -537,3 +537,26 @@ Call gas measured by `verify`. t = 2 to 12 and every Amsterdam width are byte-id
 ### Left open
 
 - The rest of the t = 28 gap (1,153 against 935): 14 elements at 12 gas of load and store (168), the fused sum's store and load (12), `s0^5` (15), the round constant `MLOAD` (3) and about 27 a round of call overhead. A searched program for the stack part of the round (memory operations as fixed leaves) was not run.
+
+## Wide widths: streamed block programs
+
+Baseline d8a8bac, 2026-10-11. Each block of a streamed layer ran `u = x + S`, the `block` template and then per output `DUP` PRIME, `SWAP1`, the constant, the S-box and the store (a kept lane also a swap up): 389 gas a stored block with its inputs on the stack, 401 with them loaded, 386 a kept one.
+
+### Changes
+
+- `sblock` (stacksearch) searches a whole block from `[S0, S1, S2, S3, P]` and the inputs, with the M4 DAG of the template fixed and the lane (constant, S-box, store) as one move from `[s_i', P]`. Best: stored 365 (none below within a working stack of 10), loaded 377, kept 359 (none below within 10). RESULTS.md has the growth curve (peak 7.1 GB, 621 s).
+- `stream_blocks` (templates.rs / templates.ts) holds the programs: two stored ones (the inputs deep or shallow on the stack, or loaded) and two kept ones (inputs loaded 359, on the stack 347, the first layer only); the first whose DUPs reach the stack as it is runs, else the template. `P` DUPs the nearest PRIME copy, so one program serves every floor.
+
+| Fork  | Width | Before | After  | Saving | Runtime bytes after |
+| ----- | ----: | -----: | -----: | -----: | ------------------: |
+| Osaka |    16 | 49,364 | 48,659 |    705 | 24,306 (24,539)     |
+| Osaka |    20 | 64,166 | 63,221 |    945 | 24,033 (24,370)     |
+| Osaka |    24 | 78,276 | 77,151 |  1,125 | 24,287 (24,538)     |
+| Osaka |    28 | 96,137 | 94,934 |  1,203 | 24,112 (24,513)     |
+
+Call gas measured by `verify`. t = 2 to 12 and every Amsterdam width are byte-identical. A steady round costs t = 16 1,591 (1,693 before) and t = 28 2,862 (3,036).
+
+### Left open
+
+- Blocks across each other: the next block's `u` among this block's S-boxes (the search stops at the block's end with an empty working stack).
+- The freed bytes (233 to 401) are not yet spent: a longer internal body period at t = 28 needs more than that.

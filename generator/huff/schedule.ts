@@ -58,6 +58,7 @@ import {
   LINEAR_FINAL4,
   ROUND4_FIRST,
   TEMPLATES,
+  streamBlocks,
   type Template,
   type TemplateKind,
 } from "./templates.ts";
@@ -1229,6 +1230,16 @@ class Builder {
     const kind = next === undefined ? "final" : "block";
     const out: Value[] = new Array(t);
     order.forEach((b, n) => {
+      if (next !== undefined) {
+        const kept = n + keep >= k;
+        const program = streamBlocks(kept, onStack(b)).find((p) =>
+          this.streamBlockFits(p, b, x, S),
+        );
+        if (program) {
+          this.streamBlock(program, b, x, S, next, kept, out);
+          return;
+        }
+      }
       const u: Value[] = new Array(4);
       for (let i = 3; i >= 0; i--) {
         u[i] = this.pairAdd(x[4 * b + i], S[i], `u${4 * b + i}`, false);
@@ -1253,6 +1264,121 @@ class Builder {
     this.state = out;
     this.sboxed = next !== undefined;
     this.stored = next === undefined;
+  }
+
+  // Whether a program of streamBlocks reaches every value it DUPs from the
+  // stack as it is: the inputs of block b and the column sums for the u<i>,
+  // the moves' slots within reach.
+  streamBlockFits(program: string, b: number, x: Value[], S: Value[]): boolean {
+    const e = this.e;
+    const reach = e.maxReach;
+    const s: (Value | undefined)[] = [...e.stack];
+    const find = (v: Value) => s.indexOf(v) + 1;
+    for (const move of program.split(" ")) {
+      let m: RegExpExecArray | null;
+      if ((m = /^u(\d+)$/.exec(move))) {
+        const i = Number(m[1]);
+        // pairAdd DUPs the deeper operand first
+        const ks = find(S[i]);
+        if (ks === 0) return false;
+        const xv = x[4 * b + i];
+        const kx = find(xv);
+        if (kx > 0 && kx <= reach) {
+          if (Math.max(kx, ks) > reach || Math.min(kx, ks) + 1 > reach) {
+            return false;
+          }
+          // else a load from its shadow slot
+        } else if (ks + 1 > reach || !e.reachable(xv)) {
+          return false;
+        }
+        s.unshift(undefined);
+      } else if (move === "P") {
+        const k = s.findIndex((v) => v !== undefined && v.isPrime);
+        if (k < 0 || k >= reach) return false;
+        s.unshift(s[k]);
+      } else if ((m = /^dup(\d+)$/.exec(move))) {
+        const k = Number(m[1]);
+        if (k > reach || k > s.length) return false;
+        s.unshift(s[k - 1]);
+      } else if ((m = /^swap(\d+)$/.exec(move))) {
+        const k = Number(m[1]);
+        if (k > reach || k >= s.length) return false;
+        [s[0], s[k]] = [s[k], s[0]];
+      } else {
+        let arity: number;
+        let keeps: boolean;
+        if ((m = /^(add|q|addmod|lane)=/.exec(move))) {
+          arity = m[1] === "addmod" ? 3 : 2;
+          keeps = m[1] !== "lane";
+        } else if (move === "pop") {
+          arity = 1;
+          keeps = false;
+        } else {
+          return false;
+        }
+        if (s.length < arity) return false;
+        s.splice(0, arity);
+        if (keeps) s.unshift(undefined);
+      }
+    }
+    return true;
+  }
+
+  // One block of a streamed layer from a program of streamBlocks, the
+  // column sums and a PRIME copy on top: its S-box outputs of round r go to
+  // memory slots, or stay on the stack when kept.
+  streamBlock(
+    program: string,
+    b: number,
+    x: Value[],
+    S: Value[],
+    r: number,
+    kept: boolean,
+    out: Value[],
+  ) {
+    const e = this.e;
+    for (const move of program.split(" ")) {
+      let m: RegExpExecArray | null;
+      if ((m = /^u(\d+)$/.exec(move))) {
+        const j = 4 * b + Number(m[1]);
+        this.pairAdd(x[j], S[Number(m[1])], `u${j}`, false);
+      } else if (move === "P") {
+        e.pushPrime();
+      } else if ((m = /^dup(\d+)$/.exec(move))) {
+        e.dup(e.top(Number(m[1]) - 1));
+      } else if ((m = /^swap(\d+)$/.exec(move))) {
+        e.swap(Number(m[1]));
+      } else if (move === "pop") {
+        e.pop();
+      } else if ((m = /^lane=z(\d+)$/.exec(move))) {
+        const j = 4 * b + Number(m[1]);
+        const s = e.top(0);
+        if (e.top(1) !== this.P) {
+          throw new Error(`lane ${j} expects a PRIME copy under s${j}'`);
+        }
+        const c = this.constant(this.params.roundConstants[r][j], "c");
+        if (!e.fitsAdd(s, c)) {
+          throw new Error(`lane ${j}: s${j}' + c overflows`);
+        }
+        const y = e.compute("add", [c, inplace(s)], "y");
+        out[j] = this.sbox(y, `x${j}`);
+        if (!kept) e.spill(out[j]);
+        e.endLine();
+      } else if ((m = /^(add|addmod|q)=(.+)$/.exec(move))) {
+        // the outputs o<i> of the M4 are s_{4b+i}'
+        const o = /^o(\d+)$/.exec(m[2]);
+        const name = o ? `s${4 * b + Number(o[1])}'` : m[2];
+        // 4 t over [t, P]
+        if (m[1] === "q") e.push(4n);
+        const operands = [inplace(e.top(0)), inplace(e.top(1))];
+        if (m[1] !== "add") operands.push(inplace(this.P));
+        const op = m[1] === "q" ? "mulmod" : (m[1] as "add" | "addmod");
+        e.compute(op, operands, name);
+        e.endLine();
+      } else {
+        throw new Error(`unknown stream block move ${move}`);
+      }
+    }
   }
 
   // Last round when the caller reads s0' alone (t = 4): row 0 of M4 on the

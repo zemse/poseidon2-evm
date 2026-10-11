@@ -44,6 +44,12 @@ Two binaries, run from this directory after `cargo build --release`:
   ecycle [max_window=8] [layers=4]
   ```
 
+- `target/release/sblock` (`src/bin/sblock.rs`) searches one block of an Osaka streamed external layer (`stream_blocks` in templates.rs): `u = x + S`, the M4 DAG of the `block` program and each output's round constant and S-box, stored or kept on the stack, from an empty working stack over a fixed floor (the column sums, a PRIME copy, the inputs where they sit) back to it, or to the kept S-box outputs. Single opcodes plus three fixed macros (`u<i>`, `q` = `PUSH1 4 MULMOD`, `lane` = constant, S-box and store); `P` DUPs the nearest PRIME copy. The heuristic counts the ops, macros, copies, PRIME copies and POPs left; `trace <program>` replays a program.
+
+  ```
+  sblock <floor> [stored|kept] [max_working=8] [ub | trace <program>]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:

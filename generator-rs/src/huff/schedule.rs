@@ -32,7 +32,7 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
-    internal3_periodic, internal4, linear_final4, round4, templates,
+    internal3_periodic, internal4, linear_final4, round4, stream_blocks, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -1534,6 +1534,16 @@ impl<'a> Builder<'a> {
         };
         let mut out = vec![0; t];
         for (n, &b) in order.iter().enumerate() {
+            if let Some(r) = next {
+                let kept = n + keep >= k;
+                let program = stream_blocks(kept, on_stack(b, &self.e))
+                    .iter()
+                    .find(|p| self.stream_block_fits(p, b, &x, &sums));
+                if let Some(program) = program {
+                    self.stream_block(program, b, &x, &sums, r, kept, &mut out)?;
+                    continue;
+                }
+            }
             let mut u = [0; 4];
             for i in (0..4).rev() {
                 u[i] = self.pair_add(x[4 * b + i], sums[i], &format!("u{}", 4 * b + i), false)?;
@@ -1565,6 +1575,154 @@ impl<'a> Builder<'a> {
         self.state = out;
         self.sboxed = next.is_some();
         self.stored = next.is_none();
+        Ok(())
+    }
+
+    /// Whether a program of stream_blocks reaches every value it DUPs from
+    /// the stack as it is: the inputs of block b and the column sums for
+    /// the u<i>, the moves' slots within reach.
+    fn stream_block_fits(&self, program: &str, b: usize, x: &[Id], sums: &[Id; 4]) -> bool {
+        let reach = self.e.max_reach;
+        let mut s: Vec<Option<Id>> = self.e.from_top().into_iter().map(Some).collect();
+        let find = |s: &[Option<Id>], v: Id| s.iter().position(|&y| y == Some(v)).map(|k| k + 1);
+        for mv in program.split(' ') {
+            if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
+                // pair_add DUPs the deeper operand first
+                let Some(ks) = find(&s, sums[i]) else {
+                    return false;
+                };
+                let xv = x[4 * b + i];
+                match find(&s, xv) {
+                    Some(kx) if kx <= reach => {
+                        if kx.max(ks) > reach || kx.min(ks) + 1 > reach {
+                            return false;
+                        }
+                    }
+                    // a load from its shadow slot
+                    _ if ks + 1 > reach || !self.e.reachable(xv) => return false,
+                    _ => {}
+                }
+                s.insert(0, None);
+            } else if mv == "P" {
+                let prime = |v: &Option<Id>| v.is_some_and(|v| self.e.value(v).is_prime());
+                let Some(k) = s.iter().position(prime) else {
+                    return false;
+                };
+                if k >= reach {
+                    return false;
+                }
+                s.insert(0, s[k]);
+            } else if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                if k > reach || k > s.len() {
+                    return false;
+                }
+                s.insert(0, s[k - 1]);
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                let k: usize = k.parse().expect("swap slot");
+                if k > reach || k >= s.len() {
+                    return false;
+                }
+                s.swap(0, k);
+            } else {
+                let (arity, kept) = match mv.split_once('=') {
+                    Some(("add", _)) | Some(("q", _)) => (2, true),
+                    Some(("addmod", _)) => (3, true),
+                    Some(("lane", _)) => (2, false),
+                    _ if mv == "pop" => (1, false),
+                    _ => return false,
+                };
+                if s.len() < arity {
+                    return false;
+                }
+                s.drain(..arity);
+                if kept {
+                    s.insert(0, None);
+                }
+            }
+        }
+        true
+    }
+
+    /// One block of a streamed layer from a program of stream_blocks, the
+    /// column sums and a PRIME copy on top: its S-box outputs of round r go
+    /// to memory slots, or stay on the stack when kept.
+    #[allow(clippy::too_many_arguments)]
+    fn stream_block(
+        &mut self,
+        program: &str,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+        r: usize,
+        kept: bool,
+        out: &mut [Id],
+    ) -> Result<()> {
+        let p = self.p();
+        for mv in program.split(' ') {
+            if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
+                let j = 4 * b + i;
+                self.pair_add(x[j], sums[i], &format!("u{j}"), false)?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                let v = self.e.top(k - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                self.e.swap(k.parse().expect("swap slot"))?;
+            } else if mv == "pop" {
+                self.e.pop()?;
+            } else if let Some(i) = mv
+                .strip_prefix("lane=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                let j = 4 * b + i;
+                let s = self.e.top(0)?;
+                if self.e.top(1)? != p {
+                    bail!("lane {j} expects a PRIME copy under s{j}'");
+                }
+                let c = self.params.round_constants[r][j];
+                if !self.e.fits_add(self.bound(s), c) {
+                    bail!("lane {j}: s{j}' + c overflows");
+                }
+                let y = self
+                    .e
+                    .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?;
+                out[j] = self.sbox(y, &format!("x{j}"))?;
+                if !kept {
+                    self.e.spill(out[j])?;
+                }
+                self.e.end_line();
+            } else if let Some((op, name)) = mv.split_once('=') {
+                // the outputs o<i> of the M4 are s_{4b+i}'
+                let name = match name.strip_prefix('o') {
+                    Some(i) => format!("s{}'", 4 * b + i.parse::<usize>().expect("output")),
+                    None => name.to_string(),
+                };
+                if op == "q" {
+                    // 4 t over [t, P]
+                    self.e.push(u256(4), None)?;
+                }
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => {
+                        operands.push(inplace(p));
+                        Op::Addmod
+                    }
+                    "q" => {
+                        operands.push(inplace(p));
+                        Op::Mulmod
+                    }
+                    _ => bail!("unknown stream block move {mv}"),
+                };
+                self.e.compute(op, &operands, &name)?;
+                self.e.end_line();
+            } else {
+                bail!("unknown stream block move {mv}");
+            }
+        }
         Ok(())
     }
 

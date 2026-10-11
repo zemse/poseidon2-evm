@@ -315,6 +315,20 @@ The steady external round costs 317 (ROUND4), optimal in the macro graph only fr
 
 So no schedule of any number of rounds that stays within window 8 beats 317 a round, even with the PRIME copies placed for free; window 9, the first that holds ROUND4 itself, did not finish its second layer in 30 minutes (one layer takes about 13 minutes at 114M states). `PRIME=1` keeps the PRIME copies as tokens (the S-box and MULMOD by 4 take one under their operand, ADDMOD one under its two, each pushed for 3, a SWAP with a copy below everything moving the top to the bottom), which only raises the costs: window 7 gives 81, 242 + 81 = 323 (6,140 end layouts, 2.4M states, 59 s, 0.4 GB). The bound is within the window and over these productions; up to (317 - 296) x 6 = 126 gas a permutation stays unclaimed above window 8 only.
 
+## Streamed external blocks (Osaka, t >= 16)
+
+A block of an Osaka streamed layer (`externalStream`) ran `u = x + S` (DUP, DUP, ADD), the `block` M4 template and then, an output at a time, `DUP` of a PRIME copy, `SWAP1`, the constant's `ADD`, the S-box and the store; a kept lane also swapped its output up. `sblock` (`src/bin/sblock.rs`) searches the block as a whole over a fixed floor `[S0, S1, S2, S3, P, inputs]`, with the M4 DAG of the template fixed (the same ADD / ADDMOD choices, so the same bounds) and the lane as a macro from `[s_i', P]`. Gas of one block, current program as `trace` replays it, then the search under `ub` = that:
+
+| Block | Floor | Before | Working 6 | 7 | 8 | 9 | 10 |
+| :---- | :---- | -----: | --------: | -: | -: | -: | -: |
+| stored, inputs on the stack | `S0..S3,P,x3,x0,x1,x2` | 389 | 374 (0.5M states, 3 s, 0.1 GB) | 368 (1.8M, 13 s, 0.2 GB) | 365 (5.3M, 40 s, 0.9 GB) | 365 (16.1M, 3.3 GB) | |
+| stored, inputs on the stack, deeper | `S0..S3,P,_,_,_,_,x0..x3` | 389 | | | 365 (5.0M, 37 s, 0.9 GB) | | none below 365 (31.3M, 252 s, 7.1 GB) |
+| stored, inputs loaded | `S0..S3,P` | 401 | | | 377 (5.3M, 38 s, 0.9 GB) | | |
+| kept, inputs loaded | `S0..S3,P` | 386 | | | 362 (7.7M, 63 s, 1.7 GB) | 359 (21.7M, 214 s, 3.4 GB) | none below 359 (55.0M, 621 s, 7.1 GB) |
+| kept, inputs on the stack (the first layer) | `S0..S3,P,_,_,_,_,x0..x3`, and under 4 kept outputs | 374 | | | | 347 (21.6M, 176 s, 3.6 GB) | |
+
+The working stack counts the kept outputs, so the kept block needs one slot more. The saving is the `SWAP1` under every output (the PRIME copy goes down before the output's last ADD), the kept lanes' swaps, and a few of the template's SWAPs once its outputs need not end in order; the two stored floors and the loaded one take the same programs; the first layer, whose inputs all sit on the stack, keeps two blocks with them there. In the generator (`stream_blocks`): t = 16 49,364 to 48,659 gas (24,539 to 24,306 bytes), t = 20 64,166 to 63,221 (24,370 to 24,033), t = 24 78,276 to 77,151 (24,538 to 24,287), t = 28 96,137 to 94,934 (24,513 to 24,112); a block whose inputs the program cannot reach keeps the template. Scope: one block at a time (the next block's `u` cannot start among this block's S-boxes), the M4 DAG and the S-box program fixed, no DUP beyond a value's remaining uses.
+
 ## Changes and rejected approaches
 
 - Release an exhausted f bucket instead of retaining every historical frontier's capacity.

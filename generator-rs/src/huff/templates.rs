@@ -231,6 +231,27 @@ pub fn linear_final4() -> &'static [Template] {
     }]
 }
 
+/// One block of an Osaka streamed layer (stacksearch `sblock`), from the
+/// column sums and a PRIME copy on top, [S0, S1, S2, S3, P]: `u<i>` is u_i
+/// = x_i + S_i on top, `q=<n>` PUSH1 4 MULMOD over a PRIME copy, `lane=z<i>`
+/// s_i' + c_i and its S-box over the PRIME copy under s_i', stored unless
+/// the block is kept; o<i> is s_i'. The first program whose DUPs reach the
+/// layout runs, else the block template.
+pub fn stream_blocks(kept: bool, on_stack: bool) -> &'static [&'static str] {
+    match (kept, on_stack) {
+        (false, _) => &[
+            "u1 u3 u2 dup2 add=t1 P dup2 dup5 dup1 add=d1 addmod=t2 P u0 P swap6 add=t0 P dup2 q=q0 dup4 add=o1 swap5 dup1 add=d3 addmod=t3 P dup5 dup3 add=o0 lane=z0 P P swap4 q=q1 add=o3 P dup2 lane=z3 add=o2 lane=z2 lane=z1",
+            "u3 u1 u0 dup2 add=t0 P dup2 dup5 dup1 add=d3 addmod=t3 P u2 P swap6 add=t1 P dup2 q=q1 dup4 add=o3 swap5 dup1 add=d1 addmod=t2 P dup2 dup6 add=o2 lane=z2 P P swap4 q=q0 add=o1 P dup2 lane=z1 add=o0 lane=z0 lane=z3",
+        ],
+        (true, false) => &[
+            "u1 u0 dup2 add=t0 u2 P P u3 P dup2 dup1 add=d3 dup7 addmod=t3 swap4 add=t1 dup6 P dup3 q=q1 dup6 add=o3 swap7 add=d1 addmod=t2 P P P dup8 lane=z3 swap7 dup4 add=o2 lane=z2 swap5 q=q0 add=o1 P dup2 lane=z1 swap3 add=o0 lane=z0",
+        ],
+        (true, true) => &[
+            "u0 u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 swap6 add=t0 dup5 P dup3 q=q0 dup8 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap7 add=o2 lane=z2 swap4 add=o0 lane=z0",
+        ],
+    }
+}
+
 pub fn blocks(kind: BlockKind) -> &'static [Template] {
     match kind {
         BlockKind::Block => &[Template {
