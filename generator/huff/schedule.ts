@@ -248,6 +248,37 @@ export const DIAG_MEMORY_BASE = 0;
 // blocks a streamed external layer keeps on the stack
 const STREAM_KEEP = 2;
 
+// A stack entry by what it holds: an element of the state by index, a PRIME
+// copy or any other value.
+type Tag = number | "P" | Value;
+
+// SWAPs (the depth of each) that turn the stack `cur` (top first) into
+// `want`, the top as the buffer: a cycle of misplaced entries under the top
+// takes one more SWAP than its length. Undefined when an entry has no place.
+function swapPlan<T>(cur: T[], want: T[]): number[] | undefined {
+  cur = [...cur];
+  const plan: number[] = [];
+  for (;;) {
+    let j: number;
+    if (cur[0] !== want[0]) {
+      j = cur.findIndex(
+        (v, k) => k > 0 && want[k] === cur[0] && v !== want[k],
+      );
+      if (j < 0) return undefined;
+    } else {
+      j = cur.findIndex((v, k) => k > 0 && v !== want[k]);
+      if (j < 0) return plan;
+    }
+    [cur[0], cur[j]] = [cur[j], cur[0]];
+    plan.push(j);
+  }
+}
+
+// memory elements from which the consuming round sums them for the next
+// round as it stores them: each saves 3 gas, the sum's store and load cost
+// 12 and its reductions a SWAP each
+const FUSE_MIN = 6;
+
 // The internal rounds of the range but its first and last, whose code
 // differs (the entry's PRIME copy, the final round's layout): the ones the
 // shared body may run, from round `first`.
@@ -348,6 +379,15 @@ class Builder {
   sboxed = false;
   // the outputs are already at [0, 32t) (streamLinear)
   stored = false;
+  // the sum of the elements the previous consuming round stored, in memory
+  // (internalRoundConsume)
+  fused: Value | undefined;
+  // the layout the body round at the remainder call's entry starts from, by
+  // lane (emitBodyCalls)
+  entryLayout: Tag[] | undefined;
+  // whether a remainder call may take the mid entry, and whether one did
+  midEntry = true;
+  entered = false;
 
   constructor(
     params: Params,
@@ -1674,10 +1714,80 @@ class Builder {
     e.endLine();
 
     const old = [x5, ...this.state.slice(1)];
-    if (mem > 0) e.spill(x5);
+    if (mem > 0) {
+      // [0, 32t) holds the state only from the last round on
+      if (this.stateInMemory) e.spillZero(x5);
+      else e.spill(x5);
+    }
     e.pushPrime();
-    const sum = this.chainSumInPlace(old, "sum", PRIME - 1n);
+    // the elements the previous round stored enter the sum as theirs
+    const fused = this.fused;
+    this.fused = undefined;
+    const fusedSlot = fused && e.slotOf(fused);
+    const terms = fused ? [x5, fused, ...old.slice(mem + 1)] : old;
+    const sum = this.chainSumInPlace(terms, "sum", PRIME - 1n);
     e.endLine();
+
+    const out: Value[] = new Array(t);
+    // the indices but s0 the region under [m0, sum] does not hold
+    const regionLoads = () => {
+      const loads: number[] = [];
+      for (let i = 1; i < t; i++) {
+        const s = e.find(old[i]);
+        if (s < 3 || s > slots + 2) loads.push(i);
+      }
+      return loads;
+    };
+    // m_i + sum on top, for s on top with a PRIME copy under it
+    const output = (i: number, s: Value) => {
+      const m = e.compute(
+        "mulmod",
+        [this.diag(i), inplace(s), inplace(this.P)],
+        `m${i}`,
+      );
+      out[i] = e.compute("add", [sum, inplace(m)], `s${i}'`);
+      return out[i];
+    };
+    // with the next round internal, the elements kept in memory go first,
+    // over the PRIME copy under the sum, and their outputs are summed for
+    // the next round as they are stored
+    const fusing = mem >= FUSE_MIN && nextInternal && this.opts.primeStack;
+    // [sum, P, ...] holds the region where [m0, sum, ...] will
+    const early = fusing ? regionLoads() : [];
+    const fuse =
+      fusing &&
+      Array.from({ length: mem }, (_, k) => k + 1).every((j) =>
+        early.includes(j),
+      ) &&
+      early.every((j) => j <= mem);
+    if (fuse) {
+      let acc: Value | undefined;
+      for (let j = 1; j <= mem; j++) {
+        const slot = e.slotOf(old[j]);
+        e.pushPrime();
+        e.dup(old[j]);
+        const o = output(j, old[j]);
+        e.storeAt(o, slot);
+        if (acc === undefined) {
+          acc = o;
+        } else if (e.fitsAdd(acc, o)) {
+          acc = e.compute("add", [inplace(o), inplace(acc)], "fused");
+        } else {
+          e.pushPrime();
+          e.swap(2);
+          acc = e.compute(
+            "addmod",
+            [inplace(acc), inplace(o), inplace(this.P)],
+            "fused",
+          );
+        }
+        e.endLine();
+      }
+      if (acc === undefined) throw new Error("mem > 0");
+      e.spillAt(acc, fusedSlot);
+      e.endLine();
+      this.fused = acc;
+    }
     // [sum, P, s0^5, ...]: s0^5 on top of the PRIME copy, m0 lands on the sum
     if (mem > 0) {
       e.swap(1);
@@ -1692,15 +1802,9 @@ class Builder {
     );
     e.endLine();
 
-    const out: Value[] = new Array(t);
     // m_i + sum on top; the output of an index in memory goes there
     const finish = (i: number, s: Value) => {
-      const m = e.compute(
-        "mulmod",
-        [this.diag(i), inplace(s), inplace(this.P)],
-        `m${i}`,
-      );
-      out[i] = e.compute("add", [sum, inplace(m)], `s${i}'`);
+      output(i, s);
       if (i <= mem) e.spill(out[i]);
       e.endLine();
     };
@@ -1710,11 +1814,7 @@ class Builder {
       e.dup(old[i]);
       finish(i, old[i]);
     };
-    const loads: number[] = [];
-    for (let i = 1; i < t; i++) {
-      const s = e.find(old[i]);
-      if (s < 3 || s > slots + 2) loads.push(i);
-    }
+    const loads = fuse ? [] : regionLoads();
     const toStack = loads.filter((i) => i > mem);
     const chains = this.consumeChains(old, mem, nextInternal);
     const order = chains.flat();
@@ -1796,6 +1896,14 @@ class Builder {
       e.swap(1);
     }
     e.endLine();
+    if (fusing && !fuse) {
+      // the elements went to memory out of order: their sum for the next
+      // round from their slots
+      const acc = this.chainSum(out.slice(1, mem + 1), "fused", UINT256_MAX);
+      e.spill(acc);
+      e.endLine();
+      this.fused = acc;
+    }
     this.state = out;
   }
 
@@ -1825,21 +1933,66 @@ class Builder {
     return calls;
   }
 
+  // SWAPs a remainder call needs to enter the body `from` rounds on: each
+  // sub-chain of the consuming rounds rotates its slots one place a round
+  // (consumeChains), under [s0, P].
+  entrySwaps(from: number): number | undefined {
+    const slots = heldSlots(this.t, this.e.maxReach, this.opts.consumeSlots);
+    const group =
+      this.opts.consumeGroup === 0
+        ? slots
+        : Math.min(this.opts.consumeGroup, slots);
+    const cur = Array.from({ length: slots + 2 }, (_, k) => k);
+    const want = [...cur];
+    for (let a = 0; a < slots; a += group) {
+      const chunk = cur.slice(a, Math.min(a + group, slots));
+      const n = chunk.length;
+      for (const [k, s] of chunk.entries()) {
+        want[2 + chunk[(k + from) % n]] = 2 + s;
+      }
+    }
+    return swapPlan(cur, want)?.length;
+  }
+
+  // A stack entry by what it holds now.
+  tag(v: Value): Tag {
+    if (v === this.P) return "P";
+    const i = this.state.indexOf(v);
+    return i >= 0 ? i : v;
+  }
+
   // Emits the calls of the shared body. A call CODECOPYs its round
   // constants from its code table to the scratch, stores its return label
   // and JUMPs to the body, which the last call falls into instead; the
   // body's text goes out there. The emitter simulates the body at every
-  // call, recording it at the first (emitter.ts). A remainder call stores
-  // its return label at the mid exit's slot, which the full calls had set
-  // to the label right after the exit.
+  // call, recording it at the first (emitter.ts). A remainder call either
+  // stores its return label at the mid exit's slot, which the full calls had
+  // set to the label right after the exit, or, where the SWAPs into the
+  // layout of the body's later rounds cost less than the exits, enters there
+  // (the mid entry) before the last full call.
   emitBodyCalls(calls: number[][]) {
     const e = this.e;
     const period = this.period;
     const retMid = this.rcBase + 32 * period;
     const retEnd = retMid + 32;
     const rem = calls[calls.length - 1].length % period;
+    const full = calls.length - (rem > 0 ? 1 : 0);
+    const from = period - rem;
+    const swaps =
+      this.midEntry && rem > 0 && full >= 2 ? this.entrySwaps(from) : undefined;
+    const entry = swaps !== undefined && 3 * swaps < 14 * full + 9;
+    this.entered ||= entry;
+    if (entry) {
+      // the remainder before the last full call, which falls in
+      const r = calls[0][0] + (full - 1) * period;
+      calls = [
+        ...calls.slice(0, full - 1),
+        Array.from({ length: rem }, (_, k) => r + k),
+        Array.from({ length: period }, (_, k) => r + rem + k),
+      ];
+    }
     e.comment("Shared body of the steady internal rounds (see the calls)");
-    if (rem > 0) {
+    if (rem > 0 && !entry) {
       e.pushLabel("body_mid");
       e.mstore(retMid);
       e.endLine();
@@ -1847,6 +2000,36 @@ class Builder {
     for (const [c, rounds] of calls.entries()) {
       const n = rounds.length;
       const lastCall = c === calls.length - 1;
+      // the first round of the body this call runs
+      const skip = entry && n < period ? from : 0;
+      if (skip > 0) {
+        const layout = this.entryLayout;
+        if (!layout) throw new Error("no layout recorded for the mid entry");
+        const want = layout.map((tag) =>
+          tag === "P"
+            ? this.P
+            : typeof tag === "number"
+              ? this.state[tag]
+              : tag,
+        );
+        const cur = [...e.stack];
+        if (cur.length !== want.length) {
+          throw new Error("the mid entry's stack differs in depth");
+        }
+        const reach = Math.min(e.maxReach + 1, cur.length);
+        if (cur.slice(reach).some((v, k) => v !== want[reach + k])) {
+          throw new Error("the mid entry's layout is out of reach");
+        }
+        const plan = swapPlan(cur.slice(0, reach), want.slice(0, reach));
+        if (!plan) throw new Error("no SWAPs into the mid entry's layout");
+        if (plan.length !== swaps) {
+          throw new Error(
+            "the mid entry's SWAPs differ from the chains' rotation",
+          );
+        }
+        for (const j of plan) e.swap(j);
+        e.endLine();
+      }
       e.comment(
         `Rounds ${rounds[0]} to ${rounds[n - 1]} (internal): body call ${c}`,
       );
@@ -1855,21 +2038,29 @@ class Builder {
         name,
         rounds.map((r) => this.params.roundConstants[r][0]),
       );
-      e.codecopy(name, n, this.rcBase);
+      e.codecopy(name, n, this.rcBase + 32 * skip);
       e.pushLabel(`ret${c}`);
-      e.mstore(n < period ? retMid : retEnd);
+      e.mstore(n < period && !entry ? retMid : retEnd);
       if (!lastCall) {
-        e.pushLabel("body");
+        e.pushLabel(skip > 0 ? "body_mid" : "body");
         e.jump();
       }
       e.endLine();
 
-      e.beginBody(c === 0);
-      e.label("body");
-      e.endLine();
-      for (const [k, r] of rounds.entries()) {
-        if (k > 0) e.segment();
-        if (k === rem && k > 0) {
+      e.beginBody(c === 0, skip);
+      if (skip === 0) {
+        e.label("body");
+        e.endLine();
+      }
+      for (const [j, r] of rounds.entries()) {
+        const k = skip + j;
+        if (k > skip) e.segment();
+        if (entry && k === from) {
+          // the mid entry: the remainder call comes in here
+          e.label("body_mid");
+          e.endLine();
+          if (c === 0) this.entryLayout = e.stack.map((v) => this.tag(v));
+        } else if (!entry && k === rem && k > 0) {
           // the mid exit: a remainder call returns, a full one goes on
           e.jumpVia(retMid);
           e.endLine();
@@ -1883,7 +2074,7 @@ class Builder {
         this.stepBytes.push(e.bytes);
       }
       e.segment();
-      e.jumpVia(n < period ? retMid : retEnd);
+      e.jumpVia(n < period && !entry ? retMid : retEnd);
       e.endLine();
       e.endBody();
       if (lastCall) {
@@ -2136,7 +2327,9 @@ export function buildHashRounds(
 
 // Builds steps [range.from, range.to) and checks the emitted stream against
 // the reference on every input. With shadow a permissive pass first finds
-// the values DUPed out of reach, then the real pass shadows them.
+// the values DUPed out of reach, then the real pass shadows them. A build
+// that fails after a remainder call took the mid entry (whose layout the
+// rounds after the body then start from) is retried with the mid exit.
 export function buildPermutation(
   params: Params,
   inputs: bigint[][],
@@ -2144,6 +2337,43 @@ export function buildPermutation(
   fork: Fork = FORKS.shanghai,
   range: Range = { from: 0, to: stepCount(params) },
   boundary: Boundary = {},
+): BuildResult {
+  const entered = { value: false };
+  try {
+    return buildOnce(
+      params,
+      inputs,
+      opts,
+      fork,
+      range,
+      boundary,
+      true,
+      entered,
+    );
+  } catch (err) {
+    if (!entered.value) throw err;
+    return buildOnce(
+      params,
+      inputs,
+      opts,
+      fork,
+      range,
+      boundary,
+      false,
+      entered,
+    );
+  }
+}
+
+function buildOnce(
+  params: Params,
+  inputs: bigint[][],
+  opts: BuildOptions,
+  fork: Fork,
+  range: Range,
+  boundary: Boundary,
+  midEntry: boolean,
+  entered: { value: boolean },
 ): BuildResult {
   let shadow: ReadonlySet<string> = new Set();
   let lastLoad: ReadonlyMap<string, number> = new Map();
@@ -2158,7 +2388,12 @@ export function buildPermutation(
       true,
       boundary,
     );
-    probe.build();
+    probe.midEntry = midEntry;
+    try {
+      probe.build();
+    } finally {
+      entered.value ||= probe.entered;
+    }
     shadow = probe.e.needed;
     lastLoad = probe.e.lastLoad;
   }
@@ -2172,8 +2407,14 @@ export function buildPermutation(
     false,
     boundary,
   );
+  b.midEntry = midEntry;
   b.e.lastLoad = lastLoad;
-  const outputs = b.build();
+  let outputs: Value[];
+  try {
+    outputs = b.build();
+  } finally {
+    entered.value ||= b.entered;
+  }
   const e = b.e;
   const final = range.to === stepCount(params);
   // the state indices the outputs hold

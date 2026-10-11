@@ -157,6 +157,8 @@ export class Emitter {
   readonly bodyLines: string[][] = [];
   private bodyOps: string[][] = [];
   private replayOps: string[][] = [];
+  // the segment a replay enters at (a call that runs the last rounds)
+  private replayFrom = 0;
   readonly tables: Table[] = [];
 
   constructor(
@@ -428,17 +430,22 @@ export class Emitter {
   // The first call of a body records, every later one replays: the lines
   // and opcodes go to the current segment (see segment), bytes count only
   // when recording. The pending opcodes must be flushed.
-  beginBody(record: boolean) {
+  // A replay may enter at segment `from`.
+  beginBody(record: boolean, from = 0) {
     if (this.pending.length > 0 || this.bodyMode !== "off") {
       throw new Error("beginBody within a line or a body");
+    }
+    if (record && from > 0) {
+      throw new Error("a recording enters at the first segment");
     }
     this.bodyMode = record ? "record" : "replay";
     if (record) {
       this.bodyLines.length = 0;
       this.bodyOps.length = 0;
     } else {
-      this.replayOps = [];
+      this.replayOps = Array.from({ length: from }, () => []);
     }
+    this.replayFrom = from;
     this.segment();
   }
 
@@ -464,6 +471,7 @@ export class Emitter {
     if (this.bodyMode === "replay" && !this.permissive) {
       const n = this.replayOps.length;
       for (const [i, ops] of this.replayOps.entries()) {
+        if (i < this.replayFrom) continue;
         const want = this.bodyOps[i] ?? [];
         const length =
           i === n - 1 ? ops.length <= want.length : ops.length === want.length;
@@ -510,17 +518,36 @@ export class Emitter {
     return slot.offset;
   }
 
+  // Like allocate, but into the slot at `offset` while it is free (a value
+  // that takes the place of the one its last load freed there).
+  private allocateAt(v: Value, offset: number | undefined): number {
+    if (offset === undefined || offset < this.slotBase) return this.allocate(v);
+    const slot = this.pool[(offset - this.slotBase) / 32];
+    if (this.holder.has(slot.offset)) return this.allocate(v);
+    slot.round = this.round;
+    this.slots.set(v, slot.offset);
+    this.holder.set(slot.offset, v);
+    return slot.offset;
+  }
+
   // The slot of v is free once its last load is done.
   private free(v: Value, offset: number) {
     this.slots.delete(v);
     this.holder.delete(offset);
-    this.pool[(offset - this.slotBase) / 32].round = -Infinity;
+    if (offset >= this.slotBase) {
+      this.pool[(offset - this.slotBase) / 32].round = -Infinity;
+    }
   }
 
   // Shadow the top of the stack: DUP1 <off> MSTORE, the value stays on top.
   store(v: Value): number {
+    return this.storeAt(v, undefined);
+  }
+
+  // store into `offset` while it is free, else as store
+  storeAt(v: Value, at: number | undefined): number {
     if (this.top(0) !== v) throw new Error("store expects the value on top");
-    const offset = this.allocate(v);
+    const offset = this.allocateAt(v, at);
     this.opcode("dup1", GAS.dup, 1);
     this.opcode(
       pushText(BigInt(offset), this.fork),
@@ -555,8 +582,26 @@ export class Emitter {
   // Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
   // value then lives in memory only and dup loads it.
   spill(v: Value) {
+    this.spillAt(v, undefined);
+  }
+
+  // spill into `offset` while it is free, else as spill
+  spillAt(v: Value, at: number | undefined) {
     if (this.top(0) !== v) throw new Error("spill expects the value on top");
-    this.mstore(this.allocate(v));
+    this.mstore(this.allocateAt(v, at));
+  }
+
+  // spill into the word at 0 (PUSH0) while it is free, else as spill; for
+  // the caller to use while the hand-off region holds nothing
+  spillZero(v: Value) {
+    if (this.top(0) !== v) throw new Error("spill expects the value on top");
+    if (!this.fork.push0 || this.holder.has(0)) {
+      this.spill(v);
+      return;
+    }
+    this.slots.set(v, 0);
+    this.holder.set(0, v);
+    this.mstore(0);
   }
 
   slotOf(v: Value): number | undefined {

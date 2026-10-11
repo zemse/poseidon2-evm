@@ -64,16 +64,16 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 49550);
+    assert_eq!(reports[0].gas.measured, 49364);
 }
 
-/// t = 24 fits one contract with PRIME loaded from memory
+/// t = 24 fits one contract with the sums of its memory elements fused
 #[test]
-fn osaka_prime_in_memory_t24() {
+fn osaka_t24() {
     let reports = run("osaka", &[24]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 79583);
+    assert_eq!(reports[0].gas.measured, 78276);
 }
 
 /// t = 28 fits one contract once the external rounds stream
@@ -82,5 +82,5 @@ fn osaka_t28() {
     let reports = run("osaka", &[28]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 97714);
+    assert_eq!(reports[0].gas.measured, 96137);
 }

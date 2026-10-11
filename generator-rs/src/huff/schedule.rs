@@ -409,6 +409,44 @@ struct Builder<'a> {
     sboxed: bool,
     /// the outputs are already at [0, 32t) (stream_final)
     stored: bool,
+    /// the sum of the elements the previous consuming round stored, in
+    /// memory (internal_round_consume)
+    fused: Option<Id>,
+    /// the layout the body round at the remainder call's entry starts from,
+    /// by lane (emit_body_calls)
+    entry_layout: Option<Vec<Tag>>,
+    /// whether a remainder call may take the mid entry, and whether one did
+    mid_entry: bool,
+    entered: bool,
+}
+
+/// A stack entry by what it holds: an element of the state by index, a
+/// PRIME copy or any other value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tag {
+    Lane(usize),
+    Prime,
+    Other(Id),
+}
+
+/// SWAPs (the depth of each) that turn the stack `cur` (top first) into
+/// `want`, the top as the buffer: a cycle of misplaced entries under the top
+/// takes one more SWAP than its length. None when an entry has no place.
+fn swap_plan<T: PartialEq + Copy>(cur: &[T], want: &[T]) -> Option<Vec<usize>> {
+    let mut cur = cur.to_vec();
+    let mut plan = Vec::new();
+    loop {
+        let j = if cur[0] != want[0] {
+            (1..cur.len()).find(|&j| want[j] == cur[0] && cur[j] != want[j])?
+        } else {
+            match (1..cur.len()).find(|&j| cur[j] != want[j]) {
+                Some(j) => j,
+                None => return Some(plan),
+            }
+        };
+        cur.swap(0, j);
+        plan.push(j);
+    }
 }
 
 fn val(v: Id) -> Operand {
@@ -524,6 +562,10 @@ impl<'a> Builder<'a> {
             lane_constants: None,
             sboxed: false,
             stored: false,
+            fused: None,
+            entry_layout: None,
+            mid_entry: true,
+            entered: false,
         })
     }
 
@@ -2076,11 +2118,67 @@ impl<'a> Builder<'a> {
         let mut old = vec![x5];
         old.extend_from_slice(&self.state[1..]);
         if mem > 0 {
-            self.e.spill(x5)?;
+            // [0, 32t) holds the state only from the last round on
+            if self.state_in_memory {
+                self.e.spill_zero(x5)?;
+            } else {
+                self.e.spill(x5)?;
+            }
         }
         self.e.push_prime()?;
-        let sum = self.chain_sum_in_place(&old, "sum", p1())?;
+        // the elements the previous round stored enter the sum as theirs
+        let fused_slot = self.fused.and_then(|f| self.e.slot_of(f));
+        let terms: Vec<Id> = match self.fused.take() {
+            Some(f) => [x5, f]
+                .into_iter()
+                .chain(old[mem + 1..].iter().copied())
+                .collect(),
+            None => old.clone(),
+        };
+        let sum = self.chain_sum_in_place(&terms, "sum", p1())?;
         self.e.end_line();
+
+        // with the next round internal, the elements kept in memory go
+        // first, over the PRIME copy under the sum, and their outputs are
+        // summed for the next round as they are stored
+        let fusing = mem >= FUSE_MIN && next_internal && self.opts.prime_stack;
+        // [sum, P, ...] holds the region where [m0, sum, ...] will
+        let fuse = fusing && {
+            let loads = self.region_loads(&old, slots);
+            (1..=mem).all(|j| loads.contains(&j)) && loads.iter().all(|&j| j <= mem)
+        };
+        let mut out = vec![0; t];
+        if fuse {
+            let mut acc: Option<Id> = None;
+            for (j, &s) in old.iter().enumerate().take(mem + 1).skip(1) {
+                let slot = self.e.slot_of(s);
+                self.e.push_prime()?;
+                self.e.dup(s)?;
+                let o = self.consume_out(j, s, sum, &mut out)?;
+                self.e.store_at(o, slot)?;
+                acc = Some(match acc {
+                    None => o,
+                    Some(a) if self.fits(a, o) => {
+                        self.e
+                            .compute(Op::Add, &[inplace(o), inplace(a)], "fused")?
+                    }
+                    Some(a) => {
+                        self.e.push_prime()?;
+                        self.e.swap(2)?;
+                        self.e.compute(
+                            Op::Addmod,
+                            &[inplace(a), inplace(o), inplace(p)],
+                            "fused",
+                        )?
+                    }
+                });
+                self.e.end_line();
+            }
+            let acc = acc.expect("mem > 0");
+            self.e.spill_at(acc, fused_slot)?;
+            self.e.end_line();
+            self.fused = Some(acc);
+        }
         // [sum, P, s0^5, ...]: s0^5 on top of the PRIME copy, m0 lands on the
         // sum
         if mem > 0 {
@@ -2095,14 +2193,11 @@ impl<'a> Builder<'a> {
             .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
         self.e.end_line();
 
-        let mut out = vec![0; t];
-        let mut loads: Vec<usize> = Vec::new();
-        for (i, &v) in old.iter().enumerate().skip(1) {
-            let s = self.e.find(v);
-            if s < 3 || s > slots + 2 {
-                loads.push(i);
-            }
-        }
+        let loads = if fuse {
+            Vec::new()
+        } else {
+            self.region_loads(&old, slots)
+        };
         let mut to_stack: VecDeque<usize> = loads.iter().copied().filter(|&i| i > mem).collect();
         let chains = self.consume_chains(&old, mem, next_internal)?;
         let order: Vec<usize> = chains.iter().flatten().copied().collect();
@@ -2200,6 +2295,14 @@ impl<'a> Builder<'a> {
             self.e.swap(1)?;
         }
         self.e.end_line();
+        if fusing && !fuse {
+            // the elements went to memory out of order: their sum for the
+            // next round from their slots
+            let acc = self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?;
+            self.e.spill(acc)?;
+            self.e.end_line();
+            self.fused = Some(acc);
+        }
         self.state = out;
         Ok(())
     }
@@ -2213,6 +2316,26 @@ impl<'a> Builder<'a> {
         mem: usize,
         out: &mut [Id],
     ) -> Result<()> {
+        self.consume_out(i, s, sum, out)?;
+        if i <= mem {
+            self.e.spill(out[i])?;
+        }
+        self.e.end_line();
+        Ok(())
+    }
+
+    /// The indices of `old` but s0 the region under [m0, sum] does not hold
+    fn region_loads(&self, old: &[Id], slots: usize) -> Vec<usize> {
+        (1..old.len())
+            .filter(|&i| {
+                let s = self.e.find(old[i]);
+                s < 3 || s > slots + 2
+            })
+            .collect()
+    }
+
+    /// m_i + sum on top, for s on top with a PRIME copy under it
+    fn consume_out(&mut self, i: usize, s: Id, sum: Id, out: &mut [Id]) -> Result<Id> {
         let p = self.p();
         let di = self.diag(i);
         let m = self
@@ -2221,11 +2344,7 @@ impl<'a> Builder<'a> {
         out[i] = self
             .e
             .compute(Op::Add, &[val(sum), inplace(m)], &format!("s{i}'"))?;
-        if i <= mem {
-            self.e.spill(out[i])?;
-        }
-        self.e.end_line();
-        Ok(())
+        Ok(out[i])
     }
 
     /// an element not held by the region: loaded under a PRIME copy
@@ -2271,21 +2390,75 @@ impl<'a> Builder<'a> {
         Ok(Some(calls))
     }
 
+    /// SWAPs a remainder call needs to enter the body `from` rounds on:
+    /// each sub-chain of the consuming rounds rotates its slots one place a
+    /// round (consume_chains), under [s0, P].
+    fn entry_swaps(&self, from: usize) -> Option<usize> {
+        let slots = held_slots(self.t, self.e.max_reach, self.opts.consume_slots);
+        let group = match self.opts.consume_group {
+            0 => slots,
+            g => g.min(slots),
+        };
+        let cur: Vec<usize> = (0..slots + 2).collect();
+        let mut want = cur.clone();
+        let order: Vec<usize> = (0..slots).collect();
+        for chunk in order.chunks(group) {
+            let n = chunk.len();
+            for (k, &s) in chunk.iter().enumerate() {
+                want[2 + chunk[(k + from) % n]] = 2 + s;
+            }
+        }
+        swap_plan(&cur, &want).map(|plan| plan.len())
+    }
+
+    /// A stack entry by what it holds now.
+    fn tag(&self, v: Id) -> Tag {
+        if v == self.p() {
+            Tag::Prime
+        } else if let Some(i) = self.state.iter().position(|&s| s == v) {
+            Tag::Lane(i)
+        } else {
+            Tag::Other(v)
+        }
+    }
+
     /// Emits the calls of the shared body. A call CODECOPYs its round
     /// constants from its code table to the scratch, stores its return
     /// label and JUMPs to the body, which the last call falls into instead;
     /// the body's text goes out there. The emitter simulates the body at
     /// every call, recording it at the first (emitter.rs). A remainder call
-    /// stores its return label at the mid exit's slot, which the full calls
-    /// had set to the label right after the exit.
+    /// either stores its return label at the mid exit's slot, which the
+    /// full calls had set to the label right after the exit, or, where the
+    /// SWAPs into the layout of the body's later rounds cost less than the
+    /// exits, enters there (the mid entry) before the last full call.
     fn emit_body_calls(&mut self, calls: &[Vec<usize>]) -> Result<()> {
         let period = self.period;
         let ret_mid = self.rc_base + 32 * period;
         let ret_end = ret_mid + 32;
         let rem = calls[calls.len() - 1].len() % period;
+        let full = calls.len() - usize::from(rem > 0);
+        let from = period - rem;
+        let entry = self.mid_entry
+            && rem > 0
+            && full >= 2
+            && self
+                .entry_swaps(from)
+                .is_some_and(|n| 3 * n < 14 * full + 9);
+        self.entered |= entry;
+        let calls: Vec<Vec<usize>> = if entry {
+            // the remainder before the last full call, which falls in
+            let first = calls[0][0];
+            let mut out: Vec<Vec<usize>> = calls[..full - 1].to_vec();
+            let r = first + (full - 1) * period;
+            out.push((r..r + rem).collect());
+            out.push((r + rem..r + rem + period).collect());
+            out
+        } else {
+            calls.to_vec()
+        };
         self.e
             .comment("Shared body of the steady internal rounds (see the calls)");
-        if rem > 0 {
+        if rem > 0 && !entry {
             self.e.push_label("body_mid");
             self.e.mstore(ret_mid)?;
             self.e.end_line();
@@ -2293,6 +2466,40 @@ impl<'a> Builder<'a> {
         for (c, rounds) in calls.iter().enumerate() {
             let n = rounds.len();
             let last_call = c == calls.len() - 1;
+            // the first round of the body this call runs
+            let skip = if entry && n < period { from } else { 0 };
+            if skip > 0 {
+                let Some(layout) = self.entry_layout.clone() else {
+                    bail!("no layout recorded for the mid entry");
+                };
+                let p = self.p();
+                let want: Vec<Id> = layout
+                    .iter()
+                    .map(|tag| match *tag {
+                        Tag::Lane(i) => self.state[i],
+                        Tag::Prime => p,
+                        Tag::Other(v) => v,
+                    })
+                    .collect();
+                let cur = self.e.from_top();
+                if cur.len() != want.len() {
+                    bail!("the mid entry's stack differs in depth");
+                }
+                let reach = (self.e.max_reach + 1).min(cur.len());
+                if cur[reach..] != want[reach..] {
+                    bail!("the mid entry's layout is out of reach");
+                }
+                let Some(plan) = swap_plan(&cur[..reach], &want[..reach]) else {
+                    bail!("no SWAPs into the mid entry's layout");
+                };
+                if Some(plan.len()) != self.entry_swaps(from) {
+                    bail!("the mid entry's SWAPs differ from the chains' rotation");
+                }
+                for &j in &plan {
+                    self.e.swap(j)?;
+                }
+                self.e.end_line();
+            }
             self.e.comment(&format!(
                 "Rounds {} to {} (internal): body call {c}",
                 rounds[0],
@@ -2304,23 +2511,39 @@ impl<'a> Builder<'a> {
                 .map(|&r| self.params.round_constants[r][0])
                 .collect();
             self.e.table(&name, words);
-            self.e.codecopy(&name, n, self.rc_base)?;
+            self.e.codecopy(&name, n, self.rc_base + 32 * skip)?;
             self.e.push_label(&format!("ret{c}"));
-            self.e.mstore(if n < period { ret_mid } else { ret_end })?;
+            self.e.mstore(if n < period && !entry {
+                ret_mid
+            } else {
+                ret_end
+            })?;
             if !last_call {
-                self.e.push_label("body");
+                self.e
+                    .push_label(if skip > 0 { "body_mid" } else { "body" });
                 self.e.jump();
             }
             self.e.end_line();
 
-            self.e.begin_body(c == 0)?;
-            self.e.label("body");
-            self.e.end_line();
-            for (k, &r) in rounds.iter().enumerate() {
-                if k > 0 {
+            self.e.begin_body_at(c == 0, skip)?;
+            if skip == 0 {
+                self.e.label("body");
+                self.e.end_line();
+            }
+            for (k, &r) in (skip..).zip(rounds) {
+                if k > skip {
                     self.e.segment();
                 }
-                if k == rem && k > 0 {
+                if entry && k == from {
+                    // the mid entry: the remainder call comes in here
+                    self.e.label("body_mid");
+                    self.e.end_line();
+                    if c == 0 {
+                        let layout: Vec<Tag> =
+                            self.e.from_top().iter().map(|&v| self.tag(v)).collect();
+                        self.entry_layout = Some(layout);
+                    }
+                } else if !entry && k == rem && k > 0 {
                     // the mid exit: a remainder call returns, a full one
                     // goes on
                     self.e.jump_via(ret_mid)?;
@@ -2335,8 +2558,11 @@ impl<'a> Builder<'a> {
                 self.step_bytes.push(self.e.bytes);
             }
             self.e.segment();
-            self.e
-                .jump_via(if n < period { ret_mid } else { ret_end })?;
+            self.e.jump_via(if n < period && !entry {
+                ret_mid
+            } else {
+                ret_end
+            })?;
             self.e.end_line();
             self.e.end_body()?;
             if last_call {
@@ -2510,6 +2736,11 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// memory elements from which the consuming round sums them for the next
+/// round as it stores them: each saves 3 gas, the sum's store and load cost
+/// 12 and its reductions a SWAP each
+const FUSE_MIN: usize = 6;
+
 /// The dead values hash round 0 leaves between its outputs and the PRIME
 /// copy under them, which the rounds after copy from
 pub const HASH_DEAD: usize = 3;
@@ -2668,7 +2899,9 @@ fn expected_outputs(params: &Params, inputs: &[Vec<U256>], range: Range) -> Vec<
         .collect()
 }
 
-/// build_permutation against reference outputs computed once per range.
+/// build_permutation against reference outputs computed once per range. A
+/// build that fails after a remainder call took the mid entry (whose layout
+/// the rounds after the body then start from) is retried with the mid exit.
 #[allow(clippy::too_many_arguments)]
 fn build_checked(
     params: &Params,
@@ -2680,21 +2913,52 @@ fn build_checked(
     text: bool,
     boundary: &Boundary,
 ) -> Result<BuildResult> {
+    let mut entered = false;
+    let build = |mid_entry: bool, entered: &mut bool| {
+        build_once(
+            params, inputs, expected, opts, fork, range, text, boundary, mid_entry, entered,
+        )
+    };
+    match build(true, &mut entered) {
+        Err(_) if entered => build(false, &mut entered),
+        result => result,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_once(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    expected: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+    boundary: &Boundary,
+    mid_entry: bool,
+    entered: &mut bool,
+) -> Result<BuildResult> {
     let mut shadow = HashSet::new();
     let mut last_load = HashMap::new();
     if opts.shadow {
         let mut probe = Builder::new(
             params, inputs, *opts, fork, range, shadow, true, false, boundary,
         )?;
-        probe.build()?;
+        probe.mid_entry = mid_entry;
+        let built = probe.build();
+        *entered |= probe.entered;
+        built?;
         shadow = std::mem::take(&mut probe.e.needed);
         last_load = std::mem::take(&mut probe.e.last_load);
     }
     let mut b = Builder::new(
         params, inputs, *opts, fork, range, shadow, false, text, boundary,
     )?;
+    b.mid_entry = mid_entry;
     b.e.last_load = last_load;
-    let outputs = b.build()?;
+    let built = b.build();
+    *entered |= b.entered;
+    let outputs = built?;
     let e = &b.e;
     let t = params.t;
     let is_final = range.to == step_count(params);

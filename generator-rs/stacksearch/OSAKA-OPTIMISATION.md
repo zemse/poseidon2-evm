@@ -508,3 +508,32 @@ t = 28 before is the cold / warm hop. t = 2 to 12 and every Amsterdam width are 
 - A searched program for a block's M4 run into its four S-boxes and stores: the PRIME copy under each output costs a `DUP` and a `SWAP` (6) where a copy placed during the M4 would cost 3, and a kept lane its swap up (3). At most about 50 gas a round at t = 16 and 90 at t = 28 (0.35K and 0.6K a call); `macro` models the S-box before the linear layer only, so it needs a new search.
 - One shared body for the streamed layers (as the internal rounds have): a t = 28 layer is about 1.8 KB, 0.9 KB of it round constants, so six calls would free about 5 KB, enough for an internal body period of 3 or 4 instead of 2 (about 29 calls of 50 gas and the sub-chain swaps). But each call pays `CODECOPY` of 28 words and an `MLOAD` per constant (about 170 gas), the kept blocks alternate with period 2, and the slots must match between calls: about even at t = 28, a loss below.
 - The internal rounds are now most of the gap to Amsterdam: t = 28 1,171 a steady round against 935 (the 14 memory elements and the period-2 body's calls).
+
+## Wide widths: steady internal rounds
+
+Baseline b999f70, 2026-10-11. A steady internal round of the body cost t = 16 597, t = 20 780, t = 24 970 to 985 and t = 28 1,171 gas of static opcodes against Amsterdam's 555, 687, 811 and 935. At t = 28: 14 memory elements at 18 gas of loads and stores each (load for the sum chain, load for the MULMOD, store), `s0^5` through memory 18, the round constant `MLOAD` 3 and the call overhead 69 a call of 2 rounds, of which 15 is the mid exit every full call passes.
+
+### Changes
+
+- Fused sums (`FUSE_MIN` = 6 memory elements, t = 24 and 28): a consuming round with another after it updates its memory elements first, over the PRIME copy the sum chain leaves under the sum, stores each output with `DUP1 <off> MSTORE` into the slot its input's load freed and adds it to a running sum (reduced by `ADDMOD` with a copy `DUP`ed and `SWAP2`ed under it), stored to one slot. The next sum chain takes that slot as one term instead of loading every element: 3 gas an element for 12 (the sum's store and load) and a `SWAP` per reduction. The first internal round, whose outputs go to memory out of order, sums them from their slots after the round (191 gas once at t = 28); the last, which only takes the sum, costs 137 less.
+- `s0^5` at word 0: the hand-off region `[0, 32t)` holds nothing before the last round, so a consuming round with elements in memory stores `s0^5` there: its 3 accesses a round take `PUSH0` (2 gas, 1 byte) instead of `PUSH2`.
+- Mid entry: a remainder call of r rounds runs the body's last r rounds instead of its first. It comes before the last full call, `SWAP`s the stack into the layout those rounds start from (each sub-chain rotated by the rounds it skips: at t = 28 six transpositions, 18 `SWAP`s) and jumps to a `JUMPDEST` the full calls pass for 1 gas, instead of every full call paying 15 for a mid exit that jumps to the next instruction. Taken when 3 gas a `SWAP` is below 14 a full call plus the 9 of the exit's setup; a build that fails after it (t = 12, where the rounds after the body start from another rotation and leave reach) is retried with the mid exit.
+
+| Fork  | Width | Before | Fused sums + PUSH0 | Mid entry | Saving | Runtime bytes after |
+| ----- | ----: | -----: | -----------------: | --------: | -----: | ------------------: |
+| Osaka |    16 | 49,550 |             49,379 |    49,364 |    186 |              24,539 |
+| Osaka |    20 | 64,405 |             64,234 |    64,166 |    239 |              24,370 |
+| Osaka |    24 | 79,583 |             78,431 |    78,276 |  1,307 |              24,538 |
+| Osaka |    28 | 97,714 |             96,472 |    96,137 |  1,577 |              24,513 |
+
+Call gas measured by `verify`. t = 2 to 12 and every Amsterdam width are byte-identical. A steady body round now costs t = 24 952 to 967 and t = 28 1,153 (static, `PUSH0` counted as 3); t = 24 also drops `primeInMemory` (the code is smaller) and takes 14 elements on the stack.
+
+### Rejected (measured)
+
+- Fused sums at t = 20 (5 memory elements, and 6 or 7 with 13 or 12 on the stack): 63,852 code gas against 63,846, so `FUSE_MIN` is 6 and t = 20 keeps loading its elements.
+- Fused sums for a single memory element (t = 16): stores the output twice; 49,588 against 49,099 code gas.
+- Fused sums without slot reuse (a fresh slot for each output): the slots rotate between calls and the body's replay check fails at every period.
+
+### Left open
+
+- The rest of the t = 28 gap (1,153 against 935): 14 elements at 12 gas of load and store (168), the fused sum's store and load (12), `s0^5` (15), the round constant `MLOAD` (3) and about 27 a round of call overhead. A searched program for the stack part of the round (memory operations as fixed leaves) was not run.

@@ -207,6 +207,8 @@ pub struct Emitter {
     pub body_lines: Vec<Vec<String>>,
     body_ops: Vec<Vec<String>>,
     replay_ops: Vec<Vec<String>>,
+    /// the segment a replay enters at (a call that runs the last rounds)
+    replay_from: usize,
     pub tables: Vec<Table>,
 }
 
@@ -255,6 +257,7 @@ impl Emitter {
             body_lines: Vec::new(),
             body_ops: Vec::new(),
             replay_ops: Vec::new(),
+            replay_from: 0,
             tables: Vec::new(),
         };
         e.p = e.alloc(Value {
@@ -323,6 +326,11 @@ impl Emitter {
             }
         }
         0
+    }
+
+    /// the stack, top first
+    pub fn from_top(&self) -> Vec<Id> {
+        self.stack.iter().rev().copied().collect()
     }
 
     pub fn depth(&self) -> usize {
@@ -618,17 +626,26 @@ impl Emitter {
     /// and opcodes go to the current segment (see `segment`), bytes count
     /// only when recording. The pending opcodes must be flushed.
     pub fn begin_body(&mut self, record: bool) -> Result<()> {
+        self.begin_body_at(record, 0)
+    }
+
+    /// begin_body for a replay that enters at segment `from`
+    pub fn begin_body_at(&mut self, record: bool, from: usize) -> Result<()> {
         if !self.pending.is_empty() || self.body_mode != BodyMode::Off {
             bail!("beginBody within a line or a body");
         }
         if record {
+            if from > 0 {
+                bail!("a recording enters at the first segment");
+            }
             self.body_mode = BodyMode::Record;
             self.body_lines.clear();
             self.body_ops.clear();
         } else {
             self.body_mode = BodyMode::Replay;
-            self.replay_ops.clear();
+            self.replay_ops = vec![Vec::new(); from];
         }
+        self.replay_from = from;
         self.segment();
         Ok(())
     }
@@ -655,7 +672,7 @@ impl Emitter {
         // period never repeats), and the real pass checks its own opcodes
         if self.body_mode == BodyMode::Replay && !self.permissive {
             let n = self.replay_ops.len();
-            for (i, ops) in self.replay_ops.iter().enumerate() {
+            for (i, ops) in self.replay_ops.iter().enumerate().skip(self.replay_from) {
                 let want: &[String] = self.body_ops.get(i).map_or(&[], Vec::as_slice);
                 let same = if i == n - 1 {
                     ops.len() <= want.len()
@@ -721,11 +738,38 @@ impl Emitter {
         offset
     }
 
+    /// The slot of v, if it has one.
+    pub fn slot_of(&self, v: Id) -> Option<usize> {
+        self.slots.get(&v).copied()
+    }
+
+    /// Like allocate, but into the slot at `offset` while it is free (a
+    /// value that takes the place of the one its last load freed there).
+    fn allocate_at(&mut self, v: Id, offset: Option<usize>) -> usize {
+        let index = offset
+            .filter(|&o| o >= self.slot_base)
+            .map(|o| (o - self.slot_base) / 32);
+        match index {
+            Some(i) if !self.holder.contains_key(&self.pool[i].offset) => {
+                let round = self.round;
+                let slot = &mut self.pool[i];
+                slot.round = round;
+                let offset = slot.offset;
+                self.slots.insert(v, offset);
+                self.holder.insert(offset, v);
+                offset
+            }
+            _ => self.allocate(v),
+        }
+    }
+
     /// The slot of v is free once its last load is done.
     fn free(&mut self, v: Id, offset: usize) {
         self.slots.remove(&v);
         self.holder.remove(&offset);
-        self.pool[(offset - self.slot_base) / 32].round = i64::MIN / 2;
+        if offset >= self.slot_base {
+            self.pool[(offset - self.slot_base) / 32].round = i64::MIN / 2;
+        }
     }
 
     /// Shadow the top of the stack: DUP1 <off> MSTORE, the value stays on
@@ -777,6 +821,48 @@ impl Emitter {
         }
         let offset = self.allocate(v);
         self.mstore(offset)
+    }
+
+    /// spill into the word at 0 (PUSH0) while it is free, else as spill;
+    /// for the caller to use while the hand-off region holds nothing
+    pub fn spill_zero(&mut self, v: Id) -> Result<()> {
+        if self.top(0)? != v {
+            bail!("spill expects the value on top");
+        }
+        if !self.fork.push0 || self.holder.contains_key(&0) {
+            return self.spill(v);
+        }
+        self.slots.insert(v, 0);
+        self.holder.insert(0, v);
+        self.mstore(0)
+    }
+
+    /// spill into `offset` while it is free, else as spill
+    pub fn spill_at(&mut self, v: Id, offset: Option<usize>) -> Result<()> {
+        if self.top(0)? != v {
+            bail!("spill expects the value on top");
+        }
+        let offset = self.allocate_at(v, offset);
+        self.mstore(offset)
+    }
+
+    /// store into `offset` while it is free, else as store
+    pub fn store_at(&mut self, v: Id, offset: Option<usize>) -> Result<usize> {
+        if self.top(0)? != v {
+            bail!("store expects the value on top");
+        }
+        let offset = self.allocate_at(v, offset);
+        let fork = self.fork;
+        let c = u256(offset as u64);
+        self.opcode(|| "dup1".to_string(), gas::DUP, 1);
+        self.opcode(
+            || push_text(c, &fork),
+            push_gas(c, &fork),
+            push_bytes(c, &fork),
+        );
+        self.opcode(|| "mstore".to_string(), gas::MSTORE, 1);
+        self.stores += 1;
+        Ok(offset)
     }
 
     fn load(&mut self, offset: usize, v: Id) -> Result<()> {
