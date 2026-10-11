@@ -543,6 +543,15 @@ export class Emitter {
     this.calldata.set(v, offset);
   }
 
+  // Loads calldata word v (declareCalldata) whether or not a copy is on
+  // the stack.
+  calldataLoad(v: Value) {
+    const offset = this.calldata.get(v);
+    if (offset === undefined)
+      throw new Error(`${v.name} is not a calldata word`);
+    this.loadCalldata(offset, v);
+  }
+
   // Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
   // value then lives in memory only and dup loads it.
   spill(v: Value) {

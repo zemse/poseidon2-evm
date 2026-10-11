@@ -32,6 +32,12 @@ Two binaries, run from this directory after `cargo build --release`:
   cycle <t> [max_window=12] [layers=4]
   ```
 
+- `target/release/hashdag` (`src/bin/hashdag.rs`) schedules the forms of the t = 4 hash entry's round 0 (`hash_forms` in templates.rs) over single opcodes: a fixed DAG of `add`, `addmod`, `mulmod` (by a node or 4) and `mod` nodes over the calldata words r0..r2 as CALLDATALOAD leaves them (6 gas a load, any number of times), from the PRIME copy SETUP pushes to p0 on top of a PRIME copy and p1..p3 anywhere. A* with the ops still to run, a DUP or load per use beyond the entries on the stack and a PRIME copy or 4 per op that needs one. `KEEP=1` leaves SETUP's PRIME copy where it is; `WEIGHT=w` orders by g + w h / 10 (not optimal).
+
+  ```
+  hashdag <n> '<name>=<op>(<a>,<b>);...' [max_depth=12] [ub]
+  ```
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:

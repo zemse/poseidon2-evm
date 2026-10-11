@@ -31,8 +31,8 @@ use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
-    BlockKind, Internal3Kind, Template, TemplateKind, blocks, internal3, internal3_periodic,
-    internal4, linear_final4, templates,
+    BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
+    internal3_periodic, internal4, linear_final4, round4, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -163,6 +163,10 @@ pub struct Boundary {
     pub bounds: Option<Vec<U256>>,
     pub calldata: bool,
     pub live: Option<Vec<usize>>,
+    /// the inputs as [s0, PRIME, s1, ...] rather than over the PRIME copy
+    pub prime_second: bool,
+    /// with prime_second, a PRIME copy this many dead values below them
+    pub prime_below: Option<usize>,
 }
 
 /// A part hands its state over below 2p: an internal round leaves m_i + sum
@@ -182,6 +186,8 @@ pub fn part_boundary(t: usize, from: usize) -> Boundary {
         bounds: Some(vec![handover_bound(); t]),
         calldata: true,
         live: None,
+        prime_second: false,
+        prime_below: None,
     }
 }
 
@@ -382,6 +388,9 @@ struct Builder<'a> {
     live: Option<Vec<usize>>,
     /// external layers built so far
     layers: usize,
+    /// what the S-boxes of a template add in place of the round constants
+    /// (the hash entry's round 0, Builder::hash_round0)
+    lane_constants: Option<Vec<U256>>,
 }
 
 fn val(v: Id) -> Operand {
@@ -462,7 +471,19 @@ impl<'a> Builder<'a> {
             state.push(v);
         }
         let mut stack = state.clone();
-        stack.push(e.p);
+        if boundary.prime_second {
+            stack.insert(1, e.p);
+            if let Some(dead) = boundary.prime_below {
+                for k in 0..dead {
+                    let vals = vec![U256::ZERO; inputs.len()];
+                    let g = crate::value::Value::new(format!("g{k}"), U256::ZERO, vals, None)?;
+                    stack.push(e.alloc(g));
+                }
+                stack.push(e.p);
+            }
+        } else {
+            stack.push(e.p);
+        }
         e.set_stack(&stack);
         e.max_depth = stack.len();
         Ok(Builder {
@@ -482,6 +503,7 @@ impl<'a> Builder<'a> {
             dead: Vec::new(),
             live: boundary.live.clone(),
             layers: 0,
+            lane_constants: None,
         })
     }
 
@@ -976,7 +998,10 @@ impl<'a> Builder<'a> {
         if prime_under && self.e.top(1)? != p {
             bail!("template expects PRIME under s{i}");
         }
-        let c = self.params.round_constants[round][i];
+        let c = match &self.lane_constants {
+            Some(k) => k[i],
+            None => self.params.round_constants[round][i],
+        };
         let name = format!("s{i}+c");
         let mut prime_under = prime_under;
         let y = if self.e.fits_add(self.bound(s), c) {
@@ -1410,149 +1435,100 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    /// k s on top, as MUL when k s + K fits in uint256 (K is added right
-    /// after), else MULMOD.
-    fn scale(&mut self, s: Id, k: u64, add: U256, name: &str) -> Result<Id> {
-        let kv = constant_hex(u256(k));
-        let fits = (wide(self.bound(s)) * U512::from(k) + wide(add)) <= wmax();
-        if fits {
-            return self.e.compute(Op::Mul, &[val(s), kv], name);
-        }
-        let p = self.p();
-        self.e.compute(Op::Mulmod, &[val(s), kv, val(p)], name)
-    }
-
-    /// A lane of the hash entry's round 0: y on top of a PRIME copy, then
-    /// its S-box.
-    fn hash_lane(&mut self, i: usize, make_y: impl FnOnce(&mut Self) -> Result<Id>) -> Result<Id> {
-        self.e.push_prime()?;
-        let y = make_y(self)?;
-        let out = self.sbox(y, &format!("s{i}'"))?;
-        self.e.end_line();
-        Ok(out)
-    }
-
-    /// Round 0 of the hash entry for n inputs: the stack holds [s0, ...,
-    /// s(n-1), PRIME] and the other lanes are the sponge constants (zeros,
-    /// then the capacity n << 64), so the initial linear layer and the
-    /// constant addition fold into one linear form per lane, y_i = sum_j
-    /// M4[i][j] s_j + K_i with K_i = M4[i][3] (n << 64) + c_i. With the
-    /// sums t0 = s0 + s1, w = 2 s1 + s2 (reduced), u = 4 s2 + t0 and t5 =
-    /// 4 t0 + w, the rows M4 = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7],
-    /// [1, 1, 4, 6]] give y3 = u + K3, y2 = w + u + K2, y1 = t5 + K1 and
-    /// y0 = t5 + t0 + K0; a zero lane drops its terms, and a form that
-    /// would not fit takes its multiple of t0 as a MULMOD. Each lane is then
-    /// S-boxed, last first, and M4 follows as in any external round, leaving
-    /// [s0', s1', s2', s3', PRIME] for the rounds after.
-    fn hash_round0(&mut self, n: usize) -> Result<()> {
+    /// Round 0 of the hash entry for n inputs, from the PRIME copy SETUP
+    /// leaves. The other lanes are the sponge constants (zeros, then the
+    /// capacity n << 64), so the initial linear layer and the constant
+    /// addition fold into y_i = p_i + K_i, p_i = sum_j M4[i][j] in_j and
+    /// K_i = M4[i][3] (n << 64) + c_i. The forms program of
+    /// templates::hash_forms loads the inputs and leaves p_i over the
+    /// PRIME copy SETUP pushed, then ROUND4 adds K_i in the S-boxes, leaving
+    /// [s0', PRIME, s1', s2', s3', 3 dead values, PRIME] for the rounds
+    /// after.
+    fn hash_round0(&mut self, n: usize, words: &[Vec<U256>]) -> Result<()> {
         if self.t != 4 {
             bail!("hashRound0 is t = 4 only");
         }
-        if !(1..=3).contains(&n) {
+        let Some(program) = hash_forms(n) else {
             bail!("hash arity {n}");
-        }
+        };
         let p = self.p();
-        let mut stack: Vec<Id> = self.state[..n].to_vec();
-        stack.push(p);
-        self.e.set_stack(&stack);
-        self.e.max_depth = stack.len();
-        self.e.end_line();
-        let iv = u256(n as u64) << 64;
-        let rows: [[u64; 4]; 4] = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7], [1, 1, 4, 6]];
-        let k: Vec<U256> = (0..4)
+        // the words as CALLDATALOAD leaves them, not reduced
+        let raw: Vec<Id> = (0..n)
             .map(|i| {
-                crate::field::reduce(u256(rows[i][3]) * iv + self.params.round_constants[0][i])
+                let vals = words.iter().map(|w| w[i]).collect();
+                let v = self.e.alloc(crate::value::Value::new(
+                    format!("r{i}"),
+                    UINT256_MAX,
+                    vals,
+                    None,
+                )?);
+                self.e.declare_calldata(v, 4 + 32 * i);
+                Ok(v)
             })
-            .collect();
-        let kc = |i: usize| constant(k[i], &format!("K{i}"));
-        let four = constant_hex(u256(4));
-        let (a, b, c) = (self.state[0], self.state[1], self.state[2]);
-        let mut out = [0; 4];
-        if n == 1 {
-            out[3] = self.hash_lane(3, |bl| bl.e.compute(Op::Add, &[kc(3), val(a)], "y3"))?;
-            out[2] = self.hash_lane(2, |bl| bl.e.compute(Op::Add, &[kc(2), val(a)], "y2"))?;
-            out[1] = self.hash_lane(1, |bl| {
-                let m = bl.scale(a, 4, k[1], "4s0")?;
-                bl.e.compute(Op::Add, &[kc(1), inplace(m)], "y1")
-            })?;
-            out[0] = self.hash_lane(0, |bl| {
-                let m = bl.scale(a, 5, k[0], "5s0")?;
-                bl.e.compute(Op::Add, &[kc(0), inplace(m)], "y0")
-            })?;
-        } else {
-            let t0 = self.e.compute(Op::Add, &[val(a), val(b)], "t0")?;
-            self.e.end_line();
-            let (w, u);
-            if n == 2 {
-                w = self.e.compute(Op::Add, &[val(b), val(b)], "w")?;
+            .collect::<Result<_>>()?;
+        self.e.set_stack(&[p]);
+        self.e.max_depth = 1;
+        let mut forms: HashMap<String, Id> = HashMap::new();
+        for mv in program.split(" ") {
+            if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                let v = self.e.top(k - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                self.e.swap(k.parse().expect("swap slot"))?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if mv == "4" {
+                self.e.push(u256(4), None)?;
+            } else if let Some(i) = mv.strip_prefix('r') {
+                let i: usize = i.parse().expect("input");
+                self.e.calldata_load(raw[i])?;
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => Op::Addmod,
+                    "mulmod" => Op::Mulmod,
+                    "mod" => Op::Mod,
+                    _ => bail!("unknown forms move {mv}"),
+                };
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                if matches!(op, Op::Addmod | Op::Mulmod) {
+                    operands.push(inplace(p));
+                }
+                let v = self.e.compute(op, &operands, name)?;
+                forms.insert(name.to_string(), v);
                 self.e.end_line();
-                u = t0;
             } else {
-                w = self.add_to(
-                    |bl| bl.e.compute(Op::Add, &[val(b), val(b)], "2s1"),
-                    c,
-                    "w",
-                    true,
-                )?;
-                self.e.end_line();
-                let f = four.clone();
-                u = self.add_to(
-                    |bl| bl.e.compute(Op::Mulmod, &[val(c), f, val(p)], "4s2"),
-                    t0,
-                    "u",
-                    false,
-                )?;
-                self.e.end_line();
-            }
-            out[3] = self.hash_lane(3, |bl| bl.e.compute(Op::Add, &[kc(3), val(u)], "y3"))?;
-            out[2] = self.hash_lane(2, |bl| {
-                let s = bl.e.compute(Op::Add, &[val(w), val(u)], "w+u")?;
-                bl.e.compute(Op::Add, &[kc(2), inplace(s)], "y2")
-            })?;
-            if n == 2 {
-                // t5 + t0 would not fit: 5 t0 reduced, then w
-                let f = four.clone();
-                out[1] = self.hash_lane(1, |bl| {
-                    let t5 = bl.add_to(
-                        |bb| bb.e.compute(Op::Mulmod, &[val(t0), f, val(p)], "4t0"),
-                        w,
-                        "t5",
-                        false,
-                    )?;
-                    bl.e.compute(Op::Add, &[kc(1), inplace(t5)], "y1")
-                })?;
-                out[0] = self.hash_lane(0, |bl| {
-                    let s = bl.add_to(
-                        |bb| {
-                            bb.e.compute(
-                                Op::Mulmod,
-                                &[val(t0), constant_hex(u256(5)), val(p)],
-                                "5t0",
-                            )
-                        },
-                        w,
-                        "5t0+w",
-                        false,
-                    )?;
-                    bl.e.compute(Op::Add, &[kc(0), inplace(s)], "y0")
-                })?;
-            } else {
-                let t5 = self.add_to(
-                    |bl| bl.e.compute(Op::Mulmod, &[val(t0), four, val(p)], "4t0"),
-                    w,
-                    "t5",
-                    false,
-                )?;
-                self.e.end_line();
-                out[1] = self.hash_lane(1, |bl| bl.e.compute(Op::Add, &[kc(1), val(t5)], "y1"))?;
-                out[0] = self.hash_lane(0, |bl| {
-                    let s = bl.e.compute(Op::Add, &[val(t0), val(t5)], "t5+t0")?;
-                    bl.e.compute(Op::Add, &[kc(0), inplace(s)], "y0")
-                })?;
+                bail!("unknown forms move {mv}");
             }
         }
-        self.state = out.to_vec();
-        self.external_matrix(false, false, true)
+        self.e.end_line();
+        let form = |name: &str| match forms.get(name) {
+            Some(&v) => Ok(v),
+            None => bail!("hash_{n} round 0 leaves no {name}"),
+        };
+        let p2 = form("p2")?;
+        let inputs = vec![
+            form("p0")?,
+            form("p1")?,
+            p2,
+            forms.get("p3").copied().unwrap_or(p2),
+        ];
+        // M4[i][3], the capacity's column
+        let column: [u64; 4] = [3, 1, 7, 6];
+        let iv = u256(n as u64) << 64;
+        self.lane_constants = Some(
+            (0..4)
+                .map(|i| {
+                    crate::field::reduce(u256(column[i]) * iv + self.params.round_constants[0][i])
+                })
+                .collect(),
+        );
+        let names: Vec<String> = (0..4).map(|i| format!("s{i}'")).collect();
+        let round = round4();
+        self.state = self.run_template(round, &inputs, &names, Some(0))?;
+        self.lane_constants = None;
+        Ok(())
     }
 
     /// Writes the state to [0, 32t) for the next part or the caller.
@@ -2362,6 +2338,10 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// The dead values hash round 0 leaves between its outputs and the PRIME
+/// copy under them, which the rounds after copy from
+pub const HASH_DEAD: usize = 3;
+
 /// The round 0 the hash entry runs for n inputs (Builder::hash_round0)
 /// with its gas, bytes, stack depth and lazy outputs, checked against the
 /// reference before anything is written.
@@ -2380,7 +2360,6 @@ pub struct Prologue {
 }
 
 pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> Result<Prologue> {
-    let t = params.t;
     let n = inputs[0].len();
     let states: Vec<Vec<U256>> = inputs
         .iter()
@@ -2398,7 +2377,7 @@ pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) ->
         true,
         &Boundary::default(),
     )?;
-    b.hash_round0(n)?;
+    b.hash_round0(n, inputs)?;
     for (k, state) in states.iter().enumerate() {
         let want = permutation_steps(params, state, 0, 2);
         for (i, &w) in want.iter().enumerate() {
@@ -2407,9 +2386,13 @@ pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) ->
             }
         }
     }
-    for i in 0..t {
-        if b.e.at(i) != Some(b.state[i]) {
-            bail!("hash_{n} round 0: outputs are not on top");
+    let mut layout: Vec<Option<Id>> = b.state.iter().map(|&v| Some(v)).collect();
+    layout.insert(1, Some(b.p()));
+    layout.extend([None; HASH_DEAD]);
+    layout.push(Some(b.p()));
+    for (i, v) in layout.iter().enumerate() {
+        if v.is_some() && b.e.at(i) != *v {
+            bail!("hash_{n} round 0: outputs are not [s0', PRIME, s1', s2', s3', 3 dead, PRIME]");
         }
     }
     let bounds = b.state.iter().map(|&v| b.e.bound(v)).collect();
@@ -2452,6 +2435,8 @@ pub fn build_hash_rounds(
         bounds: Some(bounds),
         calldata: false,
         live: Some(vec![0]),
+        prime_second: true,
+        prime_below: Some(HASH_DEAD),
     };
     let range = Range {
         from: 2,

@@ -24,6 +24,7 @@ import { DEFAULT_HARDFORK, FORKS, type Fork } from "./fork.ts";
 import {
   describeOptions,
   HANDOVER_BOUND_TEXT,
+  HASH_DEAD,
   type Best,
   type BuildOptions,
   type BuildResult,
@@ -404,8 +405,8 @@ ${code.lines.join("\n")}
 // costs. The arity comes from calldatasize (a selector and 1, 2 or 3
 // words): hash_2 falls through the first test, hash_3 the second, hash_1
 // branches twice, and the two that do not fall through to the rounds jump
-// to them. Each arity loads its words and runs its own round 0 (its
-// prologue, schedule.ts hashRound0); the rounds leave s0' on top.
+// to them. Each arity runs its own round 0 (its prologue, schedule.ts
+// hashRound0), which loads its words; the rounds leave s0' on top.
 export type HashEntry = {
   lines: string[];
   // call gas of hash_1, hash_2, hash_3 (memory expansion included)
@@ -440,7 +441,8 @@ export function hashEntry(
     code.end();
   };
   const branch = (code: Code, p: Prologue) => {
-    loads(code, p.n, [], 4);
+    code.op("SETUP()", GAS.push, 33);
+    code.end("[PRIME]");
     for (const line of p.lines) code.text(line);
     code.gas += p.gas;
     code.bytes += p.bytes;
@@ -509,15 +511,23 @@ export function renderHashEntry(
   const { result, opts } = rounds;
   const total = roundsF + roundsP;
   const entry = hashEntry(fork, prologues, result);
-  const inputs = Array.from({ length: t }, (_, i) => `s${i}`).join(", ");
+  // round 0 leaves a PRIME copy under s0' and another under its dead values
+  const inputs = [
+    "s0",
+    "PRIME",
+    ...Array.from({ length: t - 1 }, (_, i) => `s${i + 1}`),
+  ]
+    .concat(new Array(HASH_DEAD).fill("dead"), "PRIME")
+    .join(", ");
   // the rounds run on top of a prologue's garbage
   const depth =
-    Math.max(...prologues.map((p) => p.depth - t - 1)) + result.maxDepth;
+    Math.max(...prologues.map((p) => p.depth - t - 2 - HASH_DEAD)) +
+    result.maxDepth;
   const gas = entry.gas.map((g, i) => `hash_${i + 1} ${g} gas`).join(", ");
   return `${HEADER}
 ${includes(fork, utilsPath)}
 /// @notice Poseidon2 rounds 1 to ${total - 1} for BN254 with t = ${t}, Rf = ${roundsF}, Rp = ${roundsP}: the hash entry's rounds after round 0, the last one as far as s0' needs
-/// @dev takes [${inputs}, PRIME] with the lazy values round 0 leaves (hashRound0 of any arity), returns [s0', ...garbage...] with s0' clean
+/// @dev takes [${inputs}] with the lazy values round 0 leaves (hashRound0 of any arity), returns [s0', ...garbage...] with s0' clean
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 ${forkNote(fork)}${stats(result.emitter, result)}
 /// @dev schedule options: ${describeOptions(opts)}

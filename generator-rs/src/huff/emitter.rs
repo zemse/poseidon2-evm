@@ -759,6 +759,16 @@ impl Emitter {
         self.calldata.insert(v, offset);
     }
 
+    /// Loads calldata word v (declare_calldata) whether or not a copy is on
+    /// the stack.
+    pub fn calldata_load(&mut self, v: Id) -> Result<()> {
+        let Some(&offset) = self.calldata.get(&v) else {
+            bail!("{} is not a calldata word", self.name(v));
+        };
+        self.load_calldata(offset, v);
+        Ok(())
+    }
+
     /// Move the top of the stack to a fresh slot (<off> MSTORE, 6 gas): the
     /// value then lives in memory only and dup loads it.
     pub fn spill(&mut self, v: Id) -> Result<()> {

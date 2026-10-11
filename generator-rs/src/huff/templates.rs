@@ -133,6 +133,31 @@ pub fn templates(t: usize, kind: TemplateKind) -> &'static [Template] {
     }
 }
 
+/// The forms of round 0 of the t = 4 hash entry for n inputs. It runs from
+/// the PRIME copy SETUP pushed, which it leaves under everything for the
+/// rounds after to copy, and loads the inputs itself: rI is calldata word I
+/// as it is (PUSH 4 + 32 I, CALLDATALOAD), which only ADDMOD, MULMOD and
+/// mod=NAME (MOD by the PRIME copy under it) take. It leaves p_i = sum_j
+/// M4[i][j] in_j, named p0..p3, as [p0, P, p1, p2, p3], the cheapest
+/// schedule of its DAG stacksearch's hashdag finds; ROUND4 then adds the
+/// folded constants K_i in its S-boxes.
+pub fn hash_forms(n: usize) -> Option<&'static str> {
+    match n {
+        1 => Some("P r0 mod=p2 dup1 P 4 dup3 mulmod=p1 P dup3 dup3 add=p0"),
+        2 => Some(
+            "P r0 r1 addmod=p3 P 4 dup3 mulmod=4p3 P r1 dup1 addmod=w dup3 dup2 add=p2 swap2 add=p1 P dup4 dup3 add=p0",
+        ),
+        3 => Some(
+            "P r1 mod=b P r0 dup3 addmod=t0 P r2 dup4 P 4 dup4 mulmod=4c dup5 add=p3 swap5 add=2b addmod=w P dup2 P 4 dup6 mulmod=4t0 add=p1 swap2 dup5 add=p2 swap3 dup3 add=p0",
+        ),
+        _ => None,
+    }
+}
+
+pub fn round4() -> &'static [Template] {
+    std::slice::from_ref(&ROUND4[0])
+}
+
 /// The t = 4 internal round with the internal_template option: the program
 /// stacksearch's `internal` finds for three lanes, extended to four (166 gas
 /// against 169). The sum lands on a PRIME copy, its copies and the operands

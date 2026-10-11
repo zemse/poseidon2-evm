@@ -7,7 +7,7 @@
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
 use super::fork::{DEFAULT_HARDFORK, Fork};
 use super::schedule::{
-    Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, Prologue, describe_options,
+    Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, HASH_DEAD, Prologue, describe_options,
 };
 use crate::bail;
 use crate::error::Result;
@@ -465,8 +465,9 @@ pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> Strin
 /// costs. The arity comes from calldatasize (a selector and 1, 2 or 3
 /// words): hash_2 falls through the first test, hash_3 the second, hash_1
 /// branches twice, and the two that do not fall through to the rounds jump
-/// to them. Each arity loads its words and runs its own round 0 (its
-/// prologue, Builder::hash_round0); the rounds leave s0' on top.
+/// to them. Each arity runs its own round 0 (its prologue,
+/// Builder::hash_round0), which loads its words; the rounds leave s0' on
+/// top.
 pub struct HashEntry {
     pub lines: Vec<String>,
     /// call gas of hash_1, hash_2, hash_3 (memory expansion included)
@@ -498,7 +499,8 @@ pub fn hash_entry(fork: Fork, prologues: &[Prologue], rounds: (u64, usize)) -> R
         code.end("");
     };
     let branch = |code: &mut Code, p: &Prologue| {
-        loads(code, p.n, &[], 4, true);
+        code.op("SETUP()", gas::PUSH, 33);
+        code.end("[PRIME]");
         for line in &p.lines {
             code.text(line);
         }
@@ -570,9 +572,19 @@ pub fn render_hash_entry(
     let (result, opts) = (&rounds.result, &rounds.opts);
     let total = rounds_f + rounds_p;
     let entry = hash_entry(*fork, prologues, (result.gas, result.bytes))?;
-    let inputs = state_names(t, "");
+    // round 0 leaves a PRIME copy under s0' and another under its dead values
+    let mut inputs = vec!["s0".to_string(), "PRIME".to_string()];
+    inputs.extend((1..t).map(|i| format!("s{i}")));
+    inputs.extend(vec!["dead".to_string(); HASH_DEAD]);
+    inputs.push("PRIME".to_string());
+    let inputs = inputs.join(", ");
     // the rounds run on top of a prologue's garbage
-    let depth = prologues.iter().map(|p| p.depth - t - 1).max().unwrap_or(0) + result.max_depth;
+    let depth = prologues
+        .iter()
+        .map(|p| p.depth - t - 2 - HASH_DEAD)
+        .max()
+        .unwrap_or(0)
+        + result.max_depth;
     let gas: Vec<String> = entry
         .gas
         .iter()
@@ -583,7 +595,7 @@ pub fn render_hash_entry(
         "{HEADER}
 {includes}
 /// @notice Poseidon2 rounds 1 to {last} for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}: the hash entry's rounds after round 0, the last one as far as s0' needs
-/// @dev takes [{inputs}, PRIME] with the lazy values round 0 leaves (hashRound0 of any arity), returns [s0', ...garbage...] with s0' clean
+/// @dev takes [{inputs}] with the lazy values round 0 leaves (hashRound0 of any arity), returns [s0', ...garbage...] with s0' clean
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 {note}{stats}
 /// @dev schedule options: {options}

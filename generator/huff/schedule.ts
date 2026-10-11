@@ -51,10 +51,12 @@ import { permutationSteps, spongeState } from "../shared/reference.ts";
 import { FORKS, type Fork } from "./fork.ts";
 import {
   BLOCKS,
+  HASH_FORMS,
   INTERNAL3,
   INTERNAL3_PERIODIC,
   INTERNAL4,
   LINEAR_FINAL4,
+  ROUND4_FIRST,
   TEMPLATES,
   type Template,
   type TemplateKind,
@@ -182,6 +184,10 @@ export type Boundary = {
   bounds?: bigint[];
   calldata?: boolean;
   live?: number[];
+  // the inputs as [s0, PRIME, s1, ...] rather than over the PRIME copy
+  primeSecond?: boolean;
+  // with primeSecond, a PRIME copy this many dead values below them
+  primeBelow?: number;
 };
 
 // A part hands its state over below 2p: an internal round leaves m_i + sum
@@ -325,6 +331,9 @@ class Builder {
   readonly live: number[] | undefined;
   // external layers built so far
   layers = 0;
+  // what the S-boxes of a template add in place of the round constants (the
+  // hash entry's round 0, hashRound0)
+  laneConstants: bigint[] | undefined;
 
   constructor(
     params: Params,
@@ -370,7 +379,18 @@ class Builder {
       }
       this.state.push(v);
     }
-    this.e.stack = [...this.state, this.e.P];
+    if (boundary.primeSecond) {
+      this.e.stack = [this.state[0], this.e.P, ...this.state.slice(1)];
+      if (boundary.primeBelow !== undefined) {
+        for (let k = 0; k < boundary.primeBelow; k++) {
+          const zeros = inputs.map(() => 0n);
+          this.e.stack.push(new Value(`g${k}`, 0n, zeros));
+        }
+        this.e.stack.push(this.e.P);
+      }
+    } else {
+      this.e.stack = [...this.state, this.e.P];
+    }
     this.e.maxDepth = this.e.stack.length;
   }
 
@@ -756,7 +776,10 @@ class Builder {
     if (primeUnder && e.top(1) !== this.P) {
       throw new Error(`template expects PRIME under s${i}`);
     }
-    const c = this.constant(this.params.roundConstants[round][i], "c");
+    const c = this.constant(
+      this.laneConstants?.[i] ?? this.params.roundConstants[round][i],
+      "c",
+    );
     let y: Value;
     if (e.fitsAdd(s, c)) {
       y = e.compute("add", [c, inplace(s)], `s${i}+c`);
@@ -1115,121 +1138,71 @@ class Builder {
     this.state = [out];
   }
 
-  // Round 0 of the hash entry for n inputs: the stack holds [s0, ...,
-  // s(n-1), PRIME] and the other lanes are the sponge constants (zeros, then
-  // the capacity n << 64), so the initial linear layer and the constant
-  // addition fold into one linear form per lane, y_i = sum_j M4[i][j] s_j +
-  // K_i with K_i = M4[i][3] (n << 64) + c_i. With the sums t0 = s0 + s1,
-  // w = 2 s1 + s2 (reduced), u = 4 s2 + t0 and t5 = 4 t0 + w, the rows
-  // M4 = [[5, 7, 1, 3], [4, 6, 1, 1], [1, 3, 5, 7], [1, 1, 4, 6]] give
-  // y3 = u + K3, y2 = w + u + K2, y1 = t5 + K1 and y0 = t5 + t0 + K0; a zero
-  // lane drops its terms, and a form that would not fit takes its multiple
-  // of t0 as a MULMOD. Each lane is then S-boxed, last first, and M4 follows
-  // as in any external round, leaving [s0', s1', s2', s3', PRIME] for the
-  // rounds after.
-  hashRound0(n: number) {
+  // Round 0 of the hash entry for n inputs, from the PRIME copy SETUP
+  // leaves. The other lanes are the sponge constants (zeros, then the
+  // capacity n << 64), so the initial linear layer and the constant addition
+  // fold into y_i = p_i + K_i, p_i = sum_j M4[i][j] in_j and K_i = M4[i][3]
+  // (n << 64) + c_i. The forms program of HASH_FORMS loads the inputs and
+  // leaves p_i over the PRIME copy SETUP pushed, then ROUND4 adds K_i in the
+  // S-boxes, leaving [s0', PRIME, s1', s2', s3', 3 dead values, PRIME] for
+  // the rounds after.
+  hashRound0(n: number, words: bigint[][]) {
     const e = this.e;
     if (this.t !== 4) throw new Error("hashRound0 is t = 4 only");
-    if (n < 1 || n > 3) throw new Error(`hash arity ${n}`);
-    e.stack = [...this.state.slice(0, n), this.P];
-    e.maxDepth = e.stack.length;
-    e.endLine();
-    const iv = BigInt(n) << 64n;
-    const rows = [
-      [5n, 7n, 1n, 3n],
-      [4n, 6n, 1n, 1n],
-      [1n, 3n, 5n, 7n],
-      [1n, 1n, 4n, 6n],
-    ];
-    const K = rows.map((row, i) =>
-      this.constant(
-        (row[3] * iv + this.params.roundConstants[0][i]) % PRIME,
-        `K${i}`,
-      ),
-    );
-    const four = this.constant(4n);
-    const [a, b, c] = this.state;
-    // k s, as MUL when k s + K fits in uint256 (K is added right after)
-    const scale = (s: Value, k: bigint, K: Value, name: string): Value => {
-      const kv = this.constant(k);
-      if (k * s.bound + K.constant! <= UINT256_MAX) {
-        return e.compute("mul", [s, kv], name);
-      }
-      return e.compute("mulmod", [s, kv, this.P], name);
-    };
-    // lane i: y on top of a PRIME copy, then its S-box
-    const out: Value[] = new Array(4);
-    const lane = (i: number, makeY: () => Value) => {
-      e.pushPrime();
-      const y = makeY();
-      out[i] = this.sbox(y, `s${i}'`);
-      e.endLine();
-    };
-    const plus = (K: Value, v: Value, name: string) =>
-      e.compute("add", [K, inplace(v)], name);
-    if (n === 1) {
-      lane(3, () => e.compute("add", [K[3], a], "y3"));
-      lane(2, () => e.compute("add", [K[2], a], "y2"));
-      lane(1, () => plus(K[1], scale(a, 4n, K[1], "4s0"), "y1"));
-      lane(0, () => plus(K[0], scale(a, 5n, K[0], "5s0"), "y0"));
-    } else {
-      const t0 = e.compute("add", [a, b], "t0");
-      e.endLine();
-      let w: Value;
-      let u: Value;
-      if (n === 2) {
-        w = e.compute("add", [b, b], "w");
+    const program = HASH_FORMS[n];
+    if (!program) throw new Error(`hash arity ${n}`);
+    // the words as CALLDATALOAD leaves them, not reduced
+    const raw = Array.from({ length: n }, (_, i) => {
+      const v = new Value(
+        `r${i}`,
+        UINT256_MAX,
+        words.map((w) => w[i]),
+      );
+      e.declareCalldata(v, 4 + 32 * i);
+      return v;
+    });
+    e.stack = [this.P];
+    e.maxDepth = 1;
+    const forms = new Map<string, Value>();
+    for (const move of program.split(" ")) {
+      let m: RegExpExecArray | null;
+      if ((m = /^dup(\d+)$/.exec(move))) {
+        e.dup(e.top(Number(m[1]) - 1));
+      } else if ((m = /^swap(\d+)$/.exec(move))) {
+        e.swap(Number(m[1]));
+      } else if (move === "P") {
+        e.pushPrime();
+      } else if (move === "4") {
+        e.push(4n);
+      } else if ((m = /^r(\d+)$/.exec(move))) {
+        e.calldataLoad(raw[Number(m[1])]);
+      } else if ((m = /^(add|addmod|mulmod|mod)=(.+)$/.exec(move))) {
+        const op = m[1] as "add" | "addmod" | "mulmod" | "mod";
+        const operands = [inplace(e.top(0)), inplace(e.top(1))];
+        if (op === "addmod" || op === "mulmod") operands.push(inplace(this.P));
+        forms.set(m[2], e.compute(op, operands, m[2]));
         e.endLine();
-        u = t0;
       } else {
-        w = this.addTo(() => e.compute("add", [b, b], "2s1"), c, "w", true);
-        e.endLine();
-        u = this.addTo(
-          () => e.compute("mulmod", [c, four, this.P], "4s2"),
-          t0,
-          "u",
-          false,
-        );
-        e.endLine();
-      }
-      lane(3, () => e.compute("add", [K[3], u], "y3"));
-      lane(2, () => plus(K[2], e.compute("add", [w, u], "w+u"), "y2"));
-      if (n === 2) {
-        // t5 + t0 would not fit: 5 t0 reduced, then w
-        const t5 = () =>
-          this.addTo(
-            () => e.compute("mulmod", [t0, four, this.P], "4t0"),
-            w,
-            "t5",
-            false,
-          );
-        lane(1, () => plus(K[1], t5(), "y1"));
-        lane(0, () =>
-          plus(
-            K[0],
-            this.addTo(
-              () => e.compute("mulmod", [t0, this.constant(5n), this.P], "5t0"),
-              w,
-              "5t0+w",
-              false,
-            ),
-            "y0",
-          ),
-        );
-      } else {
-        const t5 = this.addTo(
-          () => e.compute("mulmod", [t0, four, this.P], "4t0"),
-          w,
-          "t5",
-          false,
-        );
-        e.endLine();
-        lane(1, () => e.compute("add", [K[1], t5], "y1"));
-        lane(0, () => plus(K[0], e.compute("add", [t0, t5], "t5+t0"), "y0"));
+        throw new Error(`unknown forms move ${move}`);
       }
     }
-    this.state = out;
-    this.externalMatrix(false, undefined, true);
+    e.endLine();
+    const form = (name: string) => {
+      const v = forms.get(name);
+      if (!v) throw new Error(`hash_${n} round 0 leaves no ${name}`);
+      return v;
+    };
+    const p2 = form("p2");
+    const inputs = [form("p0"), form("p1"), p2, forms.get("p3") ?? p2];
+    // M4[i][3], the capacity's column
+    const column = [3n, 1n, 7n, 6n];
+    const iv = BigInt(n) << 64n;
+    this.laneConstants = column.map(
+      (c, i) => (c * iv + this.params.roundConstants[0][i]) % PRIME,
+    );
+    const names = Array.from({ length: 4 }, (_, i) => `s${i}'`);
+    this.state = this.runTemplate(ROUND4_FIRST, inputs, names, 0);
+    this.laneConstants = undefined;
   }
 
   // Writes the state to [0, 32t) for the next part or the caller. DUP and
@@ -1920,6 +1893,10 @@ class Builder {
   }
 }
 
+// The dead values hash round 0 leaves between its outputs and the PRIME copy
+// under them, which the rounds after copy from
+export const HASH_DEAD = 3;
+
 // The round 0 the hash entry runs for n inputs (Builder.hashRound0) with its
 // gas, bytes, stack depth and lazy outputs, checked against the reference
 // before anything is written.
@@ -1950,7 +1927,7 @@ export function buildHashPrologue(
     new Set(),
     false,
   );
-  b.hashRound0(n);
+  b.hashRound0(n, inputs);
   const e = b.e;
   states.forEach((state, k) => {
     const want = permutationSteps(params, state, 0, 2);
@@ -1960,8 +1937,12 @@ export function buildHashPrologue(
       }
     }
   });
-  if (e.stack.slice(0, params.t).some((v, i) => v !== b.state[i])) {
-    throw new Error(`hash_${n} round 0: outputs are not on top`);
+  const layout: (Value | undefined)[] = [b.state[0], b.P, ...b.state.slice(1)];
+  layout.push(...new Array(HASH_DEAD).fill(undefined), b.P);
+  if (layout.some((v, i) => v && e.top(i) !== v)) {
+    throw new Error(
+      `hash_${n} round 0: outputs are not [s0', PRIME, s1', s2', s3', 3 dead, PRIME]`,
+    );
   }
   return {
     n,
@@ -1999,7 +1980,7 @@ export function buildHashRounds(
     maxBytes,
     fork,
     { from: 2, to: stepCount(params) },
-    { bounds, live: [0] },
+    { bounds, live: [0], primeSecond: true, primeBelow: HASH_DEAD },
   );
   if (!best) throw new Error(`the hash rounds do not fit on ${fork.name}`);
   return best;
