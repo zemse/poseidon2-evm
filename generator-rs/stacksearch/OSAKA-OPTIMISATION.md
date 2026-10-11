@@ -501,7 +501,7 @@ t = 28 before is the cold / warm hop. t = 2 to 12 and every Amsterdam width are 
 - Blocks kept on the stack: 0, 1, 2, 3. t = 16 50,207 / 50,043 / 49,752 / 50,252 (before the streamed last round); t = 20 and t = 24 with 1, 2, 3 (also before it): 64,897 / 64,672 / 65,002 and 80,075 / 79,910 / 80,168; t = 28 with 1, 2, 3: 97,939 / 97,714 / 97,936. Three blocks leave the S-box work out of reach.
 - A kept lane's input `DUP`ed over a PRIME copy instead of swapped up (3 gas less a lane, a dead value left under the block): t = 16 49,763 (+213, 374 bytes more), the dead values cost reach.
 - A PRIME copy before the layer that leads into the internal rounds (no `PUSH32` there): t = 16 +3 gas, -63 bytes; not kept.
-- The stream without shadow (t = 8, t = 12): the search keeps the stack-only schedules (24,499, 35,696).
+- The stream without shadow (t = 8, t = 12): the search keeps the stack-only schedules (24,499, 35,696). With every block kept on the stack (now a candidate, taken on Amsterdam from t = 8) still the same on Osaka.
 
 ### Left open (estimates, not built)
 

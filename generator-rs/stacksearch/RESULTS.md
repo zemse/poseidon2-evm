@@ -325,9 +325,11 @@ A block of an Osaka streamed layer (`externalStream`) ran `u = x + S` (DUP, DUP,
 | stored, inputs on the stack, deeper | `S0..S3,P,_,_,_,_,x0..x3` | 389 | | | 365 (5.0M, 37 s, 0.9 GB) | | none below 365 (31.3M, 252 s, 7.1 GB) |
 | stored, inputs loaded | `S0..S3,P` | 401 | | | 377 (5.3M, 38 s, 0.9 GB) | | |
 | kept, inputs loaded | `S0..S3,P` | 386 | | | 362 (7.7M, 63 s, 1.7 GB) | 359 (21.7M, 214 s, 3.4 GB) | none below 359 (55.0M, 621 s, 7.1 GB) |
-| kept, inputs on the stack (the first layer) | `S0..S3,P,_,_,_,_,x0..x3`, and under 4 kept outputs | 374 | | | | 347 (21.6M, 176 s, 3.6 GB) | |
+| kept, inputs on the stack (the first layer; every Amsterdam block) | `S0..S3,P,_,_,_,_,x0..x3`, and under 4 kept outputs | 374 | | | | 347 (21.6M, 176 s, 3.6 GB) | none below 347 (54.3M, 504 s, 7.3 GB) |
 
 The working stack counts the kept outputs, so the kept block needs one slot more. The saving is the `SWAP1` under every output (the PRIME copy goes down before the output's last ADD), the kept lanes' swaps, and a few of the template's SWAPs once its outputs need not end in order; the two stored floors and the loaded one take the same programs; the first layer, whose inputs all sit on the stack, keeps two blocks with them there. In the generator (`stream_blocks`): t = 16 49,364 to 48,659 gas (24,539 to 24,306 bytes), t = 20 64,166 to 63,221 (24,370 to 24,033), t = 24 78,276 to 77,151 (24,538 to 24,287), t = 28 96,137 to 94,934 (24,513 to 24,112); a block whose inputs the program cannot reach keeps the template. Scope: one block at a time (the next block's `u` cannot start among this block's S-boxes), the M4 DAG and the S-box program fixed, no DUP beyond a value's remaining uses.
+
+Amsterdam streams too (stack only, every block kept, each running the 347 program; `DUPN` reaches every input): a steady external round costs 4 x 347 + 119 for the column sums = 1,507 gas at t = 16 instead of 1,576, and 2,652 instead of 2,775 at t = 28. Call gas: t = 8 24,200 to 23,969, t = 12 34,764 to 34,342, t = 16 45,524 to 45,038, t = 20 56,465 to 55,853, t = 24 67,343 to 66,605, t = 28 80,049 to 79,182. The window 10 run above was made for it and finds nothing below 347.
 
 ## Changes and rejected approaches
 

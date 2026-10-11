@@ -115,11 +115,11 @@ pub struct BuildOptions {
     /// store PRIME in memory once and load it (PUSH, MLOAD) where no copy
     /// is within reach instead of PUSH32 (3 gas more, 30 bytes less)
     pub prime_in_memory: bool,
-    /// with external_d and shadow (t >= 8), the external rounds as a
-    /// stream of blocks: the S-box outputs go to memory slots, but those of
-    /// the last blocks of a layer, which the next layer takes first; the
-    /// column sums load them, and each block's M4 runs straight into the
-    /// next round's S-boxes
+    /// with external_d (t >= 8), the external rounds as a stream of
+    /// blocks: each block's M4 runs straight into the next round's
+    /// S-boxes; with shadow the S-box outputs go to memory slots, but those
+    /// of the last blocks of a layer, which the next layer takes first, and
+    /// the column sums load them; without, all stay on the stack
     pub external_stream: bool,
 }
 
@@ -1446,8 +1446,12 @@ impl<'a> Builder<'a> {
         self.opts.external_stream && self.opts.external_d && self.t >= 8
     }
 
-    /// The blocks a streamed layer leaves on the stack.
+    /// The blocks a streamed layer leaves on the stack: all of them
+    /// without shadow.
     fn stream_keep(&self) -> usize {
+        if !self.opts.shadow {
+            return self.t / 4;
+        }
         STREAM_KEEP.min(self.t / 4)
     }
 
@@ -3252,41 +3256,52 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                             for &internal_mul3 in pick(
                                                                 t == 2 && internal_reduce_outputs,
                                                             ) {
-                                                                // with shadow the external rounds of
-                                                                // the templated blocks stream, which
-                                                                // collects no garbage
-                                                                let external_stream = shadow
-                                                                    && external_d
-                                                                    && external_template;
-                                                                if external_stream && gc_external {
-                                                                    continue;
+                                                                // the external rounds of the templated
+                                                                // blocks stream (always with shadow),
+                                                                // which collects no garbage
+                                                                let streams =
+                                                                    external_d && external_template;
+                                                                for &external_stream in
+                                                                    pick(streams)
+                                                                {
+                                                                    if shadow
+                                                                        && streams
+                                                                        && !external_stream
+                                                                    {
+                                                                        continue;
+                                                                    }
+                                                                    if external_stream
+                                                                        && gc_external
+                                                                    {
+                                                                        continue;
+                                                                    }
+                                                                    list.push(BuildOptions {
+                                                                        diag_in_memory,
+                                                                        gc_external,
+                                                                        gc_m4,
+                                                                        gc_internal,
+                                                                        chain_swap_mod,
+                                                                        external_d,
+                                                                        prime_under_external,
+                                                                        internal_reduce_outputs,
+                                                                        float_prime_internal,
+                                                                        internal_consume,
+                                                                        prime_stack,
+                                                                        gc_internal_from: 0,
+                                                                        gc_m4_from: 0,
+                                                                        diag_push32: 0,
+                                                                        shadow,
+                                                                        shared_body,
+                                                                        body_inline: 0,
+                                                                        consume_group: 0,
+                                                                        consume_slots: 0,
+                                                                        external_template,
+                                                                        internal_template,
+                                                                        internal_mul3,
+                                                                        prime_in_memory: false,
+                                                                        external_stream,
+                                                                    });
                                                                 }
-                                                                list.push(BuildOptions {
-                                                                    diag_in_memory,
-                                                                    gc_external,
-                                                                    gc_m4,
-                                                                    gc_internal,
-                                                                    chain_swap_mod,
-                                                                    external_d,
-                                                                    prime_under_external,
-                                                                    internal_reduce_outputs,
-                                                                    float_prime_internal,
-                                                                    internal_consume,
-                                                                    prime_stack,
-                                                                    gc_internal_from: 0,
-                                                                    gc_m4_from: 0,
-                                                                    diag_push32: 0,
-                                                                    shadow,
-                                                                    shared_body,
-                                                                    body_inline: 0,
-                                                                    consume_group: 0,
-                                                                    consume_slots: 0,
-                                                                    external_template,
-                                                                    internal_template,
-                                                                    internal_mul3,
-                                                                    prime_in_memory: false,
-                                                                    external_stream,
-                                                                });
                                                             }
                                                         }
                                                     }

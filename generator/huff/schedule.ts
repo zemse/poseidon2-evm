@@ -142,11 +142,11 @@ export type BuildOptions = {
   // store PRIME in memory once and load it (PUSH, MLOAD) where no copy is
   // within reach instead of PUSH32 (3 gas more, 30 bytes less)
   primeInMemory: boolean;
-  // with externalD and shadow (t >= 8), the external rounds as a stream of
-  // blocks: the S-box outputs go to memory slots, but those of the last
-  // blocks of a layer, which the next layer takes first; the column sums
-  // load them, and each block's M4 runs straight into the next round's
-  // S-boxes
+  // with externalD (t >= 8), the external rounds as a stream of blocks:
+  // each block's M4 runs straight into the next round's S-boxes; with
+  // shadow the S-box outputs go to memory slots, but those of the last
+  // blocks of a layer, which the next layer takes first, and the column
+  // sums load them; without, all stay on the stack
   externalStream: boolean;
 };
 
@@ -1153,8 +1153,10 @@ class Builder {
     return this.opts.externalStream && this.opts.externalD && this.t >= 8;
   }
 
-  // The blocks a streamed layer leaves on the stack.
+  // The blocks a streamed layer leaves on the stack: all of them without
+  // shadow.
   get streamKeep(): number {
+    if (!this.opts.shadow) return this.t / 4;
     return Math.min(STREAM_KEEP, this.t / 4);
   }
 
@@ -2684,38 +2686,43 @@ export function buildBest(
                                 internalReduceOutputs
                                   ? bools
                                   : [false]) {
-                                  // with shadow the external rounds of the
-                                  // templated blocks stream, which collects
-                                  // no garbage
-                                  const externalStream =
-                                    shadow && externalD && externalTemplate;
-                                  if (externalStream && gcExternal) continue;
-                                  list.push({
-                                    diagInMemory,
-                                    gcExternal,
-                                    gcM4,
-                                    gcInternal,
-                                    chainSwapMod,
-                                    externalD,
-                                    primeUnderExternal,
-                                    internalReduceOutputs,
-                                    floatPrimeInternal,
-                                    internalConsume,
-                                    primeStack,
-                                    gcInternalFrom: 0,
-                                    gcM4From: 0,
-                                    diagPush32: 0,
-                                    shadow,
-                                    sharedBody,
-                                    bodyInline: 0,
-                                    consumeGroup: 0,
-                                    consumeSlots: 0,
-                                    externalTemplate,
-                                    internalTemplate,
-                                    internalMul3,
-                                    primeInMemory: false,
-                                    externalStream,
-                                  });
+                                  // the external rounds of the templated
+                                  // blocks stream (always with shadow),
+                                  // which collects no garbage
+                                  const streams = externalD && externalTemplate;
+                                  for (const externalStream of streams
+                                    ? bools
+                                    : [false]) {
+                                    if (shadow && streams && !externalStream)
+                                      continue;
+                                    if (externalStream && gcExternal) continue;
+                                    list.push({
+                                      diagInMemory,
+                                      gcExternal,
+                                      gcM4,
+                                      gcInternal,
+                                      chainSwapMod,
+                                      externalD,
+                                      primeUnderExternal,
+                                      internalReduceOutputs,
+                                      floatPrimeInternal,
+                                      internalConsume,
+                                      primeStack,
+                                      gcInternalFrom: 0,
+                                      gcM4From: 0,
+                                      diagPush32: 0,
+                                      shadow,
+                                      sharedBody,
+                                      bodyInline: 0,
+                                      consumeGroup: 0,
+                                      consumeSlots: 0,
+                                      externalTemplate,
+                                      internalTemplate,
+                                      internalMul3,
+                                      primeInMemory: false,
+                                      externalStream,
+                                    });
+                                  }
                                 }
                               }
                             }
