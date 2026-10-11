@@ -25,6 +25,22 @@
 // D_k(b) - D_(k-1)(b), and min_b D_k(b) / k is below it too. Per round the
 // real program costs at least the fixed part plus that mean: t = 4 133 gas
 // (154 floor B less the 21 of its seven copies), t = 3 82 (two ADDMODs).
+//
+// Relaxations outside that model, each by an environment variable (any
+// value), all keep the bound valid for the programs the base model covers:
+//   SPLIT  the S-box is two moves: s0 consumed on top (its ADD of the round
+//          constant), x pushed on top later (its last MULMOD), free; its
+//          intermediates are left out like the PRIME copies, so linear-layer
+//          moves may run between its MULMODs. Too loose: an intermediate
+//          left under other values costs a copy or a SWAP it does not see
+//   SBOX   the S-box as v = s0 + c (unary), v^2 = v v, v^4 = v^2 v^2, x =
+//          v^4 v, with v, v^2, v^4 values on the stack whose copies count
+//          (the fixed part less its 9 gas of S-box copies: t = 4 124, t = 3
+//          73), any linear-layer move allowed between them
+//   SHL    t = 3: 2 s2 also as PUSH1 1 SHL, a unary move of 3 (6 against the
+//          ADD the fixed part counts)
+//   COMP   t = 4: s_i' also as mu_i * s_i + (the sum of the other lanes),
+//          when that partial sum is a block of the sum tree
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -65,7 +81,14 @@ const XN: u8 = 27; // next round's x
 const BLKN: u8 = 28;
 const MN: u8 = 39;
 const DN: u8 = 43;
-const NV: usize = 44;
+// SBOX: v = s0 + c, v^2, v^4 of this round and of the next one
+const SV: u8 = 44;
+const SV2: u8 = 45;
+const SV4: u8 = 46;
+const SVN: u8 = 47;
+const SV2N: u8 = 48;
+const SV4N: u8 = 49;
+const NV: usize = 50;
 
 const MASKS: [u8; 11] = [3, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
 fn bidx(m: u8) -> u8 {
@@ -82,6 +105,9 @@ enum Kind {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 struct Prog {
     sbox: bool,
+    // S-box in progress: 1 v = s0 + c made (SPLIT: s0 consumed, x not
+    // made yet), 2 v^2, 3 v^4 (SBOX)
+    stg: u8,
     blk: [u8; 4], // mask of the block of every lane
     m: u8,        // products (or nothing)
     d: bool,      // 2 s2
@@ -105,7 +131,14 @@ struct Pb {
     pidx: HashMap<[u8; 4], u8>,
     // the renamings of the interchangeable lanes: values, lane masks
     syms: Vec<([u8; NV], [u8; 16])>,
+    split: bool,
+    sb: bool,
+    shl: bool,
+    comp: bool,
 }
+
+const NONE: u8 = 254; // an op with no result, or a result with no operand
+const SHLM: u8 = 253; // second operand of a unary op that costs 3 (SHL)
 
 fn partitions(t: usize) -> Vec<[u8; 4]> {
     // every set partition of 0..t as the block mask of each lane
@@ -165,7 +198,10 @@ impl Pb {
             }
             v
         };
-        k | pc(&s.c, true) << 96 | pc(&s.n, false) << 111
+        k | pc(&s.c, true) << 96
+            | pc(&s.n, false) << 111
+            | (s.c.stg as u128) << 121
+            | (s.n.stg as u128) << 123
     }
 
     /// the least key over the renamings of the interchangeable lanes
@@ -207,6 +243,7 @@ impl Pb {
         let up = |v: u128| -> Prog {
             Prog {
                 sbox: v & 1 == 1,
+                stg: 0,
                 blk: self.parts[(v >> 1 & 15) as usize],
                 m: (v >> 5 & 15) as u8,
                 d: v >> 9 & 1 == 1,
@@ -216,6 +253,8 @@ impl Pb {
         };
         s.c = up(k >> 96 & 0x7fff);
         s.n = up(k >> 111 & 0x3ff);
+        s.c.stg = (k >> 121 & 3) as u8;
+        s.n.stg = (k >> 123 & 3) as u8;
         s
     }
 
@@ -234,10 +273,62 @@ impl Pb {
         }
     }
 
-    fn uses(&self, c: &Prog, n: &Prog) -> [u8; NV] {
+    /// the most uses a value can still have (a copy kept for later only
+    /// below it, dead at 0) and the fewest (a POP only above it, no entry
+    /// left only at 0); they differ only with SHL and COMP
+    fn uses(&self, c: &Prog, n: &Prog) -> ([u8; NV], [u8; NV]) {
+        let mut u = self.uses_max(c, n);
+        let mut lo = u;
+        let full = self.full();
+        for i in 0..self.t {
+            let bit = 1u8 << i;
+            if self.shl && self.kinds[i] == Kind::Dbl {
+                let li = (LEAF + i as u8) as usize;
+                if c.o & bit == 0 && !c.d && !c.t && lo[li] > 0 {
+                    lo[li] -= 1;
+                }
+                let oi = (O + i as u8) as usize;
+                if c.o & bit != 0 && !n.d && lo[oi] > 0 {
+                    lo[oi] -= 1;
+                }
+            }
+            if self.comp && self.kinds[i] == Kind::Mul && c.o & bit == 0 {
+                // the sum of the other lanes: one more use, and one fewer
+                // of the full sum
+                let cb = full ^ bit;
+                u[(BLK + bidx(cb)) as usize] += 1;
+            }
+            if self.comp && self.kinds[i] == Kind::Mul {
+                let nb = n.blk[(i + 1) % self.t];
+                if nb == full ^ bit {
+                    u[(BLKN + bidx(nb)) as usize] += 1;
+                }
+            }
+        }
+        if self.comp {
+            let s = (BLK + bidx(full)) as usize;
+            lo[s] = lo[s].saturating_sub(1);
+        }
+        (u, lo)
+    }
+
+    fn uses_max(&self, c: &Prog, n: &Prog) -> [u8; NV] {
         let mut u = [0u8; NV];
         let full = self.full();
-        u[I0 as usize] = !c.sbox as u8;
+        u[I0 as usize] = (!c.sbox && c.stg == 0) as u8;
+        if self.sb {
+            for (p, v, v2, v4) in [(c, SV, SV2, SV4), (n, SVN, SV2N, SV4N)] {
+                let (a, b, d) = match p.stg {
+                    1 => (3, 0, 0),
+                    2 => (1, 2, 0),
+                    3 => (1, 0, 1),
+                    _ => (0, 0, 0),
+                };
+                u[v as usize] = a;
+                u[v2 as usize] = b;
+                u[v4 as usize] = d;
+            }
+        }
         for i in 0..self.t {
             let bit = 1u8 << i;
             if i > 0 || c.sbox {
@@ -282,7 +373,7 @@ impl Pb {
             }
             if c.o & bit != 0 {
                 u[(O + i as u8) as usize] = if i == 0 {
-                    !n.sbox as u8
+                    (!n.sbox && n.stg == 0) as u8
                 } else {
                     let s = (n.blk[i] == bit) as u8;
                     s + match self.kinds[i] {
@@ -322,7 +413,7 @@ impl Pb {
     /// dead values to G, nothing below the deepest live value; None when a
     /// live value has no entry left or the window overflows
     fn canon(&self, s: &mut St) -> Option<()> {
-        let u = self.uses(&s.c, &s.n);
+        let (u, lo) = self.uses(&s.c, &s.n);
         let mut cnt = [0u8; NV];
         for i in 0..s.len {
             if u[s.tok[i] as usize] == 0 {
@@ -335,7 +426,7 @@ impl Pb {
             s.len -= 1;
         }
         for v in 0..NV {
-            if u[v] > 0 && cnt[v] == 0 {
+            if lo[v] > 0 && cnt[v] == 0 {
                 return None;
             }
         }
@@ -348,7 +439,7 @@ impl Pb {
             let v = s.tok[i];
             s.tok[i] = match v {
                 _ if v == O => {
-                    if s.n.sbox {
+                    if s.n.sbox || s.n.stg > 0 {
                         G
                     } else {
                         I0
@@ -359,6 +450,9 @@ impl Pb {
                 _ if (BLKN..MN).contains(&v) => BLK + (v - BLKN),
                 _ if (MN..DN).contains(&v) => M + (v - MN),
                 DN => DV,
+                SVN => SV,
+                SV2N => SV2,
+                SV4N => SV4,
                 _ => G,
             };
         }
@@ -376,7 +470,42 @@ impl Pb {
         let (c, n) = (s.c, s.n);
         let full = self.full();
         let t = self.t;
-        if !c.sbox {
+        if self.sb {
+            let st = |stg: u8| Prog { stg, ..c };
+            match c.stg {
+                _ if c.sbox => {}
+                0 => out.push((I0, NO, SV, st(1), n)),
+                1 => out.push((SV, SV, SV2, st(2), n)),
+                2 => out.push((SV2, SV2, SV4, st(3), n)),
+                _ => out.push((
+                    SV4,
+                    SV,
+                    LEAF,
+                    Prog {
+                        sbox: true,
+                        ..st(0)
+                    },
+                    n,
+                )),
+            }
+        } else if self.split {
+            if !c.sbox && c.stg == 0 {
+                out.push((I0, NO, NONE, Prog { stg: 1, ..c }, n));
+            }
+            if c.stg == 1 {
+                out.push((
+                    NONE,
+                    NO,
+                    LEAF,
+                    Prog {
+                        sbox: true,
+                        stg: 0,
+                        ..c
+                    },
+                    n,
+                ));
+            }
+        } else if !c.sbox {
             out.push((I0, NO, LEAF, Prog { sbox: true, ..c }, n));
         }
         // merges of two blocks of a round
@@ -444,6 +573,15 @@ impl Pb {
                             n,
                         ));
                     }
+                    if self.comp && c.m & bit != 0 && c.o & bit == 0 {
+                        out.push((
+                            M + i as u8,
+                            BLK + bidx(full ^ bit),
+                            O + i as u8,
+                            Prog { o: c.o | bit, ..c },
+                            n,
+                        ));
+                    }
                 }
                 Kind::Ident => {
                     if c.o & bit == 0 && sfull && leaf_ok {
@@ -454,6 +592,9 @@ impl Pb {
                     if c.o & bit == 0 {
                         if !c.d && !c.t {
                             out.push((li, li, DV, Prog { d: true, ..c }, n));
+                            if self.shl {
+                                out.push((li, SHLM, DV, Prog { d: true, ..c }, n));
+                            }
                             if sfull {
                                 out.push((sval, li, TV, Prog { t: true, ..c }, n));
                             }
@@ -469,7 +610,37 @@ impl Pb {
             }
             // the next round on the outputs made so far
             if c.o & bit != 0 {
-                if i == 0 && !n.sbox {
+                if i == 0 && self.sb {
+                    let st = |stg: u8| Prog { stg, ..n };
+                    match n.stg {
+                        _ if n.sbox => {}
+                        0 => out.push((O, NO, SVN, c, st(1))),
+                        1 => out.push((SVN, SVN, SV2N, c, st(2))),
+                        2 => out.push((SV2N, SV2N, SV4N, c, st(3))),
+                        _ => out.push((
+                            SV4N,
+                            SVN,
+                            XN,
+                            c,
+                            Prog {
+                                sbox: true,
+                                ..st(0)
+                            },
+                        )),
+                    }
+                } else if i == 0 && self.split {
+                    if !n.sbox && n.stg == 0 {
+                        out.push((O, NO, NONE, c, Prog { stg: 1, ..n }));
+                    }
+                    if n.stg == 1 {
+                        let nn = Prog {
+                            sbox: true,
+                            stg: 0,
+                            ..n
+                        };
+                        out.push((NONE, NO, XN, c, nn));
+                    }
+                } else if i == 0 && !n.sbox {
                     out.push((O, NO, XN, c, Prog { sbox: true, ..n }));
                 }
                 let nleaf = if i == 0 { XN } else { O + i as u8 };
@@ -480,6 +651,9 @@ impl Pb {
                     }
                     Kind::Dbl if !n.d => {
                         out.push((nleaf, nleaf, DN, c, Prog { d: true, ..n }));
+                        if self.shl {
+                            out.push((nleaf, SHLM, DN, c, Prog { d: true, ..n }));
+                        }
                     }
                     _ => {}
                 }
@@ -495,7 +669,7 @@ impl Pb {
         ops: &mut Vec<(u8, u8, u8, Prog, Prog)>,
     ) {
         const NO: u8 = 255;
-        let u = self.uses(&s.c, &s.n);
+        let (u, lo) = self.uses(&s.c, &s.n);
         let mut cnt = [0u8; NV];
         for i in 0..s.len {
             cnt[s.tok[i] as usize] += 1;
@@ -536,12 +710,23 @@ impl Pb {
             };
             let top0 = if s.len > 0 { s.tok[0] } else { G };
             let top1 = if s.len > 1 { s.tok[1] } else { G };
-            if b == NO {
+            if a == NONE {
+                emit(set(push(s, r)), 0, out);
+                continue;
+            }
+            if r == NONE {
                 if top0 == a && s.len > 0 {
-                    emit(set(push(&drop(s, 1), r)), 0, out);
+                    emit(set(drop(s, 1)), 0, out);
+                }
+                continue;
+            }
+            if b == NO || b == SHLM {
+                let x = if b == SHLM { 3 } else { 0 };
+                if top0 == a && s.len > 0 {
+                    emit(set(push(&drop(s, 1), r)), x, out);
                 }
                 if cnt[a as usize] > 0 {
-                    emit(set(push(s, r)), 3, out);
+                    emit(set(push(s, r)), 3 + x, out);
                 }
                 continue;
             }
@@ -569,7 +754,7 @@ impl Pb {
             return;
         }
         let top = s.tok[0];
-        if top == G || cnt[top as usize] > u[top as usize] {
+        if top == G || cnt[top as usize] > lo[top as usize] {
             emit(drop(s, 1), 2, out);
         }
         for k in 1..s.len {
@@ -671,7 +856,13 @@ impl Pb {
             XN => "x'".into(),
             _ if (BLKN..MN).contains(&v) => format!("({})'", lanes(MASKS[(v - BLKN) as usize])),
             _ if (MN..DN).contains(&v) => format!("m{}'", v - MN),
-            _ => "2s2'".into(),
+            DN => "2s2'".into(),
+            SV => "v".into(),
+            SV2 => "v2".into(),
+            SV4 => "v4".into(),
+            SVN => "v'".into(),
+            SV2N => "v2'".into(),
+            _ => "v4'".into(),
         }
     }
 
@@ -752,6 +943,10 @@ fn main() {
         parts,
         pidx,
         syms,
+        split: std::env::var_os("SPLIT").is_some(),
+        sb: std::env::var_os("SBOX").is_some(),
+        shl: t == 3 && std::env::var_os("SHL").is_some(),
+        comp: t == 4 && std::env::var_os("COMP").is_some(),
     };
     // the inputs in every order, nothing else on the stack
     let mut src: FxMap<u128, u32> = FxMap::default();
@@ -824,7 +1019,14 @@ fn main() {
     // keep only the layouts some round ends in
     let (reach, _) = pb.layer(&all);
     let mut d: FxMap<u128, u32> = reach.keys().map(|&k| (k, 0)).collect();
-    println!("t = {t}, window {w}: {} end layouts", d.len());
+    println!(
+        "t = {t}, window {w} (split {}, sbox {}, shl {}, comp {}): {} end layouts",
+        pb.split as u8,
+        pb.sb as u8,
+        pb.shl as u8,
+        pb.comp as u8,
+        d.len()
+    );
     for k in 1..=layers {
         let (nd, states) = pb.layer(&d);
         let mut lo = i64::MAX;
