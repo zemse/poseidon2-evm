@@ -12,8 +12,8 @@
 
     POSEIDON2_PERMUTATION()              // [s0', ..., s2', ...]
 
-    0x0 mstore
-    0x20 mstore
-    0x40 mstore
-    0x60 0x0 return
+    msize mstore
+    msize mstore
+    msize mstore
+    msize 0x0 return
 }

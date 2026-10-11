@@ -179,6 +179,7 @@ export function splitPermutation(
         result.stateInMemory,
         range.to < steps,
         range.from > 0,
+        result.memory,
       );
       const runtime = result.bytes + o.bytes;
       if (runtime > fork.codeSize) {

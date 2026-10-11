@@ -63,7 +63,15 @@ function describe(result: BuildResult, opts: BuildOptions): string {
 
 // gas of a call to an unsplit permutation's entry
 function entryGas(fork: Fork, t: number, result: BuildResult): number {
-  const o = overhead(fork, t, result.inputSlots, result.stateInMemory, false);
+  const o = overhead(
+    fork,
+    t,
+    result.inputSlots,
+    result.stateInMemory,
+    false,
+    false,
+    result.memory,
+  );
   const memory = memoryGas(Math.max(result.memory, 32 * t));
   return o.entryGas + result.gas + o.tailGas + memory;
 }
@@ -96,7 +104,13 @@ function generate(t: number, fork: Fork) {
   if (
     best &&
     best.result.bytes +
-      entryBytes(fork, t, best.result.inputSlots, best.result.stateInMemory) >
+      entryBytes(
+        fork,
+        t,
+        best.result.inputSlots,
+        best.result.stateInMemory,
+        best.result.memory,
+      ) >
       fork.codeSize
   ) {
     best = undefined;
@@ -175,7 +189,13 @@ function generate(t: number, fork: Fork) {
     writeFileSync(testPath, renderForgeTest(params, vectors, fork));
     const bytes =
       result.bytes +
-      entryBytes(fork, t, result.inputSlots, result.stateInMemory);
+      entryBytes(
+        fork,
+        t,
+        result.inputSlots,
+        result.stateInMemory,
+        result.memory,
+      );
     console.log(
       `  wrote ${dir}/Permutation.huff, ${dir}/Poseidon2.huff, ${testPath} ` +
         `(${bytes} runtime bytes)`,

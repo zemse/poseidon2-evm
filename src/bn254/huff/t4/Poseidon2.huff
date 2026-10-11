@@ -914,7 +914,7 @@
 
 /// @notice hash_1 / hash_2 / hash_3 of IPoseidon2 (the arity from calldatasize, the selector is not checked): the sponge state [x0, x1, x2, n << 64] permuted once, s0' returned
 /// @dev Each arity runs its own round 0, with the missing words and the capacity n << 64 folded into its constants, then the rounds above
-/// @dev hash_1 11896 gas, hash_2 11903 gas, hash_3 11976 gas, 13611 runtime bytes, max stack depth 93
+/// @dev hash_1 11895 gas, hash_2 11902 gas, hash_3 11975 gas, 13610 runtime bytes, max stack depth 93
 #define macro MAIN() = {
     // hash_2 (a selector and two words) falls through, the other arities branch on calldatasize
     calldatasize 0x44 sub not_hash_2 jumpi
@@ -943,8 +943,8 @@
     dup7 dup2 dup7 add                       // [s0', P, s1', s2', s3', p1, t3, p3, P]
     rounds:
     POSEIDON2_HASH_ROUNDS()              // [s0', ...]
-    0x0 mstore
-    0x20 0x0 return
+    msize mstore
+    msize 0x0 return
 
     not_hash_2:
     calldatasize 0x44 gt hash_1 jumpi

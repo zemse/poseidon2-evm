@@ -29,25 +29,25 @@
 
     POSEIDON2_PERMUTATION()              // [s0', ..., s19', ...]
 
-    0x0 mstore
-    0x20 mstore
-    0x40 mstore
-    0x60 mstore
-    0x80 mstore
-    0xa0 mstore
-    0xc0 mstore
-    0xe0 mstore
-    0x100 mstore
-    0x120 mstore
-    0x140 mstore
-    0x160 mstore
-    0x180 mstore
-    0x1a0 mstore
-    0x1c0 mstore
-    0x1e0 mstore
-    0x200 mstore
-    0x220 mstore
-    0x240 mstore
-    0x260 mstore
-    0x280 0x0 return
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize mstore
+    msize 0x0 return
 }

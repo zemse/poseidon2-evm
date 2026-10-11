@@ -154,16 +154,25 @@ function loads(
   }
 }
 
-// return t words: from the stack top (in state order) or from memory [0, 32t)
-function ret(code: Code, t: number, fromMemory: boolean) {
+// 32 n, from MSIZE (2 gas, 1 byte) where the words before it are all the frame
+// has touched: the code before wrote `memory` bytes and the return stores
+// [0, 32 n), else PUSH
+function size(code: Code, n: number, memory: number) {
+  if (Math.ceil(memory / 32) <= n) code.op("msize", 2, 1);
+  else code.push(32 * n);
+}
+
+// return t words: from the stack top (in state order) or from memory [0, 32t),
+// after code that wrote `memory` bytes (Infinity when not known yet)
+function ret(code: Code, t: number, fromMemory: boolean, memory: number) {
   if (!fromMemory) {
     for (let i = 0; i < t; i++) {
-      code.push(32 * i);
+      size(code, i, memory);
       code.op("mstore", GAS.mstore, 1);
       code.end();
     }
   }
-  code.push(32 * t);
+  size(code, t, memory);
   code.push(0);
   code.op("return", 0, 1);
   code.end();
@@ -172,16 +181,16 @@ function ret(code: Code, t: number, fromMemory: boolean) {
 // STATICCALL the next part with the state at [0, 32t) and return its
 // output: the call's arguments and the address (NEXT_PART, a PUSH32), then
 // HAND_OVER with the call itself
-function handOver(code: Code, t: number, part: number) {
+function handOver(code: Code, t: number, part: number, memory: number) {
   code.text(
     `    // forward the state to part ${part + 1} and return its output`,
   );
-  code.push(32 * t);
+  size(code, t, memory);
   code.push(0);
-  code.push(32 * t);
+  size(code, t, memory);
   code.push(0);
   code.op("NEXT_PART()", GAS.push, NEXT_PART_BYTES);
-  const tail = handOverTail(code.fork, t);
+  const tail = handOverTail(code.fork, t, memory);
   code.op("HAND_OVER()", tail.gas, tail.bytes);
   code.end("[output]");
 }
@@ -191,13 +200,13 @@ const NEXT_PART_BYTES = 33;
 
 // the call to the address on top, the check of its return data and the
 // return of it (HAND_OVER)
-function handOverTail(fork: Fork, t: number): Code {
+function handOverTail(fork: Fork, t: number, memory: number): Code {
   const code = new Code(fork);
   code.op("gas", 2, 1);
   code.op("staticcall", fork.coldAccount, 1);
   code.end("[success]");
   code.op("returndatasize", 2, 1);
-  code.push(32 * t);
+  size(code, t, memory);
   code.op("eq", 3, 1);
   code.op("and", 3, 1);
   code.op("ok", 3, 3);
@@ -210,13 +219,14 @@ function handOverTail(fork: Fork, t: number): Code {
   code.end();
   code.op("ok:", 1, 1);
   code.end();
-  ret(code, t, true);
+  ret(code, t, true, memory);
   return code;
 }
 
 // Gas and bytes of a part's code around the permutation macro: the entry
 // (calldata loads, reduced unless `lazy`) and the tail (return or hand-over,
-// the hand-over with the cold STATICCALL but without the callee).
+// the hand-over with the cold STATICCALL but without the callee), around code
+// that writes `memory` (Infinity for a budget).
 export type Overhead = { entryGas: number; tailGas: number; bytes: number };
 
 export function overhead(
@@ -226,12 +236,13 @@ export function overhead(
   stateInMemory: boolean,
   handsOver: boolean,
   lazy = false,
+  memory = Infinity,
 ): Overhead {
   const entry = new Code(fork);
   loads(entry, t, inputSlots, 0, !lazy);
   const tail = new Code(fork);
-  if (handsOver) handOver(tail, t, 0);
-  else ret(tail, t, stateInMemory);
+  if (handsOver) handOver(tail, t, 0, memory);
+  else ret(tail, t, stateInMemory, memory);
   return {
     entryGas: entry.gas,
     tailGas: tail.gas,
@@ -247,8 +258,10 @@ export function entryBytes(
   t: number,
   inputSlots: (number | undefined)[] = [],
   stateInMemory = false,
+  memory = Infinity,
 ): number {
-  return overhead(fork, t, inputSlots, stateInMemory, false).bytes;
+  return overhead(fork, t, inputSlots, stateInMemory, false, false, memory)
+    .bytes;
 }
 
 // ---- files -----------------------------------------------------------------
@@ -388,7 +401,7 @@ export function renderEntry(
       : `[s0', ..., s${t - 1}', ...]`,
   );
   code.blank();
-  ret(code, t, inMemory);
+  ret(code, t, inMemory, result?.memory ?? Infinity);
   return `${HEADER}
 #include "./Permutation.huff"
 
@@ -415,12 +428,16 @@ export type HashEntry = {
   bytes: number;
 };
 
-// `rounds` is the gas and bytes of the rounds macro, 0 before it is built
-// (the overhead decides its code size budget).
+// `rounds` is the gas, bytes and memory of the rounds macro, 0, 0 and Infinity
+// before it is built (the overhead decides its code size budget).
 export function hashEntry(
   fork: Fork,
   prologues: Prologue[],
-  rounds: { gas: number; bytes: number } = { gas: 0, bytes: 0 },
+  rounds: { gas: number; bytes: number; memory: number } = {
+    gas: 0,
+    bytes: 0,
+    memory: Infinity,
+  },
 ): HashEntry {
   const by = (n: number) => {
     const p = prologues.find((p) => p.n === n);
@@ -464,13 +481,7 @@ export function hashEntry(
   label(tail, "rounds");
   tail.op("POSEIDON2_HASH_ROUNDS()", rounds.gas, rounds.bytes);
   tail.end("[s0', ...]");
-  tail.push(0);
-  tail.op("mstore", GAS.mstore, 1);
-  tail.end();
-  tail.push(0x20);
-  tail.push(0);
-  tail.op("return", 0, 1);
-  tail.end();
+  ret(tail, 1, false, rounds.memory);
   const gate = new Code(fork);
   gate.blank();
   label(gate, "not_hash_2");
@@ -578,14 +589,14 @@ export function renderPart(
   code.op("POSEIDON2_PART()", 0, 0);
   code.end(`state at memory [0, ${hexOff(32 * t)})`);
   code.blank();
-  if (last) ret(code, t, true);
-  else handOver(code, t, part);
+  if (last) ret(code, t, true, result.memory);
+  else handOver(code, t, part, result.memory);
   // a 32-byte literal with its top byte set is a PUSH32 (a zero would be
   // PUSH0, and huffc drops the zeros of a __VERBATIM)
   const next = new Code(fork);
   next.op(`0x${"ff".repeat(32)}`, 0, 0);
   next.end("[next]");
-  const tail = handOverTail(fork, t);
+  const tail = handOverTail(fork, t, result.memory);
   const ctor = new Code(fork);
   ctor.op("__codesize(CONSTRUCTOR)", 0, 0);
   ctor.end("[c]");

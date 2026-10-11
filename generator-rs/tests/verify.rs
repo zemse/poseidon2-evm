@@ -38,10 +38,10 @@ fn amsterdam_t2_t3_t4() {
         within(report);
     }
     // forge: test/Poseidon2T2.t.sol and the hash_* of test/Poseidon2.t.sol
-    assert_eq!(reports[0].gas.measured, 5914);
-    assert_eq!(reports[1].gas.measured, 7656);
+    assert_eq!(reports[0].gas.measured, 5912);
+    assert_eq!(reports[1].gas.measured, 7653);
     let hashes = reports[2].hashes.expect("hash entry");
-    assert_eq!(hashes.map(|g| g.measured), [11896, 11903, 11976]);
+    assert_eq!(hashes.map(|g| g.measured), [11895, 11902, 11975]);
 }
 
 #[test]
@@ -50,11 +50,11 @@ fn osaka_t2_t3_t4() {
     for report in &reports {
         within(report);
     }
-    assert_eq!(reports[0].gas.measured, 5914);
-    assert_eq!(reports[1].gas.measured, 7656);
-    assert_eq!(reports[2].permutation.unwrap().measured, 12087);
+    assert_eq!(reports[0].gas.measured, 5912);
+    assert_eq!(reports[1].gas.measured, 7653);
+    assert_eq!(reports[2].permutation.unwrap().measured, 12083);
     let hashes = reports[2].hashes.expect("hash entry");
-    assert_eq!(hashes.map(|g| g.measured), [11896, 11903, 11976]);
+    assert_eq!(hashes.map(|g| g.measured), [11895, 11902, 11975]);
 }
 
 /// t = 16 fits one contract with the shared body of the internal rounds

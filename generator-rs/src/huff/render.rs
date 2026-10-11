@@ -160,17 +160,32 @@ fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize, 
     }
 }
 
+/// the memory a frame's permutation code writes (BuildResult::memory) when
+/// it is not known yet: the entry and the tail take no size from MSIZE
+pub const MEMORY_UNKNOWN: usize = usize::MAX;
+
+/// 32 n, from MSIZE (2 gas, 1 byte) where the words before it are all the
+/// frame has touched: the code before wrote `memory` bytes and the return
+/// stores [0, 32 n), else PUSH
+fn size(code: &mut Code, n: usize, memory: usize) {
+    if memory.div_ceil(32) <= n {
+        code.op("msize", 2, 1);
+    } else {
+        code.push(32 * n);
+    }
+}
+
 /// return t words: from the stack top (in state order) or from memory
-/// [0, 32t)
-fn ret(code: &mut Code, t: usize, from_memory: bool) {
+/// [0, 32t), after code that wrote `memory` bytes
+fn ret(code: &mut Code, t: usize, from_memory: bool, memory: usize) {
     if !from_memory {
         for i in 0..t {
-            code.push(32 * i);
+            size(code, i, memory);
             code.op("mstore", gas::MSTORE, 1);
             code.end("");
         }
     }
-    code.push(32 * t);
+    size(code, t, memory);
     code.push(0);
     code.op("return", 0, 1);
     code.end("");
@@ -179,17 +194,17 @@ fn ret(code: &mut Code, t: usize, from_memory: bool) {
 /// STATICCALL the next part with the state at [0, 32t) and return its
 /// output: the call's arguments and the address (NEXT_PART, a PUSH32 the
 /// constructor patches), then HAND_OVER with the call itself
-fn hand_over(code: &mut Code, t: usize, part: usize) {
+fn hand_over(code: &mut Code, t: usize, part: usize, memory: usize) {
     code.text(&format!(
         "    // forward the state to part {} and return its output",
         part + 1
     ));
-    code.push(32 * t);
+    size(code, t, memory);
     code.push(0);
-    code.push(32 * t);
+    size(code, t, memory);
     code.push(0);
     code.op("NEXT_PART()", gas::PUSH, NEXT_PART_BYTES);
-    let tail = hand_over_tail(code.fork, t);
+    let tail = hand_over_tail(code.fork, t, memory);
     code.op("HAND_OVER()", tail.gas, tail.bytes);
     code.end("[output]");
 }
@@ -199,13 +214,13 @@ const NEXT_PART_BYTES: usize = 33;
 
 /// the call to the address on top, the check of its return data and the
 /// return of it (HAND_OVER)
-fn hand_over_tail(fork: Fork, t: usize) -> Code {
+fn hand_over_tail(fork: Fork, t: usize, memory: usize) -> Code {
     let mut code = Code::new(fork);
     code.op("gas", 2, 1);
     code.op("staticcall", fork.cold_account, 1);
     code.end("[success]");
     code.op("returndatasize", 2, 1);
-    code.push(32 * t);
+    size(&mut code, t, memory);
     code.op("eq", 3, 1);
     code.op("and", 3, 1);
     code.op("ok", 3, 3);
@@ -219,14 +234,14 @@ fn hand_over_tail(fork: Fork, t: usize) -> Code {
     code.end("");
     code.op("ok:", 1, 1);
     code.end("");
-    ret(&mut code, t, true);
+    ret(&mut code, t, true, memory);
     code
 }
 
 /// Gas and bytes of a part's code around the permutation macro: the entry
 /// (calldata loads, reduced unless `lazy`) and the tail (return or
 /// hand-over, the hand-over with the cold STATICCALL but without the
-/// callee).
+/// callee), around code that writes `memory` (MEMORY_UNKNOWN for a budget).
 #[derive(Debug, Clone, Copy)]
 pub struct Overhead {
     pub entry_gas: u64,
@@ -241,14 +256,15 @@ pub fn overhead(
     state_in_memory: bool,
     hands_over: bool,
     lazy: bool,
+    memory: usize,
 ) -> Overhead {
     let mut entry = Code::new(fork);
     loads(&mut entry, t, input_slots, 0, !lazy);
     let mut tail = Code::new(fork);
     if hands_over {
-        hand_over(&mut tail, t, 0);
+        hand_over(&mut tail, t, 0, memory);
     } else {
-        ret(&mut tail, t, state_in_memory);
+        ret(&mut tail, t, state_in_memory, memory);
     }
     Overhead {
         entry_gas: entry.gas,
@@ -269,8 +285,9 @@ pub fn entry_bytes(
     t: usize,
     input_slots: &[Option<usize>],
     state_in_memory: bool,
+    memory: usize,
 ) -> usize {
-    overhead(fork, t, input_slots, state_in_memory, false, false).bytes
+    overhead(fork, t, input_slots, state_in_memory, false, false, memory).bytes
 }
 
 // ---- files -----------------------------------------------------------------
@@ -445,7 +462,7 @@ pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> Strin
         format!("[s0', ..., s{}', ...]", t - 1)
     });
     code.blank();
-    ret(&mut code, t, in_memory);
+    ret(&mut code, t, in_memory, result.memory);
     format!(
         "{HEADER}
 #include \"./Permutation.huff\"
@@ -476,9 +493,14 @@ pub struct HashEntry {
     pub bytes: usize,
 }
 
-/// `rounds` is the gas and bytes of the rounds macro, 0 before it is built
-/// (the overhead decides its code size budget).
-pub fn hash_entry(fork: Fork, prologues: &[Prologue], rounds: (u64, usize)) -> Result<HashEntry> {
+/// `rounds` is the gas, bytes and memory of the rounds macro, 0, 0 and
+/// MEMORY_UNKNOWN before it is built (the overhead decides its code size
+/// budget).
+pub fn hash_entry(
+    fork: Fork,
+    prologues: &[Prologue],
+    rounds: (u64, usize, usize),
+) -> Result<HashEntry> {
     let by = |n: usize| -> Result<&Prologue> {
         match prologues.iter().find(|p| p.n == n) {
             Some(p) => Ok(p),
@@ -524,13 +546,7 @@ pub fn hash_entry(fork: Fork, prologues: &[Prologue], rounds: (u64, usize)) -> R
     label(&mut tail, "rounds");
     tail.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
     tail.end("[s0', ...]");
-    tail.push(0);
-    tail.op("mstore", gas::MSTORE, 1);
-    tail.end("");
-    tail.push(0x20);
-    tail.push(0);
-    tail.op("return", 0, 1);
-    tail.end("");
+    ret(&mut tail, 1, false, rounds.2);
     let mut gate = Code::new(fork);
     gate.blank();
     label(&mut gate, "not_hash_2");
@@ -571,7 +587,7 @@ pub fn render_hash_entry(
     let (t, rounds_f, rounds_p) = (params.t, params.rounds_f, params.rounds_p);
     let (result, opts) = (&rounds.result, &rounds.opts);
     let total = rounds_f + rounds_p;
-    let entry = hash_entry(*fork, prologues, (result.gas, result.bytes))?;
+    let entry = hash_entry(*fork, prologues, (result.gas, result.bytes, result.memory))?;
     // round 0 leaves a PRIME copy under s0' and another under its dead values
     let mut inputs = vec!["s0".to_string(), "PRIME".to_string()];
     inputs.extend((1..t).map(|i| format!("s{i}")));
@@ -667,16 +683,16 @@ pub fn render_part(
     code.end(&format!("state at memory [0, {})", hex_off(32 * t)));
     code.blank();
     if last {
-        ret(&mut code, t, true);
+        ret(&mut code, t, true, result.memory);
     } else {
-        hand_over(&mut code, t, part);
+        hand_over(&mut code, t, part, result.memory);
     }
     // a 32-byte literal with its top byte set is a PUSH32 (a zero would be
     // PUSH0, and huffc drops the zeros of a __VERBATIM)
     let mut next = Code::new(*fork);
     next.op(&format!("0x{}", "ff".repeat(32)), 0, 0);
     next.end("[next]");
-    let tail = hand_over_tail(*fork, t);
+    let tail = hand_over_tail(*fork, t, result.memory);
     let mut ctor = Code::new(*fork);
     ctor.op("__codesize(CONSTRUCTOR)", 0, 0);
     ctor.end("[c]");

@@ -34,9 +34,9 @@ use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
-    Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead, render_deploy_parts,
-    render_eip8024, render_entry, render_forge_test, render_hash_entry, render_hash_test,
-    render_part, render_permutation, render_zero, test_dir,
+    MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead,
+    render_deploy_parts, render_eip8024, render_entry, render_forge_test, render_hash_entry,
+    render_hash_test, render_part, render_permutation, render_zero, test_dir,
 };
 use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
@@ -121,6 +121,7 @@ fn entry_gas(fork: &Fork, t: usize, result: &BuildResult) -> u64 {
         result.state_in_memory,
         false,
         false,
+        result.memory,
     );
     o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
 }
@@ -135,7 +136,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     let params = generate_params(t);
     let inputs = test_inputs(t);
     let legacy = fork.name == DEFAULT_HARDFORK;
-    let overhead = entry_bytes(*fork, t, &[], false);
+    let overhead = entry_bytes(*fork, t, &[], false, MEMORY_UNKNOWN);
     let dir = format!("{}/t{t}", huff_dir(fork));
     let utils_path = if legacy {
         "../Utils.huff"
@@ -165,7 +166,14 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     // the budget leaves room for the entry without shadow slots; with its
     // own slots it may not fit
     if best.as_ref().is_some_and(|b| {
-        b.result.bytes + entry_bytes(*fork, t, &b.result.input_slots, b.result.state_in_memory)
+        b.result.bytes
+            + entry_bytes(
+                *fork,
+                t,
+                &b.result.input_slots,
+                b.result.state_in_memory,
+                b.result.memory,
+            )
             > fork.code_size
     }) {
         best = None;
@@ -210,9 +218,14 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
                     build_hash_prologue(&params, &words, *fork)
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let budget = fork.code_size - hash_entry(*fork, &prologues, (0, 0))?.bytes;
+            let budget =
+                fork.code_size - hash_entry(*fork, &prologues, (0, 0, MEMORY_UNKNOWN))?.bytes;
             let rounds = build_hash_rounds(&params, &prologues, budget, *fork)?;
-            let entry = hash_entry(*fork, &prologues, (rounds.result.gas, rounds.result.bytes))?;
+            let entry = hash_entry(
+                *fork,
+                &prologues,
+                (rounds.result.gas, rounds.result.bytes, rounds.result.memory),
+            )?;
             actions.push(Action::Log(format!(
                 "  hash rounds: {}",
                 describe(&rounds.result, &rounds.opts)
@@ -269,8 +282,14 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
             test_path.clone(),
             render_forge_test(&params, &vectors, fork, 1),
         ));
-        let bytes =
-            result.bytes + entry_bytes(*fork, t, &result.input_slots, result.state_in_memory);
+        let bytes = result.bytes
+            + entry_bytes(
+                *fork,
+                t,
+                &result.input_slots,
+                result.state_in_memory,
+                result.memory,
+            );
         actions.push(Action::Log(format!(
             "  wrote {dir}/Permutation.huff, {dir}/Poseidon2.huff, {test_path} ({bytes} runtime bytes)"
         )));

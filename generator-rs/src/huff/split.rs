@@ -14,7 +14,7 @@
 use rayon::prelude::*;
 
 use super::fork::Fork;
-use super::render::{Overhead, overhead};
+use super::render::{MEMORY_UNKNOWN, Overhead, overhead};
 use super::schedule::{
     Best, BuildOptions, DEFAULT_OPTIONS, Range, build_best, build_best_with,
     build_permutation_with, group_candidates, largest, part_boundary, step_count,
@@ -44,7 +44,7 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
     let budget = |range: Range| {
         let Range { from, to } = range;
         let slots: &[Option<usize>] = if from == 0 { &all_slots } else { &[] };
-        fork.code_size - overhead(fork, t, slots, true, to < steps, from > 0).bytes
+        fork.code_size - overhead(fork, t, slots, true, to < steps, from > 0, MEMORY_UNKNOWN).bytes
     };
     let boundary = |range: Range| part_boundary(t, range.from);
 
@@ -191,6 +191,7 @@ pub fn split_permutation(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> R
                 result.state_in_memory,
                 range.to < steps,
                 range.from > 0,
+                result.memory,
             );
             let runtime = result.bytes + o.bytes;
             if runtime > fork.code_size {
