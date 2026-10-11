@@ -476,3 +476,35 @@ t = 28 is the cold-hop call (warm 103,273 to 99,630). t = 2, 3, 4, 8 and every A
 - Keeping `s0^5` on the stack instead of the 18-gas round trip takes a slot, which a memory element pays 12 to 15 for: about even.
 - t = 28 as one contract: 105,019 (period 3, diag constants in memory, which alone cost about 3 gas per use per round). The external rounds are 2,364 bytes each; running them through a shared body would free about 16 KB but costs about 200 gas a round (`CODECOPY` of 28 constants, `MLOAD` per lane, the jumps), for an estimated net 1.6K below the split.
 - External rounds: Osaka pays 348 (t = 16) to 648 (t = 28) gas a round over Amsterdam, almost all memory: every S-box output is shadowed (`DUP1 PUSH MSTORE`, 9) and replaced in place (`SWAPn POP`, 5), then loaded again for the column sums and the blocks. A block-wise schedule that consumes each block in place and shadows only what the reach loses is estimated at about 240 gas a round at t = 28 and 100 at t = 16 (2K and 0.8K a call).
+
+## Wide widths: streamed external rounds
+
+Baseline 463ba0e, 2026-10-11. With shadow every S-box output of an external round was stored (`DUP1 <off> MSTORE`, 9 gas) and swapped into the slot of its input (`SWAPn POP`, 5), then loaded again for the column sums and the blocks: a steady round cost t = 16 1,924 and t = 28 3,423 gas of static opcodes against Amsterdam's 1,576 and 2,775, and the `SWAPn POP` were the 119 to 121 POPs a call of t = 16 to 28 executed.
+
+### Change
+
+`externalStream`, taken by every shadow schedule with `externalD` and `externalTemplate` (with shadow and no `gcExternal`, which it makes moot). A layer runs block by block: the column sums `S` (reduced, `chainSumInPlace`) load the S-box outputs `x` from their memory slots, each block computes `u = x + S` on top and its M4 (the `block` template), and each output of the M4 goes straight into the S-box of the next round over a PRIME copy `DUP`ed and swapped under it, whose result is stored to a slot (`<off> MSTORE`, 6). The next layer loads it twice (6 each). The outputs of the last two blocks stay on the stack, so the next layer takes those blocks first. The S-boxes after the internal rounds store their outputs the same way (an input is `DUP`ed or loaded, its slot left dead), the layer before the internal rounds stays `externalMatrix`, and the last round's reduced outputs go straight to their words of `[0, 32t)` instead of `DUP` and `MSTORE` after the round.
+
+A steady round now costs t = 16 1,693 (16 lanes: 4 blocks of 125 for the M4, 57 a stored lane and 51 to 54 a kept one, 140 for the sums), t = 20 2,127 and t = 28 3,036. The code is smaller, so the internal body takes longer periods, and t = 28 fits one contract. POPs a call: 1.
+
+| Fork  | Width |              Before |        After | Saving | Runtime bytes before | after  |
+| ----- | ----: | ------------------: | -----------: | -----: | -------------------: | -----: |
+| Osaka |    16 |              51,792 |       49,550 |  2,242 |               24,420 | 23,931 |
+| Osaka |    20 |              67,175 |       64,405 |  2,770 |               24,453 | 24,557 |
+| Osaka |    24 |              82,342 |       79,583 |  2,759 |               24,337 | 24,053 |
+| Osaka |    28 | 102,130 / 99,630 (2 parts) | 97,714 (1 part) | 4,416 / 1,916 | 23,020 + 23,126 | 24,239 |
+
+t = 28 before is the cold / warm hop. t = 2 to 12 and every Amsterdam width are byte-identical (no shadow schedule). The Rust `verify` of every Osaka width took 989 CPU s (the shadow search is smaller: the non-streamed variants of those candidates are gone).
+
+### Rejected (measured, Osaka verify)
+
+- Blocks kept on the stack: 0, 1, 2, 3. t = 16 50,207 / 50,043 / 49,752 / 50,252 (before the streamed last round); t = 20 and t = 24 with 1, 2, 3 (also before it): 64,897 / 64,672 / 65,002 and 80,075 / 79,910 / 80,168; t = 28 with 1, 2, 3: 97,939 / 97,714 / 97,936. Three blocks leave the S-box work out of reach.
+- A kept lane's input `DUP`ed over a PRIME copy instead of swapped up (3 gas less a lane, a dead value left under the block): t = 16 49,763 (+213, 374 bytes more), the dead values cost reach.
+- A PRIME copy before the layer that leads into the internal rounds (no `PUSH32` there): t = 16 +3 gas, -63 bytes; not kept.
+- The stream without shadow (t = 8, t = 12): the search keeps the stack-only schedules (24,499, 35,696).
+
+### Left open (estimates, not built)
+
+- A searched program for a block's M4 run into its four S-boxes and stores: the PRIME copy under each output costs a `DUP` and a `SWAP` (6) where a copy placed during the M4 would cost 3, and a kept lane its swap up (3). At most about 50 gas a round at t = 16 and 90 at t = 28 (0.35K and 0.6K a call); `macro` models the S-box before the linear layer only, so it needs a new search.
+- One shared body for the streamed layers (as the internal rounds have): a t = 28 layer is about 1.8 KB, 0.9 KB of it round constants, so six calls would free about 5 KB, enough for an internal body period of 3 or 4 instead of 2 (about 29 calls of 50 gas and the sub-chain swaps). But each call pays `CODECOPY` of 28 words and an `MLOAD` per constant (about 170 gas), the kept blocks alternate with period 2, and the slots must match between calls: about even at t = 28, a loss below.
+- The internal rounds are now most of the gap to Amsterdam: t = 28 1,171 a steady round against 935 (the 14 memory elements and the period-2 body's calls).

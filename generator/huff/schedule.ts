@@ -141,6 +141,12 @@ export type BuildOptions = {
   // store PRIME in memory once and load it (PUSH, MLOAD) where no copy is
   // within reach instead of PUSH32 (3 gas more, 30 bytes less)
   primeInMemory: boolean;
+  // with externalD and shadow (t >= 8), the external rounds as a stream of
+  // blocks: the S-box outputs go to memory slots, but those of the last
+  // blocks of a layer, which the next layer takes first; the column sums
+  // load them, and each block's M4 runs straight into the next round's
+  // S-boxes
+  externalStream: boolean;
 };
 
 export const DEFAULT_OPTIONS: BuildOptions = {
@@ -167,6 +173,7 @@ export const DEFAULT_OPTIONS: BuildOptions = {
   internalTemplate: false,
   internalMul3: false,
   primeInMemory: false,
+  externalStream: false,
 };
 
 // Steps [from, to) of the permutation (see permutationSteps in reference.ts).
@@ -237,6 +244,9 @@ export type BuildResult = {
 };
 
 export const DIAG_MEMORY_BASE = 0;
+
+// blocks a streamed external layer keeps on the stack
+const STREAM_KEEP = 2;
 
 // The internal rounds of the range but its first and last, whose code
 // differs (the entry's PRIME copy, the final round's layout): the ones the
@@ -334,6 +344,10 @@ class Builder {
   // what the S-boxes of a template add in place of the round constants (the
   // hash entry's round 0, hashRound0)
   laneConstants: bigint[] | undefined;
+  // the state holds the S-box outputs of the current round (externalStream)
+  sboxed = false;
+  // the outputs are already at [0, 32t) (streamLinear)
+  stored = false;
 
   constructor(
     params: Params,
@@ -1092,6 +1106,115 @@ class Builder {
     this.state = out;
   }
 
+  // ---- streamed external rounds (externalStream) ---------------------------
+
+  get stream(): boolean {
+    return this.opts.externalStream && this.opts.externalD && this.t >= 8;
+  }
+
+  // The blocks a streamed layer leaves on the stack.
+  get streamKeep(): number {
+    return Math.min(STREAM_KEEP, this.t / 4);
+  }
+
+  // s + c and the S-box of a lane over a PRIME copy: an input on top gets
+  // the copy swapped under it, any other is DUPed over one (its slot is
+  // left dead); a lazy input that does not fit the ADD takes an ADDMOD
+  // with a second copy.
+  streamLane(s: Value, c: bigint, name: string): Value {
+    const e = this.e;
+    const k = this.constant(c, "c");
+    const fits = e.fitsAdd(s, k);
+    const onTop = e.top(0) === s;
+    e.pushPrime();
+    if (!fits) e.pushPrime();
+    if (onTop) e.swap(fits ? 1 : 2);
+    else e.dup(s);
+    const y = fits
+      ? e.compute("add", [k, inplace(s)], "y")
+      : e.compute("addmod", [k, inplace(s), inplace(this.P)], "y");
+    return this.sbox(y, name);
+  }
+
+  // The S-boxes of a round from the state wherever it is (after an
+  // internal round or at the entry of a part): every output goes to a
+  // memory slot but those of the kept blocks, the last ones.
+  streamSbox(round: number) {
+    const e = this.e;
+    const t = this.t;
+    const k = t / 4;
+    const keep = this.streamKeep;
+    e.pushPrime();
+    e.endLine();
+    const out: Value[] = new Array(t);
+    for (let i = 0; i < t; i++) {
+      const c = this.params.roundConstants[round][i];
+      out[i] = this.streamLane(this.state[i], c, `x${i}`);
+      if (Math.floor(i / 4) < k - keep) e.spill(out[i]);
+      e.endLine();
+    }
+    this.state = out;
+    this.sboxed = true;
+  }
+
+  // The linear layer of a round from its S-box outputs (or the inputs,
+  // before round 0): the column sums S (reduced), then block by block,
+  // those whose inputs sit on the stack first, u = x + S and the M4 of the
+  // block (templates.ts). With `next` the M4 runs straight into the S-boxes
+  // of that round, stored to memory slots but those of the last blocks;
+  // without, it is the last round's, reduced, and its outputs go straight
+  // to their words of [0, 32t) for the caller.
+  streamLinear(next?: number) {
+    const e = this.e;
+    const t = this.t;
+    const k = t / 4;
+    const keep = this.streamKeep;
+    this.layers++;
+    const x = this.state;
+    e.pushPrime();
+    e.endLine();
+    const S: Value[] = new Array(4);
+    for (let i = 3; i >= 0; i--) {
+      const column = Array.from({ length: k }, (_, b) => x[4 * b + i]);
+      S[i] = this.chainSumInPlace(column, `S${i}`, PRIME - 1n);
+      e.endLine();
+    }
+    const onStack = (b: number) =>
+      [0, 1, 2, 3].every((i) => e.find(x[4 * b + i]) > 0);
+    const blocks = Array.from({ length: k }, (_, b) => k - 1 - b);
+    const order = [
+      ...blocks.filter((b) => onStack(b)),
+      ...blocks.filter((b) => !onStack(b)),
+    ];
+    const kind = next === undefined ? "final" : "block";
+    const out: Value[] = new Array(t);
+    order.forEach((b, n) => {
+      const u: Value[] = new Array(4);
+      for (let i = 3; i >= 0; i--) {
+        u[i] = this.pairAdd(x[4 * b + i], S[i], `u${4 * b + i}`, false);
+        e.endLine();
+      }
+      const names = [0, 1, 2, 3].map((i) => `s${4 * b + i}'`);
+      const o = this.runTemplate(BLOCKS[kind], u, names);
+      for (let i = 0; i < 4; i++) {
+        const j = 4 * b + i;
+        if (e.top(0) !== o[i]) e.swap(e.find(o[i]) - 1);
+        if (next !== undefined) {
+          const c = this.params.roundConstants[next][j];
+          out[j] = this.streamLane(o[i], c, `x${j}`);
+          if (n + keep < k) e.spill(out[j]);
+        } else {
+          out[j] = o[i];
+          e.mstore(32 * j);
+        }
+        e.endLine();
+      }
+    });
+    this.state = out;
+    this.sboxed = next !== undefined;
+    this.stored = next === undefined;
+  }
+
   // Last round when the caller reads s0' alone (t = 4): row 0 of M4 on the
   // S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from the
   // S-boxes instead of the M4 temporaries. A PRIME copy for the final MOD
@@ -1815,6 +1938,7 @@ class Builder {
       e.comment("Initial linear layer");
       if (this.opts.externalTemplate && this.t <= 4)
         this.externalTemplate("entry");
+      else if (this.stream && to > 1) this.streamLinear(0);
       else this.externalMatrix(false, undefined, true);
       e.comment("");
       this.stepBytes.push(e.bytes);
@@ -1843,6 +1967,18 @@ class Builder {
         const last = r === rfHalf - 1;
         if (this.opts.externalTemplate && this.t <= 4) {
           this.externalTemplate(last && next ? "exit" : "round", r);
+        } else if (this.stream) {
+          if (!this.sboxed) this.streamSbox(r);
+          if (!last && next) {
+            this.streamLinear(r + 1);
+          } else {
+            this.sboxed = false;
+            this.externalMatrix(
+              false,
+              last && next ? () => e.pushPrime() : undefined,
+              !last,
+            );
+          }
         } else {
           this.addConstantsAndSbox(r);
           this.externalMatrix(
@@ -1878,6 +2014,16 @@ class Builder {
         e.comment(`Round ${r} (external)`);
         if (this.opts.externalTemplate && this.t <= 4) {
           this.externalTemplate(r === total - 1 ? "final" : "round", r);
+        } else if (this.stream) {
+          if (!this.sboxed) this.streamSbox(r);
+          if (r < total - 1 && next) {
+            this.streamLinear(r + 1);
+          } else if (r === total - 1 && this.stateInMemory) {
+            this.streamLinear();
+          } else {
+            this.sboxed = false;
+            this.externalMatrix(r === total - 1, undefined, true);
+          }
         } else {
           this.addConstantsAndSbox(r);
           this.externalMatrix(r === total - 1, undefined, true);
@@ -1887,7 +2033,9 @@ class Builder {
       this.stepBytes.push(e.bytes);
     }
 
-    if (this.stateInMemory) this.storeState(to < stepCount(this.params));
+    if (this.stateInMemory && !this.stored) {
+      this.storeState(to < stepCount(this.params));
+    }
     e.endLine();
     return this.state;
   }
@@ -2169,6 +2317,12 @@ export function buildBest(
                                 internalReduceOutputs
                                   ? bools
                                   : [false]) {
+                                  // with shadow the external rounds of the
+                                  // templated blocks stream, which collects
+                                  // no garbage
+                                  const externalStream =
+                                    shadow && externalD && externalTemplate;
+                                  if (externalStream && gcExternal) continue;
                                   list.push({
                                     diagInMemory,
                                     gcExternal,
@@ -2193,6 +2347,7 @@ export function buildBest(
                                     internalTemplate,
                                     internalMul3,
                                     primeInMemory: false,
+                                    externalStream,
                                   });
                                 }
                               }

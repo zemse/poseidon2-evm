@@ -115,6 +115,12 @@ pub struct BuildOptions {
     /// store PRIME in memory once and load it (PUSH, MLOAD) where no copy
     /// is within reach instead of PUSH32 (3 gas more, 30 bytes less)
     pub prime_in_memory: bool,
+    /// with external_d and shadow (t >= 8), the external rounds as a
+    /// stream of blocks: the S-box outputs go to memory slots, but those of
+    /// the last blocks of a layer, which the next layer takes first; the
+    /// column sums load them, and each block's M4 runs straight into the
+    /// next round's S-boxes
+    pub external_stream: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -141,6 +147,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     internal_template: false,
     internal_mul3: false,
     prime_in_memory: false,
+    external_stream: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -252,6 +259,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.prime_in_memory {
         enabled.push("primeInMemory".to_string());
     }
+    if opts.external_stream {
+        enabled.push("externalStream".to_string());
+    }
     if enabled.is_empty() {
         "none".to_string()
     } else {
@@ -284,6 +294,9 @@ pub struct BuildResult {
 }
 
 pub const DIAG_MEMORY_BASE: usize = 0;
+
+/// blocks a streamed external layer keeps on the stack
+const STREAM_KEEP: usize = 2;
 
 /// The internal rounds of the range but its first and last, whose code
 /// differs (the entry's PRIME copy, the final round's layout): the ones the
@@ -391,6 +404,11 @@ struct Builder<'a> {
     /// what the S-boxes of a template add in place of the round constants
     /// (the hash entry's round 0, Builder::hash_round0)
     lane_constants: Option<Vec<U256>>,
+    /// the state holds the S-box outputs of the current round
+    /// (external_stream)
+    sboxed: bool,
+    /// the outputs are already at [0, 32t) (stream_final)
+    stored: bool,
 }
 
 fn val(v: Id) -> Operand {
@@ -504,6 +522,8 @@ impl<'a> Builder<'a> {
             live: boundary.live.clone(),
             layers: 0,
             lane_constants: None,
+            sboxed: false,
+            stored: false,
         })
     }
 
@@ -1378,6 +1398,134 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    // ---- streamed external rounds (external_stream) -------------------------
+
+    fn stream(&self) -> bool {
+        self.opts.external_stream && self.opts.external_d && self.t >= 8
+    }
+
+    /// The blocks a streamed layer leaves on the stack.
+    fn stream_keep(&self) -> usize {
+        STREAM_KEEP.min(self.t / 4)
+    }
+
+    /// s + c and the S-box of a lane over a PRIME copy: an input on top
+    /// gets the copy swapped under it, any other is DUPed over one (its
+    /// slot is left dead); a lazy input that does not fit the ADD takes an
+    /// ADDMOD with a second copy.
+    fn stream_lane(&mut self, s: Id, c: U256, name: &str) -> Result<Id> {
+        let p = self.p();
+        let fits = self.e.fits_add(self.bound(s), c);
+        let on_top = self.e.top(0)? == s;
+        self.e.push_prime()?;
+        if !fits {
+            self.e.push_prime()?;
+        }
+        if on_top {
+            self.e.swap(if fits { 1 } else { 2 })?;
+        } else {
+            self.e.dup(s)?;
+        }
+        let y = if fits {
+            self.e
+                .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?
+        } else {
+            self.e
+                .compute(Op::Addmod, &[constant(c, "c"), inplace(s), inplace(p)], "y")?
+        };
+        self.sbox(y, name)
+    }
+
+    /// The S-boxes of a round from the state wherever it is (after an
+    /// internal round or at the entry of a part): every output goes to a
+    /// memory slot but those of the kept blocks, the last ones.
+    fn stream_sbox(&mut self, round: usize) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        let keep = self.stream_keep();
+        self.e.push_prime()?;
+        self.e.end_line();
+        let state = self.state.clone();
+        let mut out = Vec::with_capacity(t);
+        for (i, &s) in state.iter().enumerate() {
+            let c = self.params.round_constants[round][i];
+            let x = self.stream_lane(s, c, &format!("x{i}"))?;
+            if i / 4 < k - keep {
+                self.e.spill(x)?;
+            }
+            self.e.end_line();
+            out.push(x);
+        }
+        self.state = out;
+        self.sboxed = true;
+        Ok(())
+    }
+
+    /// The linear layer of a round from its S-box outputs (or the inputs,
+    /// before round 0): the column sums S (reduced), then block by block,
+    /// those whose inputs sit on the stack first, u = x + S and the M4 of
+    /// the block (templates.rs). With `next` the M4 runs straight into the
+    /// S-boxes of that round, stored to memory slots but those of the last
+    /// blocks; without, it is the last round's, reduced, and its outputs go
+    /// straight to their words of [0, 32t) for the caller.
+    fn stream_linear(&mut self, next: Option<usize>) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        let keep = self.stream_keep();
+        self.layers += 1;
+        let x = self.state.clone();
+        self.e.push_prime()?;
+        self.e.end_line();
+        let mut sums = [0; 4];
+        for i in (0..4).rev() {
+            let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();
+            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), p1())?;
+            self.e.end_line();
+        }
+        let on_stack = |b: usize, e: &Emitter| (0..4).all(|i| e.find(x[4 * b + i]) > 0);
+        let mut order: Vec<usize> = (0..k).rev().filter(|&b| on_stack(b, &self.e)).collect();
+        order.extend((0..k).rev().filter(|&b| !on_stack(b, &self.e)));
+        let kind = if next.is_some() {
+            BlockKind::Block
+        } else {
+            BlockKind::Final
+        };
+        let mut out = vec![0; t];
+        for (n, &b) in order.iter().enumerate() {
+            let mut u = [0; 4];
+            for i in (0..4).rev() {
+                u[i] = self.pair_add(x[4 * b + i], sums[i], &format!("u{}", 4 * b + i), false)?;
+                self.e.end_line();
+            }
+            let names: Vec<String> = (0..4).map(|i| format!("s{}'", 4 * b + i)).collect();
+            let o = self.run_template(blocks(kind), &u, &names, None)?;
+            for (i, &oi) in o.iter().enumerate() {
+                let j = 4 * b + i;
+                if self.e.top(0)? != oi {
+                    self.swap_up(oi)?;
+                }
+                match next {
+                    Some(r) => {
+                        let c = self.params.round_constants[r][j];
+                        out[j] = self.stream_lane(oi, c, &format!("x{j}"))?;
+                        if n + keep < k {
+                            self.e.spill(out[j])?;
+                        }
+                    }
+                    None => {
+                        out[j] = oi;
+                        self.e.mstore(32 * j)?;
+                    }
+                }
+                self.e.end_line();
+            }
+        }
+        self.state = out;
+        self.sboxed = next.is_some();
+        self.stored = next.is_none();
+        Ok(())
+    }
+
     /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
     /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
     /// the S-boxes instead of the M4 temporaries. A PRIME copy for the final
@@ -2242,6 +2390,8 @@ impl<'a> Builder<'a> {
             self.e.comment("Initial linear layer");
             if self.opts.external_template && self.t <= 4 {
                 self.external_template(TemplateKind::Entry, None)?;
+            } else if self.stream() && to > 1 {
+                self.stream_linear(Some(0))?;
             } else {
                 self.external_matrix(false, false, true)?;
             }
@@ -2283,6 +2433,16 @@ impl<'a> Builder<'a> {
                         TemplateKind::Round
                     };
                     self.external_template(kind, Some(r))?;
+                } else if self.stream() {
+                    if !self.sboxed {
+                        self.stream_sbox(r)?;
+                    }
+                    if !last && next {
+                        self.stream_linear(Some(r + 1))?;
+                    } else {
+                        self.sboxed = false;
+                        self.external_matrix(false, last && next, !last)?;
+                    }
                 } else {
                     self.add_constants_and_sbox(r)?;
                     self.external_matrix(false, last && next, !last)?;
@@ -2320,6 +2480,18 @@ impl<'a> Builder<'a> {
                         TemplateKind::Round
                     };
                     self.external_template(kind, Some(r))?;
+                } else if self.stream() {
+                    if !self.sboxed {
+                        self.stream_sbox(r)?;
+                    }
+                    if r < total - 1 && next {
+                        self.stream_linear(Some(r + 1))?;
+                    } else if r == total - 1 && self.state_in_memory {
+                        self.stream_linear(None)?;
+                    } else {
+                        self.sboxed = false;
+                        self.external_matrix(r == total - 1, false, true)?;
+                    }
                 } else {
                     self.add_constants_and_sbox(r)?;
                     self.external_matrix(r == total - 1, false, true)?;
@@ -2330,7 +2502,7 @@ impl<'a> Builder<'a> {
             r += 1;
         }
 
-        if self.state_in_memory {
+        if self.state_in_memory && !self.stored {
             self.store_state(self.range.to < step_count(self.params))?;
         }
         self.e.end_line();
@@ -2658,6 +2830,15 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                             for &internal_mul3 in pick(
                                                                 t == 2 && internal_reduce_outputs,
                                                             ) {
+                                                                // with shadow the external rounds of
+                                                                // the templated blocks stream, which
+                                                                // collects no garbage
+                                                                let external_stream = shadow
+                                                                    && external_d
+                                                                    && external_template;
+                                                                if external_stream && gc_external {
+                                                                    continue;
+                                                                }
                                                                 list.push(BuildOptions {
                                                                     diag_in_memory,
                                                                     gc_external,
@@ -2682,6 +2863,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                     internal_template,
                                                                     internal_mul3,
                                                                     prime_in_memory: false,
+                                                                    external_stream,
                                                                 });
                                                             }
                                                         }
