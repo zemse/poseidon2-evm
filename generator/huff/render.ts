@@ -25,6 +25,7 @@ import {
   describeOptions,
   HANDOVER_BOUND_TEXT,
   HASH_DEAD,
+  RAW_INPUT,
   type Best,
   type BuildOptions,
   type BuildResult,
@@ -134,6 +135,16 @@ function loads(
   code.op("SETUP()", GAS.push, 33);
   code.end("[PRIME]");
   for (let i = t - 1; i >= 0; i--) {
+    const stack = Array.from({ length: t - i }, (_, k) =>
+      inputSlots[i + k] === RAW_INPUT ? "0" : `s${i + k}`,
+    );
+    if (inputSlots[i] === RAW_INPUT) {
+      // left in calldata (the schedule loads and reduces it where used), a
+      // zero holds its place
+      code.push(0);
+      code.end(`[${stack.join(", ")}, PRIME]`);
+      continue;
+    }
     if (reduce) {
       // PRIME sits under the words loaded so far, pushed again once out of
       // reach (same gas, 33 bytes)
@@ -149,7 +160,6 @@ function loads(
       code.push(slot);
       code.op("mstore", GAS.mstore, 1);
     }
-    const stack = Array.from({ length: t - i }, (_, k) => `s${i + k}`);
     code.end(`[${stack.join(", ")}, PRIME]`);
   }
 }
@@ -275,7 +285,14 @@ export function renderPermutation(
 ): string {
   const { t, roundsF, roundsP } = params;
   const outputs = Array.from({ length: t }, (_, i) => `s${i}'`).join(", ");
-  const inputs = Array.from({ length: t }, (_, i) => `s${i}`).join(", ");
+  // an input left in calldata is a zero on the stack
+  const raw = (i: number) => result.inputSlots[i] === RAW_INPUT;
+  const inputs = Array.from({ length: t }, (_, i) =>
+    raw(i) ? "0" : `s${i}`,
+  ).join(", ");
+  const clean = Array.from({ length: t }, (_, i) => i).some(raw)
+    ? "with clean inputs (the zeros' read from calldata and reduced where used)"
+    : "with clean inputs";
   const layout = result.stateInMemory
     ? `the state in memory at [0, ${hexOff(32 * t)}) with clean outputs (stack: garbage)`
     : t <= 4
@@ -284,7 +301,7 @@ export function renderPermutation(
   return `${HEADER}
 ${includes(fork, utilsPath)}
 /// @notice Poseidon2 permutation for BN254 with t = ${t}, Rf = ${roundsF}, Rp = ${roundsP}
-/// @dev takes [${inputs}, PRIME] with clean inputs, returns ${layout}
+/// @dev takes [${inputs}, PRIME] ${clean}, returns ${layout}
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 ${forkNote(fork)}${stats(result.emitter, result)}
 /// @dev schedule options: ${describeOptions(opts)}

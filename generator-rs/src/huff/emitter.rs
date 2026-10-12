@@ -193,6 +193,9 @@ pub struct Emitter {
     /// calldata offsets of the inputs that sit in calldata as the stack
     /// holds them (a part after the first): loaded from there, never stored
     calldata: HashMap<Id, usize>,
+    /// calldata offsets of the inputs the entry leaves in calldata (the
+    /// first part's inputs out of reach): loaded and reduced where used
+    raw_inputs: HashMap<Id, usize>,
     pool: Vec<Slot>,
     round: i64,
     pub slot_base: usize,
@@ -247,6 +250,7 @@ impl Emitter {
             slots: HashMap::new(),
             holder: HashMap::new(),
             calldata: HashMap::new(),
+            raw_inputs: HashMap::new(),
             pool: Vec::new(),
             round: 0,
             slot_base: 0,
@@ -343,6 +347,7 @@ impl Emitter {
         (n > 0 && n <= self.max_reach)
             || self.slots.contains_key(&v)
             || self.calldata.contains_key(&v)
+            || self.raw_inputs.contains_key(&v)
     }
 
     // ---- raw opcodes -------------------------------------------------------
@@ -420,6 +425,15 @@ impl Emitter {
             }
             if let Some(&offset) = self.calldata.get(&v) {
                 self.load_calldata(offset, v);
+                return Ok(v);
+            }
+            if let Some(&offset) = self.raw_inputs.get(&v) {
+                // [PRIME] <off> CALLDATALOAD MOD
+                self.push_prime()?;
+                self.load_calldata(offset, v);
+                self.opcode(|| "mod".to_string(), gas::MOD, 1);
+                let len = self.stack.len();
+                self.stack.remove(len - 2);
                 return Ok(v);
             }
             if n == 0 {
@@ -801,6 +815,13 @@ impl Emitter {
     /// from there (<off> CALLDATALOAD, 6 gas, as a slot) without a store.
     pub fn declare_calldata(&mut self, v: Id, offset: usize) {
         self.calldata.insert(v, offset);
+    }
+
+    /// Declares v the calldata word at `offset` reduced mod PRIME, which the
+    /// stack does not hold: dup loads and reduces it
+    /// ([PRIME] <off> CALLDATALOAD MOD, 14 gas) without a store.
+    pub fn declare_raw(&mut self, v: Id, offset: usize) {
+        self.raw_inputs.insert(v, offset);
     }
 
     /// Loads calldata word v (declare_calldata) whether or not a copy is on

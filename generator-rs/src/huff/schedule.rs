@@ -174,6 +174,9 @@ pub struct Boundary {
     pub prime_second: bool,
     /// with prime_second, a PRIME copy this many dead values below them
     pub prime_below: Option<usize>,
+    /// store the shadowed inputs to their slots at the entry, also those
+    /// out of reach that the first part otherwise leaves in calldata
+    pub store_inputs: bool,
 }
 
 /// A part hands its state over below 2p: an internal round leaves m_i + sum
@@ -183,6 +186,10 @@ pub fn handover_bound() -> U256 {
     PRIME * u256(2) - u256(1)
 }
 pub const HANDOVER_BOUND_TEXT: &str = "2p";
+
+/// input_slots entry of an input the entry leaves in calldata (see
+/// Emitter::declare_raw)
+pub const RAW_INPUT: usize = usize::MAX;
 
 /// the boundary of part `from` of a split: lazy inputs from calldata
 pub fn part_boundary(t: usize, from: usize) -> Boundary {
@@ -195,6 +202,7 @@ pub fn part_boundary(t: usize, from: usize) -> Boundary {
         live: None,
         prime_second: false,
         prime_below: None,
+        store_inputs: false,
     }
 }
 
@@ -520,13 +528,27 @@ impl<'a> Builder<'a> {
             if e.shadows(Key::In(i)) {
                 if boundary.calldata {
                     e.declare_calldata(v, 32 * i);
+                } else if i + 1 > fork.reach && !boundary.store_inputs {
+                    e.declare_raw(v, 32 * i);
+                    *slot = Some(RAW_INPUT);
                 } else {
                     *slot = Some(e.declare(v));
                 }
             }
             state.push(v);
         }
-        let mut stack = state.clone();
+        // an input left in calldata holds its place on the stack as a zero
+        // (PUSH0), so the stack is as deep as with the input
+        let mut stack = Vec::with_capacity(t + 1);
+        for (i, &v) in state.iter().enumerate() {
+            if input_slots[i] == Some(RAW_INPUT) {
+                let vals = vec![U256::ZERO; inputs.len()];
+                let z = crate::value::Value::new(format!("z{i}"), U256::ZERO, vals, None)?;
+                stack.push(e.alloc(z));
+            } else {
+                stack.push(v);
+            }
+        }
         if boundary.prime_second {
             stack.insert(1, e.p);
             if let Some(dead) = boundary.prime_below {
@@ -3002,6 +3024,7 @@ pub fn build_hash_rounds(
         live: Some(vec![0]),
         prime_second: true,
         prime_below: Some(HASH_DEAD),
+        store_inputs: false,
     };
     let range = Range {
         from: 2,
@@ -3075,14 +3098,26 @@ fn build_checked(
     text: bool,
     boundary: &Boundary,
 ) -> Result<BuildResult> {
-    let mut entered = false;
-    let build = |mid_entry: bool, entered: &mut bool| {
-        build_once(
-            params, inputs, expected, opts, fork, range, text, boundary, mid_entry, entered,
-        )
+    let build = |boundary: &Boundary| {
+        let mut entered = false;
+        let once = |mid_entry: bool, entered: &mut bool| {
+            build_once(
+                params, inputs, expected, opts, fork, range, text, boundary, mid_entry, entered,
+            )
+        };
+        match once(true, &mut entered) {
+            Err(_) if entered => once(false, &mut entered),
+            result => result,
+        }
     };
-    match build(true, &mut entered) {
-        Err(_) if entered => build(false, &mut entered),
+    // the inputs out of reach left in calldata change the stack the probe
+    // saw, so a build that fails with them stores them instead
+    let raw = opts.shadow && !boundary.calldata && !boundary.store_inputs && params.t > fork.reach;
+    match build(boundary) {
+        Err(_) if raw => build(&Boundary {
+            store_inputs: true,
+            ..boundary.clone()
+        }),
         result => result,
     }
 }
@@ -3394,9 +3429,62 @@ pub fn build_best_with(
                 };
             }
         };
+        // the diag constants as PUSH32 and the inline rounds, as far as the
+        // code size allows
+        let tail = |mut opts: BuildOptions,
+                    mut result: BuildResult|
+         -> std::result::Result<(BuildOptions, BuildResult), String> {
+            if opts.diag_in_memory && result.bytes <= max_bytes {
+                let diag_push32 = largest(params.t, |n| {
+                    attempt(&BuildOptions {
+                        diag_push32: n,
+                        ..opts
+                    })
+                    .is_some_and(|r| r.bytes <= max_bytes)
+                });
+                opts.diag_push32 = diag_push32;
+                result = build(&opts).map_err(|e| e.0)?;
+            }
+            if opts.shared_body && result.bytes <= max_bytes {
+                let (_, steady) = steady_rounds(params, range);
+                let fits = |n: usize| {
+                    attempt(&BuildOptions {
+                        body_inline: n,
+                        ..opts
+                    })
+                    .is_some_and(|r| r.bytes <= max_bytes)
+                };
+                let base = opts.body_inline;
+                let mut body_inline = base + largest(steady - base, |n| fits(base + n));
+                // a remainder call costs more than the gas a round
+                // inline saves, so the largest count or, when cheaper,
+                // the largest that leaves no remainder
+                let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
+                let extra = (period - (steady - body_inline) % period) % period;
+                if extra > 0 && body_inline >= extra {
+                    let at = |n: usize| {
+                        attempt(&BuildOptions {
+                            body_inline: n,
+                            ..opts
+                        })
+                        .filter(|r| r.bytes <= max_bytes)
+                        .map(|r| cost(&r))
+                    };
+                    if let Some(rounded) = at(body_inline - extra)
+                        && at(body_inline).is_none_or(|c| rounded <= c)
+                    {
+                        body_inline -= extra;
+                    }
+                }
+                opts.body_inline = body_inline;
+                result = build(&opts).map_err(|e| e.0)?;
+            }
+            Ok((opts, result))
+        };
         let finish = |mut opts: BuildOptions,
                       mut result: BuildResult|
          -> std::result::Result<(BuildOptions, u64), String> {
+            let mut grouped = false;
             if result.max_depth <= 1000 {
                 if opts.gc_internal && fork.reach > 16 {
                     let gc_internal_from = largest(params.rounds_p, |n| {
@@ -3423,7 +3511,9 @@ pub fn build_best_with(
                 if opts.shared_body && result.bytes > max_bytes {
                     // a body too large for the code size: sub-chains shorten
                     // it, the longest period that fits (the shorter, the
-                    // more chains and calls)
+                    // more chains and calls), or shorter ones for as long
+                    // as what their bytes buy (diag constants as PUSH32,
+                    // inline rounds) makes each cheaper than the last
                     let groups = group_candidates(params, &fork, opts.consume_slots);
                     let fits = |n: usize| {
                         attempt(&BuildOptions {
@@ -3433,42 +3523,32 @@ pub fn build_best_with(
                         .is_some_and(|r| r.bytes <= max_bytes)
                     };
                     if !groups.is_empty() && fits(0) {
-                        opts.consume_group = groups[largest(groups.len() - 1, fits)];
-                        result = build(&opts).map_err(|e| e.0)?;
+                        let longest = largest(groups.len() - 1, fits);
+                        let mut picked: Option<(BuildOptions, BuildResult)> = None;
+                        for g in (0..=longest).rev() {
+                            let o = BuildOptions {
+                                consume_group: groups[g],
+                                ..opts
+                            };
+                            let Ok(r) = build(&o) else { continue };
+                            let Ok((o, r)) = tail(o, r) else { continue };
+                            if r.bytes > max_bytes {
+                                continue;
+                            }
+                            if picked.as_ref().is_some_and(|(_, p)| cost(&r) >= cost(p)) {
+                                break;
+                            }
+                            picked = Some((o, r));
+                        }
+                        if let Some((o, r)) = picked {
+                            opts = o;
+                            result = r;
+                            grouped = true;
+                        }
                     }
                 }
-                if opts.diag_in_memory && result.bytes <= max_bytes {
-                    let diag_push32 = largest(params.t, |n| {
-                        attempt(&BuildOptions {
-                            diag_push32: n,
-                            ..opts
-                        })
-                        .is_some_and(|r| r.bytes <= max_bytes)
-                    });
-                    opts.diag_push32 = diag_push32;
-                    result = build(&opts).map_err(|e| e.0)?;
-                }
-                if opts.shared_body && result.bytes <= max_bytes {
-                    let (_, steady) = steady_rounds(params, range);
-                    let fits = |n: usize| {
-                        attempt(&BuildOptions {
-                            body_inline: n,
-                            ..opts
-                        })
-                        .is_some_and(|r| r.bytes <= max_bytes)
-                    };
-                    let base = opts.body_inline;
-                    let mut body_inline = base + largest(steady - base, |n| fits(base + n));
-                    // a remainder call and the mid exit cost more than the
-                    // 3 gas per round the body charges, so the largest count
-                    // that leaves none when one fits
-                    let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
-                    let extra = (period - (steady - body_inline) % period) % period;
-                    if body_inline >= extra && fits(body_inline - extra) {
-                        body_inline -= extra;
-                    }
-                    opts.body_inline = body_inline;
-                    result = build(&opts).map_err(|e| e.0)?;
+                if !grouped {
+                    (opts, result) = tail(opts, result)?;
                 }
             }
             if result.max_depth > 1000 {

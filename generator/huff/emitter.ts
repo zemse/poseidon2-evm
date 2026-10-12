@@ -141,6 +141,9 @@ export class Emitter {
   // calldata offsets of the inputs that sit in calldata as the stack holds
   // them (a part after the first): loaded from there, never stored
   private calldata = new Map<Value, number>();
+  // calldata offsets of the inputs the entry leaves in calldata (the first
+  // part's inputs out of reach): loaded and reduced where used
+  private rawInputs = new Map<Value, number>();
   private pool: { offset: number; round: number }[] = [];
   private round = 0;
   slotBase = 0;
@@ -205,7 +208,10 @@ export class Emitter {
   reachable(v: Value): boolean {
     const n = this.find(v);
     return (
-      (n > 0 && n <= this.maxReach) || this.slots.has(v) || this.calldata.has(v)
+      (n > 0 && n <= this.maxReach) ||
+      this.slots.has(v) ||
+      this.calldata.has(v) ||
+      this.rawInputs.has(v)
     );
   }
 
@@ -264,6 +270,15 @@ export class Emitter {
       const offset = this.calldata.get(v);
       if (offset !== undefined) {
         this.loadCalldata(offset, v);
+        return v;
+      }
+      const rawOffset = this.rawInputs.get(v);
+      if (rawOffset !== undefined) {
+        // [PRIME] <off> CALLDATALOAD MOD
+        this.pushPrime();
+        this.loadCalldata(rawOffset, v);
+        this.opcode("mod", GAS.mod, 1);
+        this.stack.splice(1, 1);
         return v;
       }
       if (n === 0) throw new Error(`${v.name} is not on the stack`);
@@ -568,6 +583,13 @@ export class Emitter {
   // there (<off> CALLDATALOAD, 6 gas, as a slot) without a store.
   declareCalldata(v: Value, offset: number) {
     this.calldata.set(v, offset);
+  }
+
+  // Declares v the calldata word at `offset` reduced mod PRIME, which the
+  // stack does not hold: dup loads and reduces it ([PRIME] <off>
+  // CALLDATALOAD MOD, 14 gas) without a store.
+  declareRaw(v: Value, offset: number) {
+    this.rawInputs.set(v, offset);
   }
 
   // Loads calldata word v (declareCalldata) whether or not a copy is on

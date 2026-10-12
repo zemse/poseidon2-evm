@@ -560,3 +560,29 @@ Call gas measured by `verify`. t = 2 to 12 and every Amsterdam width are byte-id
 
 - Blocks across each other: the next block's `u` among this block's S-boxes (the search stops at the block's end with an empty working stack).
 - The freed bytes (233 to 401) are not yet spent: a longer internal body period at t = 28 needs more than that.
+
+## Wide widths: body period, inline rounds and raw inputs
+
+Baseline 74c5b9a, 2026-10-12.
+
+### Changes
+
+- Inline rounds: `bodyInline` was rounded down to leave no partial call, a rule from before the mid entry. Now the largest count that fits is kept when it costs less than the rounded one. Amsterdam t = 24 keeps 24 steady rounds inline instead of 9 (a round inline saves 6 gas, the partial call with its mid exit costs 18 more), t = 28 11 instead of 3. Osaka keeps its counts.
+- Body period: the search took the sub-chains of the longest period that fits, then spent the bytes left on diag constants as `PUSH32` and inline rounds. Now it also tries shorter periods, stopping at the first that costs no less than the one before. Osaka t = 28 takes a period of 3 with 25 diag constants as `PUSH32` and PRIME from memory instead of a period of 2 with all of them as `PUSH32` (the longest that fits, 4, leaves too few as `PUSH32`): 297 gas. Osaka verify takes about 50% longer.
+- Raw inputs: the first part's entry loaded, reduced and stored every shadowed input (23 gas a word). The inputs beyond the entry's own reach (s16 and up) now stay in calldata with a `PUSH0` in their place, and each use loads and reduces one (`[PRIME] <off> CALLDATALOAD MOD`, 14 gas against 6): 5 gas a word, used twice. A build that fails with them retries with the stores.
+
+| Fork      | Width | Before | After  | Saving | Runtime bytes before / after |
+| --------- | ----: | -----: | -----: | -----: | ---------------------------: |
+| Amsterdam |    24 | 66,605 | 66,539 |     66 | 49,146 / 64,654              |
+| Amsterdam |    28 | 79,182 | 79,158 |     24 | 54,923 / 64,616              |
+| Osaka     |    24 | 77,151 | 77,087 |     64 | 24,287 / 24,223              |
+| Osaka     |    28 | 94,934 | 94,553 |    381 | 24,112 / 24,383              |
+
+Call gas measured by `verify`. Osaka t = 28 is 297 from the period and 84 from the raw inputs. Every other width is byte-identical on both forks.
+
+### Rejected
+
+- Scratch inside `[0, 32t)` on Amsterdam t = 24 / t = 28: the body scratch is the period plus two return slots (25 / 29 words). Dropping the mid-exit slot fits only where there is no partial call (24 words at t = 24), which saves about 4 gas (one word of memory, the return size from `MSIZE`), against the 66 of the inline rounds above, which need it. The output stores start at word 0 below the scratch, so `MSIZE` offsets save nothing either.
+- Only the longest and the next shorter period: misses t = 28's period 3, two below the longest.
+- Every shadowed input raw (also s8 to s15 at t = 28): 77,062 / 94,528 with the zeros, 77,027 / 94,485 without them (a shallower stack, so a second probe), but inputs within reach at entry lose their 3-gas `DUP`s and t = 16 / t = 20 then fail as one contract or cost more (t = 16 48,775 against 48,659). Not kept; 25 to 70 gas at t = 24 / t = 28 are left there.
+- Mid entry for a partial call when there is only one full call (Amsterdam t = 24 / t = 28 after the change above): the rotation of a single chain of 23 / 27 elements takes about as many `SWAP`s, more than the 15 gas of the mid exit.

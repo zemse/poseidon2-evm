@@ -196,6 +196,9 @@ export type Boundary = {
   primeSecond?: boolean;
   // with primeSecond, a PRIME copy this many dead values below them
   primeBelow?: number;
+  // store the shadowed inputs to their slots at the entry, also those out
+  // of reach that the first part otherwise leaves in calldata
+  storeInputs?: boolean;
 };
 
 // A part hands its state over below 2p: an internal round leaves m_i + sum
@@ -203,6 +206,10 @@ export type Boundary = {
 // stored. The next part takes the words as they are, within that bound.
 export const HANDOVER_BOUND = 2n * PRIME - 1n;
 export const HANDOVER_BOUND_TEXT = "2p";
+
+// inputSlots entry of an input the entry leaves in calldata (see
+// Emitter.declareRaw)
+export const RAW_INPUT = -1;
 
 // the boundary of part `from` of a split: lazy inputs from calldata
 export function partBoundary(t: number, from: number): Boundary {
@@ -430,7 +437,10 @@ class Builder {
       this.e.key(v, `in:${i}`);
       if (shadow.has(`in:${i}`)) {
         if (boundary.calldata) this.e.declareCalldata(v, 32 * i);
-        else this.inputSlots[i] = this.e.declare(v);
+        else if (i + 1 > fork.reach && !boundary.storeInputs) {
+          this.e.declareRaw(v, 32 * i);
+          this.inputSlots[i] = RAW_INPUT;
+        } else this.inputSlots[i] = this.e.declare(v);
       }
       this.state.push(v);
     }
@@ -444,7 +454,16 @@ class Builder {
         this.e.stack.push(this.e.P);
       }
     } else {
-      this.e.stack = [...this.state, this.e.P];
+      // an input left in calldata holds its place on the stack as a zero
+      // (PUSH0), so the stack is as deep as with the input
+      this.e.stack = [
+        ...this.state.map((v, i) =>
+          this.inputSlots[i] === RAW_INPUT
+            ? new Value(`z${i}`, 0n, inputs.map(() => 0n))
+            : v,
+        ),
+        this.e.P,
+      ];
     }
     this.e.maxDepth = this.e.stack.length;
   }
@@ -2466,30 +2485,45 @@ export function buildPermutation(
   range: Range = { from: 0, to: stepCount(params) },
   boundary: Boundary = {},
 ): BuildResult {
-  const entered = { value: false };
+  const build = (boundary: Boundary) => {
+    const entered = { value: false };
+    try {
+      return buildOnce(
+        params,
+        inputs,
+        opts,
+        fork,
+        range,
+        boundary,
+        true,
+        entered,
+      );
+    } catch (err) {
+      if (!entered.value) throw err;
+      return buildOnce(
+        params,
+        inputs,
+        opts,
+        fork,
+        range,
+        boundary,
+        false,
+        entered,
+      );
+    }
+  };
+  // the inputs out of reach left in calldata change the stack the probe
+  // saw, so a build that fails with them stores them instead
+  const raw =
+    opts.shadow &&
+    !boundary.calldata &&
+    !boundary.storeInputs &&
+    params.t > fork.reach;
   try {
-    return buildOnce(
-      params,
-      inputs,
-      opts,
-      fork,
-      range,
-      boundary,
-      true,
-      entered,
-    );
+    return build(boundary);
   } catch (err) {
-    if (!entered.value) throw err;
-    return buildOnce(
-      params,
-      inputs,
-      opts,
-      fork,
-      range,
-      boundary,
-      false,
-      entered,
-    );
+    if (!raw) throw err;
+    return build({ ...boundary, storeInputs: true });
   }
 }
 
@@ -2760,6 +2794,59 @@ export function buildBest(
   let best: Best | undefined;
   let built = 0;
   const failures: string[] = [];
+  // the diag constants as PUSH32 and the inline rounds, as far as the
+  // code size allows
+  const tail = (
+    opts: BuildOptions,
+    result: BuildResult,
+  ): { opts: BuildOptions; result: BuildResult } => {
+    const build = (opts: BuildOptions) =>
+      buildPermutation(params, inputs, opts, fork, range, boundary);
+    if (opts.diagInMemory && result.bytes <= maxBytes) {
+      const diagPush32 = largest(params.t, (n) => {
+        const r = attempt({ ...opts, diagPush32: n });
+        return r !== undefined && r.bytes <= maxBytes;
+      });
+      opts = { ...opts, diagPush32 };
+      result = build(opts);
+    }
+    if (opts.sharedBody && result.bytes <= maxBytes) {
+      const { steady } = steadyRounds(params, range);
+      const fits = (n: number) => {
+        const r = attempt({ ...opts, bodyInline: n });
+        return r !== undefined && r.bytes <= maxBytes;
+      };
+      const base = opts.bodyInline;
+      let bodyInline = base + largest(steady - base, (n) => fits(base + n));
+      // a remainder call costs more than the gas a round inline
+      // saves, so the largest count or, when cheaper, the largest
+      // that leaves no remainder
+      const period = bodyPeriod(
+        params,
+        fork,
+        opts.consumeSlots,
+        opts.consumeGroup,
+      );
+      const extra = (period - ((steady - bodyInline) % period)) % period;
+      if (extra > 0 && bodyInline >= extra) {
+        const at = (n: number) => {
+          const r = attempt({ ...opts, bodyInline: n });
+          return r !== undefined && r.bytes <= maxBytes ? cost(r) : undefined;
+        };
+        const rounded = at(bodyInline - extra);
+        const full = at(bodyInline);
+        if (
+          rounded !== undefined &&
+          (full === undefined || rounded <= full)
+        ) {
+          bodyInline -= extra;
+        }
+      }
+      opts = { ...opts, bodyInline };
+      result = build(opts);
+    }
+    return { opts, result };
+  };
   // the option searches after a first build: deeper garbage, sub-chains,
   // diag constants as PUSH32 and inline rounds as the code size allows;
   // the options and the build, or why it fails
@@ -2787,53 +2874,49 @@ export function buildBest(
           opts = { ...opts, gcM4From };
           result = build();
         }
+        let grouped = false;
         if (opts.sharedBody && result.bytes > maxBytes) {
           // a body too large for the code size: sub-chains shorten it,
           // the longest period that fits (the shorter, the more chains
-          // and calls)
+          // and calls), or shorter ones for as long as what their bytes
+          // buy (diag constants as PUSH32, inline rounds) makes each
+          // cheaper than the last
           const groups = groupCandidates(params, fork, opts.consumeSlots);
           const fits = (n: number) => {
             const r = attempt({ ...opts, consumeGroup: groups[n] });
             return r !== undefined && r.bytes <= maxBytes;
           };
           if (groups.length > 0 && fits(0)) {
-            const consumeGroup = groups[largest(groups.length - 1, fits)];
-            opts = { ...opts, consumeGroup };
-            result = build();
+            const longest = largest(groups.length - 1, fits);
+            let picked:
+              | { opts: BuildOptions; result: BuildResult }
+              | undefined;
+            for (let g = longest; g >= 0; g--) {
+              const o = { ...opts, consumeGroup: groups[g] };
+              const r = attempt(o);
+              if (r === undefined) continue;
+              let done: { opts: BuildOptions; result: BuildResult };
+              try {
+                done = tail(o, r);
+              } catch {
+                continue;
+              }
+              if (done.result.bytes > maxBytes) continue;
+              if (
+                picked !== undefined &&
+                cost(done.result) >= cost(picked.result)
+              ) {
+                break;
+              }
+              picked = done;
+            }
+            if (picked !== undefined) {
+              ({ opts, result } = picked);
+              grouped = true;
+            }
           }
         }
-        if (opts.diagInMemory && result.bytes <= maxBytes) {
-          const diagPush32 = largest(params.t, (n) => {
-            const r = attempt({ ...opts, diagPush32: n });
-            return r !== undefined && r.bytes <= maxBytes;
-          });
-          opts = { ...opts, diagPush32 };
-          result = build();
-        }
-        if (opts.sharedBody && result.bytes <= maxBytes) {
-          const { steady } = steadyRounds(params, range);
-          const fits = (n: number) => {
-            const r = attempt({ ...opts, bodyInline: n });
-            return r !== undefined && r.bytes <= maxBytes;
-          };
-          const base = opts.bodyInline;
-          let bodyInline = base + largest(steady - base, (n) => fits(base + n));
-          // a remainder call and the mid exit cost more than the 3 gas
-          // per round the body charges, so the largest count that leaves
-          // none when one fits
-          const period = bodyPeriod(
-            params,
-            fork,
-            opts.consumeSlots,
-            opts.consumeGroup,
-          );
-          const extra = (period - ((steady - bodyInline) % period)) % period;
-          if (bodyInline >= extra && fits(bodyInline - extra)) {
-            bodyInline -= extra;
-          }
-          opts = { ...opts, bodyInline };
-          result = build();
-        }
+        if (!grouped) ({ opts, result } = tail(opts, result));
       }
     } catch (err) {
       return `${JSON.stringify(opts)}: ${(err as Error).message}`;

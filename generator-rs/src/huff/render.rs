@@ -7,7 +7,8 @@
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
 use super::fork::{DEFAULT_HARDFORK, Fork};
 use super::schedule::{
-    Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, HASH_DEAD, Prologue, describe_options,
+    Best, BuildOptions, BuildResult, HANDOVER_BOUND_TEXT, HASH_DEAD, Prologue, RAW_INPUT,
+    describe_options,
 };
 use crate::bail;
 use crate::error::Result;
@@ -136,6 +137,23 @@ fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize, 
     code.op("SETUP()", gas::PUSH, 33);
     code.end("[PRIME]");
     for i in (0..t).rev() {
+        let stack: Vec<String> = (i..t)
+            .map(|k| {
+                if input_slots.get(k) == Some(&Some(RAW_INPUT)) {
+                    "0".to_string()
+                } else {
+                    format!("s{k}")
+                }
+            })
+            .collect();
+        let stack = format!("[{}, PRIME]", stack.join(", "));
+        if input_slots.get(i) == Some(&Some(RAW_INPUT)) {
+            // left in calldata (the schedule loads and reduces it where
+            // used), a zero holds its place
+            code.push(0);
+            code.end(&stack);
+            continue;
+        }
         if reduce {
             // PRIME sits under the words loaded so far, pushed again once
             // out of reach (same gas, 33 bytes)
@@ -155,8 +173,7 @@ fn loads(code: &mut Code, t: usize, input_slots: &[Option<usize>], base: usize, 
             code.push(*slot);
             code.op("mstore", gas::MSTORE, 1);
         }
-        let stack: Vec<String> = (0..t - i).map(|k| format!("s{}", i + k)).collect();
-        code.end(&format!("[{}, PRIME]", stack.join(", ")));
+        code.end(&stack);
     }
 }
 
@@ -353,7 +370,23 @@ pub fn render_permutation(
 ) -> String {
     let (t, rounds_f, rounds_p) = (params.t, params.rounds_f, params.rounds_p);
     let outputs = state_names(t, "'");
-    let inputs = state_names(t, "");
+    // an input left in calldata is a zero on the stack
+    let raw = |i: usize| result.input_slots.get(i) == Some(&Some(RAW_INPUT));
+    let inputs = (0..t)
+        .map(|i| {
+            if raw(i) {
+                "0".to_string()
+            } else {
+                format!("s{i}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let clean = if (0..t).any(raw) {
+        "with clean inputs (the zeros' read from calldata and reduced where used)"
+    } else {
+        "with clean inputs"
+    };
     let layout = if result.state_in_memory {
         format!(
             "the state in memory at [0, {}) with clean outputs (stack: garbage)",
@@ -368,7 +401,7 @@ pub fn render_permutation(
         "{HEADER}
 {includes}
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}
-/// @dev takes [{inputs}, PRIME] with clean inputs, returns {layout}
+/// @dev takes [{inputs}, PRIME] {clean}, returns {layout}
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 {note}{stats}
 /// @dev schedule options: {options}
