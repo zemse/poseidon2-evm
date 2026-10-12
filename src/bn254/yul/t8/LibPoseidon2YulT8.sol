@@ -11,40 +11,33 @@ pragma solidity >=0.6.0;
 library LibPoseidon2YulT8 {
     function permute(uint256[8] memory state) internal pure {
         assembly {
-            // inputs reduced mod PRIME
-            let state0 := mod(mload(state), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state1 :=
-                mod(mload(add(state, 0x20)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state2 :=
-                mod(mload(add(state, 0x40)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state3 :=
-                mod(mload(add(state, 0x60)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state4 :=
-                mod(mload(add(state, 0x80)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state5 :=
-                mod(mload(add(state, 0xa0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state6 :=
-                mod(mload(add(state, 0xc0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
-            let state7 :=
-                mod(mload(add(state, 0xe0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            // inputs reduced mod PRIME by the first addmod or mulmod of the initial linear layer
+            let state0 := mload(state)
+            let state1 := mload(add(state, 0x20))
+            let state2 := mload(add(state, 0x40))
+            let state3 := mload(add(state, 0x60))
+            let state4 := mload(add(state, 0x80))
+            let state5 := mload(add(state, 0xa0))
+            let state6 := mload(add(state, 0xc0))
+            let state7 := mload(add(state, 0xe0))
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
             // initial linear layer
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t0 := addmod(state1, state0, PRIME)
+                let t1 := addmod(state3, state2, PRIME)
+                let t2 := addmod(mulmod(state1, 2, PRIME), t1, PRIME)
+                let t3 := addmod(mulmod(state3, 2, PRIME), t0, PRIME)
                 state3 := add(mulmod(t1, 4, PRIME), t3)
                 state1 := add(mulmod(t0, 4, PRIME), t2)
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
+                let t0 := addmod(state5, state4, PRIME)
+                let t1 := addmod(state7, state6, PRIME)
+                let t2 := addmod(mulmod(state5, 2, PRIME), t1, PRIME)
+                let t3 := addmod(mulmod(state7, 2, PRIME), t0, PRIME)
                 state7 := add(mulmod(t1, 4, PRIME), t3)
                 state5 := add(mulmod(t0, 4, PRIME), t2)
                 state4 := add(t3, state5)

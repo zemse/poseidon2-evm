@@ -44,6 +44,10 @@ pub struct Layout {
     /// t = 3 internal rounds: the sum as (x5 + s1) + s2 and s1 reduced once
     /// the next round's x5 + s1 would overflow (the Huff periodic policy)
     pub periodic_internal: bool,
+    /// how many of the last locals take the raw input words, reduced where
+    /// the initial linear layer first adds or doubles them (ADDMOD /
+    /// MULMOD), instead of a MOD with a PRIME literal each
+    pub raw_inputs: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,14 +373,15 @@ impl<'a> Builder<'a> {
     fn m4(&mut self, idx: [usize; 4], clean: bool, needed: [bool; 4]) -> Result<()> {
         let v: Vec<Value> = idx.iter().map(|&i| self.state[i].clone()).collect();
         let one = self.p.constant(u256(1));
+        let two_c = self.p.constant(u256(2));
         let four = self.p.constant(u256(4));
         let four_temps = self.layout.m4_temps == 4;
         self.p.open();
         // t0 and t1 as locals, or recomputed where they are used
         let (l0, l1) = if four_temps {
-            let t0 = self.p.expr(Op::Add, &[&v[1], &v[0]])?;
+            let t0 = sum2(&self.p, &v[1], &v[0])?;
             let l0 = self.p.let_("t0", &t0)?;
-            let t1 = self.p.expr(Op::Add, &[&v[3], &v[2]])?;
+            let t1 = sum2(&self.p, &v[3], &v[2])?;
             let l1 = self.p.let_("t1", &t1)?;
             (Some(l0), Some(l1))
         } else {
@@ -385,23 +390,33 @@ impl<'a> Builder<'a> {
         let t0 = |p: &Program| -> Result<Value> {
             match &l0 {
                 Some(l) => Ok(l.clone()),
-                None => p.expr(Op::Add, &[&v[1], &v[0]]),
+                None => sum2(p, &v[1], &v[0]),
             }
         };
         let t1 = |p: &Program| -> Result<Value> {
             match &l1 {
                 Some(l) => Ok(l.clone()),
-                None => p.expr(Op::Add, &[&v[3], &v[2]]),
+                None => sum2(p, &v[3], &v[2]),
             }
         };
         let two =
             |p: &Program, x: &Value, t: &dyn Fn(&Program) -> Result<Value>| -> Result<Value> {
+                // a raw input word is doubled with MULMOD
+                let raw = !Self::fits(x, x);
                 if four_temps {
-                    let xx = p.expr(Op::Add, &[x, x])?;
+                    let xx = if raw {
+                        p.expr(Op::Mulmod, &[x, &two_c, &p.p])?
+                    } else {
+                        p.expr(Op::Add, &[x, x])?
+                    };
                     p.expr(Op::Addmod, &[&xx, &t(p)?, &p.p])
                 } else {
                     let tt = t(p)?;
-                    let sh = p.expr(Op::Shl, &[&one, x])?;
+                    let sh = if raw {
+                        p.expr(Op::Mulmod, &[&two_c, x, &p.p])?
+                    } else {
+                        p.expr(Op::Shl, &[&one, x])?
+                    };
                     p.expr(Op::Addmod, &[&tt, &sh, &p.p])
                 }
             };
@@ -588,7 +603,16 @@ impl<'a> Builder<'a> {
     /// locals, which are read with temporaries on top, are the deeper slots.
     fn entry(&mut self) -> Result<()> {
         let t = self.t;
-        self.p.comment("inputs reduced mod PRIME");
+        let raw_inputs = self.layout.raw_inputs;
+        if raw_inputs >= self.layout.stack_elements {
+            self.p.comment("inputs reduced mod PRIME by the first addmod or mulmod of the initial linear layer");
+        } else if raw_inputs > 0 {
+            self.p.comment(&format!(
+                "inputs reduced mod PRIME (the last {raw_inputs} by the first addmod or mulmod of the initial linear layer)"
+            ));
+        } else {
+            self.p.comment("inputs reduced mod PRIME");
+        }
         let prime = if self.layout.prime_first {
             let c = self.p.constant(PRIME);
             self.p.let_("PRIME", &c)?
@@ -605,7 +629,11 @@ impl<'a> Builder<'a> {
         };
         self.state = vec![prime.clone(); t];
         for i in 0..self.layout.stack_elements {
-            let e = self.p.expr(Op::Mod, &[&raw(self, i), &prime])?;
+            let e = if i + self.layout.raw_inputs >= self.layout.stack_elements {
+                raw(self, i)
+            } else {
+                self.p.expr(Op::Mod, &[&raw(self, i), &prime])?
+            };
             self.state[i] = self.p.let_(&Self::name(i), &e)?;
         }
         if self.in_memory() > 0 {
@@ -766,6 +794,15 @@ pub fn build_permutation(
     indent: usize,
 ) -> Result<BuildResult> {
     Builder::new(params, inputs, layout, mode, indent)?.build()
+}
+
+/// a + b, with ADDMOD when a raw input word could overflow it
+fn sum2(p: &Program, a: &Value, b: &Value) -> Result<Value> {
+    if a.bound.checked_add(b.bound).is_some() {
+        p.expr(Op::Add, &[a, b])
+    } else {
+        p.expr(Op::Addmod, &[a, b, &p.p])
+    }
 }
 
 /// The state after the initial linear layer and round 0's constants, mod p.

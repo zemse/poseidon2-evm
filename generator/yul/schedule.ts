@@ -58,6 +58,11 @@ export type Layout = {
   // next round's x5 + s1 would overflow (the Huff periodic policy), so that
   // s2 may grow to 5p and the sum takes one addmod instead of up to two
   periodicInternal: boolean;
+  // how many of the last locals take the raw input words, reduced where the
+  // initial linear layer first adds or doubles them (ADDMOD / MULMOD),
+  // instead of a MOD with a PRIME literal each: with few runs solc copies a
+  // PUSH32 that occurs more than once from code
+  rawInputs: number;
 };
 
 export type Mode =
@@ -309,8 +314,8 @@ class Builder {
     const four = p.constant(4n);
     p.block(() => {
       // t0 and t1 as locals, or recomputed where they are used
-      const t0 = () => p.expr("add", v[1], v[0]);
-      const t1 = () => p.expr("add", v[3], v[2]);
+      const t0 = () => sum2(p, v[1], v[0]);
+      const t1 = () => sum2(p, v[3], v[2]);
       let T0 = t0;
       let T1 = t1;
       if (this.layout.m4Temps === 4) {
@@ -319,10 +324,21 @@ class Builder {
         T0 = () => l0;
         T1 = () => l1;
       }
-      const two = (x: Value, t: () => Value) =>
-        this.layout.m4Temps === 4
-          ? p.expr("addmod", p.expr("add", x, x), t(), this.P)
-          : p.expr("addmod", t(), p.expr("shl", one, x), this.P);
+      const two = (x: Value, t: () => Value) => {
+        // a raw input word is doubled with MULMOD
+        const raw = !this.fits(x, x);
+        if (this.layout.m4Temps === 4) {
+          const xx = raw
+            ? p.expr("mulmod", x, p.constant(2n), this.P)
+            : p.expr("add", x, x);
+          return p.expr("addmod", xx, t(), this.P);
+        }
+        const tt = t();
+        const sh = raw
+          ? p.expr("mulmod", p.constant(2n), x, this.P)
+          : p.expr("shl", one, x);
+        return p.expr("addmod", tt, sh, this.P);
+      };
       const t2 = p.let("t2", two(v[1], T1));
       const t3 = p.let("t3", two(v[3], T0));
       // the deep operands of the recomputed sums go innermost so they are
@@ -474,7 +490,18 @@ class Builder {
   entry() {
     const p = this.p;
     const t = this.t;
-    p.comment("inputs reduced mod PRIME");
+    const { rawInputs, stackElements } = this.layout;
+    if (rawInputs >= stackElements) {
+      p.comment(
+        "inputs reduced mod PRIME by the first addmod or mulmod of the initial linear layer",
+      );
+    } else if (rawInputs > 0) {
+      p.comment(
+        `inputs reduced mod PRIME (the last ${rawInputs} by the first addmod or mulmod of the initial linear layer)`,
+      );
+    } else {
+      p.comment("inputs reduced mod PRIME");
+    }
     const prime = this.layout.primeFirst
       ? p.let("PRIME", p.constant(PRIME))
       : p.constant(PRIME);
@@ -483,8 +510,10 @@ class Builder {
         this.mode.kind === "hash" ? `s${i}` : `mload(${this.addr(i, "state")})`,
         this.inputs.map((input) => input[i]),
       );
-    for (let i = 0; i < this.layout.stackElements; i++) {
-      this.state[i] = p.let(this.name(i), p.expr("mod", raw(i), prime));
+    for (let i = 0; i < stackElements; i++) {
+      const e =
+        i + rawInputs >= stackElements ? raw(i) : p.expr("mod", raw(i), prime);
+      this.state[i] = p.let(this.name(i), e);
     }
     if (this.inMemory > 0) p.let("mem", p.input("state", []));
     if (!this.layout.primeFirst) p.let("PRIME", prime);
@@ -612,6 +641,13 @@ export function buildPermutation(
   indent: number,
 ): BuildResult {
   return new Builder(params, inputs, layout, mode, indent).build();
+}
+
+// a + b, with ADDMOD when a raw input word could overflow it
+function sum2(p: Program, a: Value, b: Value): Value {
+  return a.bound + b.bound <= UINT256_MAX
+    ? p.expr("add", a, b)
+    : p.expr("addmod", a, b, p.P);
 }
 
 // The state after the initial linear layer and round 0's constants, mod p.
