@@ -31,6 +31,7 @@ fn layout_for(t: usize) -> Layout {
         return Layout {
             stack_elements: t,
             diag_in_memory: 0,
+            diag_fixed: 0,
             diag_lets: if t == 4 { 4 } else { 0 },
             diag_scratch: 0,
             m4_temps: 4,
@@ -45,6 +46,7 @@ fn layout_for(t: usize) -> Layout {
         return Layout {
             stack_elements: 8,
             diag_in_memory: 0,
+            diag_fixed: 0,
             diag_lets: 4,
             diag_scratch: 2,
             m4_temps: 4,
@@ -59,6 +61,7 @@ fn layout_for(t: usize) -> Layout {
         return Layout {
             stack_elements: 12,
             diag_in_memory: 9,
+            diag_fixed: 2,
             diag_lets: 0,
             diag_scratch: 2,
             m4_temps: 2,
@@ -72,6 +75,7 @@ fn layout_for(t: usize) -> Layout {
     Layout {
         stack_elements: 11,
         diag_in_memory: t,
+        diag_fixed: 0,
         diag_lets: 0,
         diag_scratch: 0,
         m4_temps: 2,

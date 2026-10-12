@@ -96,7 +96,13 @@ pub fn render_array_library(params: &Params, layout: &Layout, result: &BuildResu
             layout.stack_elements as i64 - 1
         )
     };
-    let table = if layout.diag_in_memory > 0 {
+    let table = if layout.diag_fixed > 0 {
+        format!(
+            "\n/// @dev {} of the {t} internal diag constants are kept in free memory (not allocated) and {} at 0x40 and 0x60 to stay within the code size limit; the free memory pointer and the zero slot are restored after the internal rounds",
+            layout.diag_in_memory - layout.diag_fixed,
+            layout.diag_fixed
+        )
+    } else if layout.diag_in_memory > 0 {
         format!(
             "\n/// @dev {} of the {t} internal diag constants are kept in free memory (not allocated) to stay within the code size limit",
             layout.diag_in_memory
@@ -229,6 +235,24 @@ contract {wrapper}Test is Test {{
             b[i] = type(uint256).max;
         }}
         assertEq(_permute(a), _permute(b), \"sanitization max\");
+    }}
+
+    /// @dev the library leaves the free memory pointer and the zero slot as it found them
+    function test_memory_kept() public pure {{
+        uint256[{t}] memory state;
+        uint256 fmp;
+        assembly {{
+            fmp := mload(0x40)
+        }}
+        {lib}.permute(state);
+        uint256 fmpAfter;
+        uint256 zero;
+        assembly {{
+            fmpAfter := mload(0x40)
+            zero := mload(0x60)
+        }}
+        assertEq(fmpAfter, fmp, \"free memory pointer\");
+        assertEq(zero, 0, \"zero slot\");
     }}
 {fuzz}}}
 ",

@@ -37,6 +37,7 @@ function layoutFor(t: number): Layout {
     return {
       stackElements: t,
       diagInMemory: 0,
+      diagFixed: 0,
       diagLets: t === 4 ? 4 : 0,
       diagScratch: 0,
       m4Temps: 4,
@@ -51,6 +52,7 @@ function layoutFor(t: number): Layout {
     return {
       stackElements: 8,
       diagInMemory: 0,
+      diagFixed: 0,
       diagLets: 4,
       diagScratch: 2,
       m4Temps: 4,
@@ -65,6 +67,7 @@ function layoutFor(t: number): Layout {
     return {
       stackElements: 12,
       diagInMemory: 9,
+      diagFixed: 2,
       diagLets: 0,
       diagScratch: 2,
       m4Temps: 2,
@@ -78,6 +81,7 @@ function layoutFor(t: number): Layout {
   return {
     stackElements: 11,
     diagInMemory: t,
+    diagFixed: 0,
     diagLets: 0,
     diagScratch: 0,
     m4Temps: 2,

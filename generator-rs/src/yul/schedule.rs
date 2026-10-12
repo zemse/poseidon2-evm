@@ -25,6 +25,11 @@ pub struct Layout {
     /// how many of the trailing internal diag constants are kept in a memory
     /// table (loaded with MLOAD) instead of PUSH32 literals
     pub diag_in_memory: usize,
+    /// how many of the last diag constants in memory are kept at 0x40 and
+    /// 0x60 instead of the table (PUSH1 and MLOAD instead of an ADD to the
+    /// table pointer); the free memory pointer and the zero slot are
+    /// restored after the internal rounds
+    pub diag_fixed: usize,
     /// how many of the leading internal diag constants are locals declared
     /// for the internal rounds: solc's constant optimizer turns a PUSH32
     /// used more than once into a CODECOPY and MLOAD with few runs (200)
@@ -102,6 +107,8 @@ impl<'a> Builder<'a> {
         }
         if layout.stack_elements > params.t
             || layout.diag_scratch > 2
+            || layout.diag_fixed > 2
+            || layout.diag_fixed > layout.diag_in_memory
             || layout.diag_lets + layout.diag_scratch + layout.diag_in_memory > params.t
         {
             bail!("layout exceeds t");
@@ -230,6 +237,9 @@ impl<'a> Builder<'a> {
         if i < self.t - self.layout.diag_in_memory {
             return Ok(self.p.constant(d));
         }
+        if i >= self.t - self.layout.diag_fixed {
+            return self.p.mload(self.fixed_addr(i));
+        }
         self.p.mload(&self.table_addr(i))
     }
 
@@ -238,6 +248,14 @@ impl<'a> Builder<'a> {
             "0"
         } else {
             "0x20"
+        }
+    }
+
+    fn fixed_addr(&self, i: usize) -> &'static str {
+        if i == self.t - self.layout.diag_fixed {
+            "0x40"
+        } else {
+            "0x60"
         }
     }
 
@@ -698,6 +716,7 @@ impl<'a> Builder<'a> {
             diag_lets,
             diag_scratch,
             diag_in_memory,
+            diag_fixed,
             ..
         } = self.layout;
         if diag_lets + diag_scratch + diag_in_memory > 0 {
@@ -725,13 +744,29 @@ impl<'a> Builder<'a> {
                 );
                 let table = self.p.input("mload(0x40)", Vec::new());
                 self.p.let_("table", &table)?;
-                for (i, &d) in d.iter().enumerate().skip(t - diag_in_memory) {
+                let table = d.iter().enumerate().skip(t - diag_in_memory);
+                for (i, &d) in table.take(diag_in_memory - diag_fixed) {
                     let addr = self.table_addr(i);
                     self.p.mstore(&addr, &self.p.constant(d))?;
                 }
             }
+            if diag_fixed > 0 {
+                self.p.comment(
+                    "diag constants in the free memory pointer and the zero slot, restored after the internal rounds",
+                );
+                for (i, &d) in d.iter().enumerate().skip(t - diag_fixed) {
+                    let addr = self.fixed_addr(i);
+                    self.p.mstore(addr, &self.p.constant(d))?;
+                }
+            }
             self.p.blank();
             internal(&mut self)?;
+            if diag_fixed > 0 {
+                self.p.line("mstore(0x40, table)");
+            }
+            if diag_fixed > 1 {
+                self.p.line("mstore(0x60, 0)");
+            }
             self.p.close();
         } else {
             internal(&mut self)?;

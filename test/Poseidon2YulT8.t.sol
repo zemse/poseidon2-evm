@@ -250,6 +250,24 @@ contract Poseidon2YulT8Test is Test {
         assertEq(_permute(a), _permute(b), "sanitization max");
     }
 
+    /// @dev the library leaves the free memory pointer and the zero slot as it found them
+    function test_memory_kept() public pure {
+        uint256[8] memory state;
+        uint256 fmp;
+        assembly {
+            fmp := mload(0x40)
+        }
+        LibPoseidon2YulT8.permute(state);
+        uint256 fmpAfter;
+        uint256 zero;
+        assembly {
+            fmpAfter := mload(0x40)
+            zero := mload(0x60)
+        }
+        assertEq(fmpAfter, fmp, "free memory pointer");
+        assertEq(zero, 0, "zero slot");
+    }
+
     /// @dev the Yul and Huff permutations of the same width must agree on any input
     /// forge-config: default.fuzz.runs = 1000
     function testFuzz_matches_huff(uint256[8] memory input) public view {

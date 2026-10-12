@@ -82,9 +82,11 @@ export function renderArrayLibrary(
       ? "the state is held in Yul locals"
       : `elements 0 .. ${layout.stackElements - 1} are held in Yul locals, the rest in the array`;
   const table =
-    layout.diagInMemory > 0
-      ? `\n/// @dev ${layout.diagInMemory} of the ${t} internal diag constants are kept in free memory (not allocated) to stay within the code size limit`
-      : "";
+    layout.diagFixed > 0
+      ? `\n/// @dev ${layout.diagInMemory - layout.diagFixed} of the ${t} internal diag constants are kept in free memory (not allocated) and ${layout.diagFixed} at 0x40 and 0x60 to stay within the code size limit; the free memory pointer and the zero slot are restored after the internal rounds`
+      : layout.diagInMemory > 0
+        ? `\n/// @dev ${layout.diagInMemory} of the ${t} internal diag constants are kept in free memory (not allocated) to stay within the code size limit`
+        : "";
   const scratch =
     layout.diagScratch > 0
       ? `\n/// @dev ${layout.diagScratch} internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation`
@@ -189,6 +191,24 @@ ${cases}
             b[i] = type(uint256).max;
         }
         assertEq(_permute(a), _permute(b), "sanitization max");
+    }
+
+    /// @dev the library leaves the free memory pointer and the zero slot as it found them
+    function test_memory_kept() public pure {
+        uint256[${t}] memory state;
+        uint256 fmp;
+        assembly {
+            fmp := mload(0x40)
+        }
+        ${lib}.permute(state);
+        uint256 fmpAfter;
+        uint256 zero;
+        assembly {
+            fmpAfter := mload(0x40)
+            zero := mload(0x60)
+        }
+        assertEq(fmpAfter, fmp, "free memory pointer");
+        assertEq(zero, 0, "zero slot");
     }
 ${
   withHuff

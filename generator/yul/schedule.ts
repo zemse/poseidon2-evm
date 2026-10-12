@@ -29,6 +29,11 @@ export type Layout = {
   // how many of the trailing internal diag constants are kept in a memory
   // table (loaded with MLOAD) instead of PUSH32 literals, to save code size
   diagInMemory: number;
+  // how many of the last diag constants in memory are kept at 0x40 and 0x60
+  // instead of the table (PUSH1 and MLOAD, 6 gas against 12 with the ADD to
+  // the table pointer); the free memory pointer and the zero slot are
+  // restored after the internal rounds
+  diagFixed: number;
   // how many of the leading internal diag constants are locals declared for
   // the internal rounds (DUP, 3 gas like PUSH32 but 1 byte): solc's constant
   // optimizer turns a PUSH32 used more than once into a CODECOPY and MLOAD
@@ -112,6 +117,8 @@ class Builder {
     if (
       layout.stackElements > params.t ||
       layout.diagScratch > 2 ||
+      layout.diagFixed > 2 ||
+      layout.diagFixed > layout.diagInMemory ||
       layout.diagLets + layout.diagScratch + layout.diagInMemory > params.t
     )
       throw new Error("layout exceeds t");
@@ -207,11 +214,17 @@ class Builder {
     if (i < this.layout.diagLets + this.layout.diagScratch)
       return this.p.mload(this.scratchAddr(i));
     if (i < this.t - this.layout.diagInMemory) return this.p.constant(d);
+    if (i >= this.t - this.layout.diagFixed)
+      return this.p.mload(this.fixedAddr(i));
     return this.p.mload(this.tableAddr(i));
   }
 
   scratchAddr(i: number): string {
     return i === this.layout.diagLets ? "0" : "0x20";
+  }
+
+  fixedAddr(i: number): string {
+    return i === this.t - this.layout.diagFixed ? "0x40" : "0x60";
   }
 
   tableAddr(i: number): string {
@@ -561,7 +574,7 @@ class Builder {
         p.blank();
       }
     };
-    const { diagLets, diagScratch, diagInMemory } = this.layout;
+    const { diagLets, diagScratch, diagInMemory, diagFixed } = this.layout;
     if (diagLets + diagScratch + diagInMemory > 0) {
       p.block(() => {
         const d = this.params.internalDiagMinusOne;
@@ -584,12 +597,22 @@ class Builder {
             "diag constants that would not fit the code size as PUSH32, in free memory",
           );
           p.let("table", p.input("mload(0x40)", []));
-          for (let i = t - diagInMemory; i < t; i++) {
+          for (let i = t - diagInMemory; i < t - diagFixed; i++) {
             p.mstore(this.tableAddr(i), p.constant(d[i]));
+          }
+        }
+        if (diagFixed > 0) {
+          p.comment(
+            "diag constants in the free memory pointer and the zero slot, restored after the internal rounds",
+          );
+          for (let i = t - diagFixed; i < t; i++) {
+            p.mstore(this.fixedAddr(i), p.constant(d[i]));
           }
         }
         p.blank();
         internal();
+        if (diagFixed > 0) p.line("mstore(0x40, table)");
+        if (diagFixed > 1) p.line("mstore(0x60, 0)");
       });
     } else {
       internal();
