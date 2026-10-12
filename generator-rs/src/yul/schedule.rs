@@ -41,6 +41,9 @@ pub struct Layout {
     pub prime_first: bool,
     /// internal rounds: keep the sum lazy and reduce every output but state0
     pub internal_reduce_outputs: bool,
+    /// t = 3 internal rounds: the sum as (x5 + s1) + s2 and s1 reduced once
+    /// the next round's x5 + s1 would overflow (the Huff periodic policy)
+    pub periodic_internal: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -503,6 +506,9 @@ impl<'a> Builder<'a> {
         let lazy = self.layout.internal_reduce_outputs;
         let mut old = vec![x5.clone()];
         old.extend_from_slice(&self.state[1..]);
+        if self.layout.periodic_internal && self.t == 3 && !lazy && Self::fits(x5, &old[1]) {
+            return self.periodic_outputs(&old);
+        }
         let cap = if lazy {
             UINT256_MAX - x5.bound - (PRIME - u256(1))
         } else {
@@ -512,6 +518,22 @@ impl<'a> Builder<'a> {
         for (i, s) in old.iter().enumerate() {
             let scaled = self.scaled(s, i)?;
             let e = self.add(&sum, &scaled, lazy && i > 0)?;
+            self.set(i, &e)?;
+        }
+        Ok(())
+    }
+
+    /// t = 3: sum = (x5 + s1 + s2) mod p with x5 + s1 lazy, so that s2 may
+    /// grow to 5p; s1 + sum stays lazy while the next round's x5 + s1 fits.
+    fn periodic_outputs(&mut self, old: &[Value]) -> Result<()> {
+        let q = self.p.expr(Op::Add, &[&old[0], &old[1]])?;
+        let e = self.p.expr(Op::Addmod, &[&q, &old[2], &self.p.p])?;
+        let sum = self.p.let_("sum", &e)?;
+        for (i, s) in old.iter().enumerate() {
+            let scaled = self.scaled(s, i)?;
+            let reduce = i == 1
+                && wide(sum.bound) + wide(s.bound) + wide(PRIME - u256(1)) > wide(UINT256_MAX);
+            let e = self.add(&sum, &scaled, reduce)?;
             self.set(i, &e)?;
         }
         Ok(())

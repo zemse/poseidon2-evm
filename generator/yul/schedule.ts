@@ -54,6 +54,10 @@ export type Layout = {
   // until a doubling needs mulmod (t = 2, where that is one reduction per
   // round either way and the doubling stays a shift)
   internalReduceOutputs: boolean;
+  // t = 3 internal rounds: the sum as (x5 + s1) + s2 and s1 reduced once the
+  // next round's x5 + s1 would overflow (the Huff periodic policy), so that
+  // s2 may grow to 5p and the sum takes one addmod instead of up to two
+  periodicInternal: boolean;
 };
 
 export type Mode =
@@ -389,6 +393,21 @@ class Builder {
     this.externalMatrix(clean, needed);
   }
 
+  // t = 3: sum = (x5 + s1 + s2) mod p with x5 + s1 lazy, so that s2 may grow
+  // to 5p; s1 + sum stays lazy while the next round's x5 + s1 fits.
+  periodicOutputs(old: Value[]) {
+    const p = this.p;
+    const sum = p.let(
+      "sum",
+      p.expr("addmod", p.expr("add", old[0], old[1]), old[2], this.P),
+    );
+    for (let i = 0; i < 3; i++) {
+      const reduce =
+        i === 1 && sum.bound + old[i].bound + (PRIME - 1n) > UINT256_MAX;
+      this.set(i, this.add(sum, this.scaled(old[i], i), reduce));
+    }
+  }
+
   // s0 = (s0 + c)^5, then s_i = d_i s_i + sum with the sum reduced so that
   // every output stays within 2p, or with internalReduceOutputs the sum lazy
   // as far as the next round's s0 + c fits and every other output reduced.
@@ -402,6 +421,15 @@ class Builder {
     const lazy = this.layout.internalReduceOutputs;
     const outputs = (x5: Value) => {
       const old = [x5, ...this.state.slice(1)];
+      if (
+        this.layout.periodicInternal &&
+        t === 3 &&
+        !lazy &&
+        this.fits(x5, old[1])
+      ) {
+        this.periodicOutputs(old);
+        return;
+      }
       const cap = lazy ? UINT256_MAX - x5.bound - (PRIME - 1n) : PRIME - 1n;
       const sum = this.chainSum(old, "sum", cap);
       for (let i = 0; i < t; i++) {

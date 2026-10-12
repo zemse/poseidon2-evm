@@ -43,6 +43,7 @@ function layoutFor(t: number): Layout {
       internalLet: true,
       primeFirst: t >= 3,
       internalReduceOutputs: t === 2,
+      periodicInternal: t === 3,
     };
   }
   if (t === 8) {
@@ -55,6 +56,7 @@ function layoutFor(t: number): Layout {
       internalLet: false,
       primeFirst: false,
       internalReduceOutputs: false,
+      periodicInternal: false,
     };
   }
   if (t === 12) {
@@ -67,6 +69,7 @@ function layoutFor(t: number): Layout {
       internalLet: false,
       primeFirst: false,
       internalReduceOutputs: false,
+      periodicInternal: false,
     };
   }
   return {
@@ -78,6 +81,7 @@ function layoutFor(t: number): Layout {
     internalLet: false,
     primeFirst: false,
     internalReduceOutputs: false,
+    periodicInternal: false,
   };
 }
 

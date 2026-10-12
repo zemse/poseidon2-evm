@@ -37,6 +37,7 @@ fn layout_for(t: usize) -> Layout {
             internal_let: true,
             prime_first: t >= 3,
             internal_reduce_outputs: t == 2,
+            periodic_internal: t == 3,
         };
     }
     if t == 8 {
@@ -49,6 +50,7 @@ fn layout_for(t: usize) -> Layout {
             internal_let: false,
             prime_first: false,
             internal_reduce_outputs: false,
+            periodic_internal: false,
         };
     }
     if t == 12 {
@@ -61,6 +63,7 @@ fn layout_for(t: usize) -> Layout {
             internal_let: false,
             prime_first: false,
             internal_reduce_outputs: false,
+            periodic_internal: false,
         };
     }
     Layout {
@@ -72,6 +75,7 @@ fn layout_for(t: usize) -> Layout {
         internal_let: false,
         prime_first: false,
         internal_reduce_outputs: false,
+        periodic_internal: false,
     }
 }
 
