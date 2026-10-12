@@ -259,6 +259,23 @@ export function streamBlocks(kept: boolean, onStack: boolean): string[] {
   ];
 }
 
+// One block of an external layer with its outputs on top in order,
+// [s0', s1', s2', s3'] ([s0', P, s1', s2', s3'] for exit), from the column
+// sums (stacksearch `sblock` exit / exit0 / final): the moves of streamBlocks
+// without lanes. The first program whose DUPs reach the layout runs, else the
+// block template.
+export const ORDERED_BLOCKS: Record<BlockKind, string[]> = {
+  block: [
+    "u1 u0 dup2 add=t0 u3 P P dup3 dup1 add=d3 dup5 addmod=t3 swap2 u2 add=t1 P dup2 q=q1 dup4 add=o3 swap5 dup1 add=d1 addmod=t2 P dup2 dup6 add=o2 swap4 q=q0 add=o1 dup1 swap2 add=o0",
+  ],
+  exit: [
+    "u1 u0 dup2 add=t0 u3 P P P dup4 dup1 add=d3 dup6 addmod=t3 swap3 u2 add=t1 P dup2 q=q1 dup5 add=o3 swap6 dup1 add=d1 addmod=t2 P dup2 dup7 add=o2 swap5 q=q0 add=o1 dup1 swap3 add=o0",
+  ],
+  final: [
+    "u1 u0 dup2 add=t0 u2 P P P u3 P dup2 dup1 add=d3 dup8 addmod=t3 swap5 add=t1 P P dup3 q=q1 dup7 addmod=o3 swap7 dup1 add=d1 addmod=t2 P P dup3 dup9 addmod=o2 swap6 q=q0 addmod=o1 dup1 swap3 addmod=o0",
+  ],
+};
+
 export const BLOCKS: Record<BlockKind, Template[]> = {
   block: [
     {

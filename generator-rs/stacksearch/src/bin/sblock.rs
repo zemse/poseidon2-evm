@@ -4,9 +4,13 @@
 // slot or kept on the stack. A* from an empty working stack over a fixed
 // floor (the column sums S0..S3, a PRIME copy, the block's inputs where
 // they sit on the stack, dead slots) to an empty working stack, or to the
-// kept S-box outputs in any order.
+// kept S-box outputs in any order. Without lanes (`ordered_blocks`): `exit`
+// ends with the M4 outputs [o0, o1, o2, o3] on top, `exit0` with [o0, P,
+// o1, o2, o3] (block 0 before the internal rounds), `final` with the
+// reduced outputs (ADDMOD for every o<i>).
 //
-//   sblock <floor> [stored|kept] [max_working=8] [ub | trace <program>]
+//   sblock <floor> [stored|kept|exit|exit0|final] [max_working=8]
+//          [ub | trace <program>]
 //
 // The floor is comma separated, top first: S0..S3, P, x0..x3 (an input on
 // the stack; an input not in the floor is loaded from memory) and `_` for a
@@ -25,6 +29,17 @@
 // copy. `ub` keeps only programs below it; `trace` replays a program and
 // prints its gas instead. WEIGHT=w orders by g + w/10 h (w > 10 finds a
 // program sooner, not the cheapest).
+//
+// REACH=n: the deepest slot a DUP reaches (16; 235 on Amsterdam).
+// GARBAGE=1: dead values and spare copies may stay (Amsterdam), so a DUP
+// may make one copy beyond the uses left and no POP is needed. ROLL=1, with
+// GARBAGE=1, bounds blocks interleaved with their neighbours: seen from one
+// block a SWAP with another block's value moves one of its values to the
+// top (`roll<d>`) or the top down (`bury<d>`), and the two blocks share its
+// 3 gas, so each move costs 1.5 here (gas in halves; a spare DUP gives the
+// same order of the live values as a roll and is left out). Its optimum is
+// a lower bound per block for any interleaving within the window, with the
+// macros kept whole.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
@@ -56,17 +71,42 @@ struct Dag {
     nodes: Vec<Node>,
     floor: Vec<u8>,
     kept: bool,
+    /// exit / exit0 / final: the goal, top first (empty: any order)
+    order: Vec<u8>,
     max_working: usize,
     lanes: Vec<u8>,
+    /// GARBAGE=1: dead values may stay on the working stack (Amsterdam,
+    /// where DUPN reaches past them), so a DUP may leave one spare copy and
+    /// nothing is POPed
+    garbage: bool,
+    /// ROLL=1: the interleaving bound, gas doubled and a SWAP with another
+    /// block's value as `roll<d>` / `bury<d>` at half a SWAP
+    roll: bool,
+    /// the deepest slot a DUP reaches (REACH, 16)
+    reach: usize,
 }
 
 impl Dag {
-    fn build(floor: Vec<u8>, kept: bool, max_working: usize) -> Dag {
-        let spec = "u0=u(x0,S0);u1=u(x1,S1);u2=u(x2,S2);u3=u(x3,S3);\
+    fn build(floor: Vec<u8>, mode: &str, max_working: usize) -> Dag {
+        let m4 = "u0=u(x0,S0);u1=u(x1,S1);u2=u(x2,S2);u3=u(x3,S3);\
             t0=add(u0,u1);q0=q(t0);t1=add(u2,u3);d3=add(u3,u3);\
             t3=addmod(t0,d3);d1=add(u1,u1);q1=q(t1);o3=add(q1,t3);\
-            t2=addmod(t1,d1);o2=add(o3,t2);o1=add(q0,t2);o0=add(t3,o1);\
-            z0=lane(o0);z1=lane(o1);z2=lane(o2);z3=lane(o3)";
+            t2=addmod(t1,d1);o2=add(o3,t2);o1=add(q0,t2);o0=add(t3,o1)";
+        let spec = match mode {
+            "stored" | "kept" => format!("{m4};z0=lane(o0);z1=lane(o1);z2=lane(o2);z3=lane(o3)"),
+            "exit" | "exit0" => m4.to_string(),
+            // the last round's outputs, reduced
+            "final" => m4
+                .replace("=add(q", "=addmod(q")
+                .replace("=add(o3", "=addmod(o3")
+                .replace("=add(t3,o1", "=addmod(t3,o1"),
+            _ => panic!("{mode}"),
+        };
+        let out = if matches!(mode, "stored" | "kept") {
+            'z'
+        } else {
+            'o'
+        };
         let mut nodes: Vec<Node> = Vec::new();
         for part in spec.split(';') {
             let (name, rhs) = part.split_once('=').unwrap();
@@ -90,20 +130,44 @@ impl Dag {
             .map(|i| {
                 N0 + nodes
                     .iter()
-                    .position(|n| n.name == format!("z{i}"))
+                    .position(|n| n.name == format!("{out}{i}"))
                     .unwrap() as u8
             })
-            .collect();
+            .collect::<Vec<u8>>();
+        // the outputs in order on top; exit0 (the block before the internal
+        // rounds) with a PRIME copy under s0'
+        let order = match mode {
+            "exit" | "final" => lanes.clone(),
+            "exit0" => vec![lanes[0], P, lanes[1], lanes[2], lanes[3]],
+            _ => Vec::new(),
+        };
         Dag {
             nodes,
             floor,
-            kept,
+            kept: mode != "stored",
+            order,
             max_working,
             lanes,
+            garbage: std::env::var("GARBAGE").is_ok_and(|v| v == "1"),
+            roll: std::env::var("ROLL").is_ok_and(|v| v == "1"),
+            reach: std::env::var("REACH").map_or(16, |v| v.parse().unwrap()),
+        }
+    }
+
+    /// gas units: 2 a gas with ROLL
+    fn m(&self) -> u32 {
+        if self.roll {
+            2
+        } else {
+            1
         }
     }
 
     fn cost(&self, j: usize) -> u32 {
+        self.m() * self.cost1(j)
+    }
+
+    fn cost1(&self, j: usize) -> u32 {
         let nd = &self.nodes[j];
         match nd.op {
             Op::U => {
@@ -137,13 +201,15 @@ impl Dag {
 
     /// the PRIME copies the ops left consume
     fn primes(&self, computed: u32) -> u32 {
-        self.nodes
-            .iter()
-            .enumerate()
-            .filter(|(j, nd)| {
-                computed & (1 << j) == 0 && matches!(nd.op, Op::Addmod | Op::Q | Op::Lane)
-            })
-            .count() as u32
+        self.order.iter().filter(|&&v| v == P).count() as u32
+            + self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(j, nd)| {
+                    computed & (1 << j) == 0 && matches!(nd.op, Op::Addmod | Op::Q | Op::Lane)
+                })
+                .count() as u32
     }
 
     fn need(&self, v: u8, computed: u32) -> u32 {
@@ -171,9 +237,12 @@ impl Dag {
         }
         let count = |c: u8| s.iter().filter(|&&x| x == c).count() as i32;
         let primes = self.primes(computed) as i32;
-        h += 3 * (primes - count(P)).max(0) as u32;
-        h += 2 * (count(P) - primes).max(0) as u32;
-        h += 2 * count(G) as u32;
+        let m = self.m();
+        // POPs of spare copies and dead values, none with GARBAGE
+        let pop = if self.garbage { 0 } else { 2 * m };
+        h += 3 * m * (primes - count(P)).max(0) as u32;
+        h += pop * (count(P) - primes).max(0) as u32;
+        h += pop * count(G) as u32;
         for it in N0..N0 + self.nodes.len() as u8 {
             let u = self.uses(it, computed) as i32;
             let have = if computed & (1 << (it - N0)) == 0 {
@@ -181,15 +250,20 @@ impl Dag {
             } else {
                 count(it)
             };
-            h += 3 * (u - have).max(0) as u32;
-            h += 2 * (have - u).max(0) as u32 * (computed >> (it - N0) & 1);
+            h += 3 * m * (u - have).max(0) as u32;
+            h += pop * (have - u).max(0) as u32 * (computed >> (it - N0) & 1);
         }
         h
     }
 
     fn is_goal(&self, s: &[u8], computed: u32) -> bool {
+        if !self.order.is_empty() {
+            return computed == (1 << self.nodes.len()) - 1 && s == self.order;
+        }
         computed == (1 << self.nodes.len()) - 1
-            && s.iter().all(|&v| self.kept && self.lanes.contains(&v))
+            && s.iter().all(|&v| {
+                (self.kept && self.lanes.contains(&v)) || (self.garbage && (v == G || v == P))
+            })
     }
 
     fn name(&self, v: u8) -> String {
@@ -223,6 +297,10 @@ impl Dag {
             t
         };
         let count = |v: u8| s.iter().filter(|&&x| x == v).count() as u32;
+        let m = self.m();
+        // copies allowed beyond the uses left: one spare with GARBAGE (a
+        // roll gives the same order of the live values for less)
+        let spare = (self.garbage && !self.roll) as u32;
         if d < self.max_working {
             let mut seen = [false; 64];
             for k in 1..=d {
@@ -231,23 +309,42 @@ impl Dag {
                     continue;
                 }
                 seen[v as usize] = true;
-                if self.need(v, computed) > count(v) {
-                    out.push((3, format!("dup{k}"), top(v), computed));
+                let need = self.need(v, computed);
+                if need > 0 && need + spare > count(v) {
+                    out.push((3 * m, format!("dup{k}"), top(v), computed));
                 }
             }
-            if self.primes(computed) > count(P) && self.depth(s, P).is_some_and(|k| k <= 16) {
-                out.push((3, "P".into(), top(P), computed));
+            let primes = self.primes(computed);
+            if primes > 0
+                && primes + spare > count(P)
+                && self.depth(s, P).is_some_and(|k| k <= self.reach)
+            {
+                out.push((3 * m, "P".into(), top(P), computed));
             }
         }
         for k in 1..d {
             if s[k] != s[0] {
                 let mut t = s.to_vec();
                 t.swap(0, k);
-                out.push((3, format!("swap{k}"), t, computed));
+                out.push((3 * m, format!("swap{k}"), t, computed));
             }
         }
-        if d >= 1 && self.need(s[0], computed) < count(s[0]) {
-            out.push((2, "pop".into(), s[1..].to_vec(), computed));
+        if self.roll {
+            // what a SWAP with a value of another block does to this one's
+            // stack: one of its values to the top, or the top down
+            for k in 2..d {
+                let mut t = s.to_vec();
+                let v = t.remove(k);
+                t.insert(0, v);
+                out.push((3, format!("roll{k}"), t, computed));
+                let mut t = s.to_vec();
+                let v = t.remove(0);
+                t.insert(k, v);
+                out.push((3, format!("bury{k}"), t, computed));
+            }
+        }
+        if !self.garbage && d >= 1 && self.need(s[0], computed) < count(s[0]) {
+            out.push((2 * m, "pop".into(), s[1..].to_vec(), computed));
         }
         for (j, nd) in self.nodes.iter().enumerate() {
             if computed & (1 << j) != 0 {
@@ -262,7 +359,7 @@ impl Dag {
                         self.floor
                             .iter()
                             .position(|&x| x == v)
-                            .map(|p| d + extra + p < 16)
+                            .map(|p| d + extra + p < self.reach)
                     };
                     let x_ok = reach(a[0], 0).unwrap_or(true);
                     let s_ok = reach(a[1], 1).unwrap_or(false);
@@ -314,13 +411,14 @@ fn item(a: &str, nodes: &[Node]) -> u8 {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let floor: Vec<u8> = args[1].split(',').map(|a| item(a, &[])).collect();
-    let kept = args.get(2).is_some_and(|a| a == "kept");
+    let mode = args.get(2).map_or("stored", |a| a.as_str());
     let max_working: usize = args.get(3).map_or(8, |s| s.parse().unwrap());
     assert!(max_working <= 16);
-    let dag = Dag::build(floor, kept, max_working);
+    let dag = Dag::build(floor, mode, max_working);
     let nn = dag.nodes.len();
     assert!(nn <= 24);
     let show = |s: &[u8]| s.iter().map(|&v| dag.name(v)).collect::<Vec<_>>().join(",");
+    let gas = |g: u32| format!("{}", g as f64 / dag.m() as f64);
     if args.get(4).is_some_and(|a| a == "trace") {
         // replay: every move must be one the search could make
         let (mut s, mut c, mut g) = (Vec::new(), 0u32, 0u32);
@@ -335,12 +433,14 @@ fn main() {
             c = tc;
             dag.canon(&mut s, c);
         }
-        println!("gas {g} goal {}", dag.is_goal(&s, c));
+        println!("gas {} goal {}", gas(g), dag.is_goal(&s, c));
         println!("layout {}", show(&s));
-        println!("h0 {}", dag.h(&[], 0));
+        println!("h0 {}", gas(dag.h(&[], 0)));
         return;
     }
-    let ub: u32 = args.get(4).map_or(u32::MAX, |s| s.parse().unwrap());
+    let ub: u32 = args
+        .get(4)
+        .map_or(u32::MAX, |s| s.parse::<u32>().unwrap() * dag.m());
     let pack = |s: &[u8], c: u32| -> u128 {
         let mut k: u128 = 0;
         for &v in s.iter().rev() {
@@ -369,14 +469,14 @@ fn main() {
     let mut name_ix: HashMap<String, u16> = HashMap::new();
     let mut buf = Vec::new();
     let mut expanded = 0u64;
-    eprintln!("h0 {}", dag.h(&[], 0));
+    eprintln!("h0 {}", gas(dag.h(&[], 0)));
     while let Some((Reverse(f), g, key)) = pq.pop() {
         if g > dist[&key].0 {
             continue;
         }
         expanded += 1;
         if expanded.is_multiple_of(1_000_000) {
-            eprintln!("expanded {expanded}, states {}, f {f}", dist.len());
+            eprintln!("expanded {expanded}, states {}, f {}", dist.len(), gas(f));
         }
         let (s, computed) = unpack(key);
         if dag.is_goal(&s, computed) {
@@ -388,7 +488,7 @@ fn main() {
                 k = parent;
             }
             prog.reverse();
-            println!("gas {g}");
+            println!("gas {}", gas(g));
             println!("{}", prog.join(" "));
             println!("layout {}", show(&s));
             eprintln!("expanded {expanded} nodes, {} states", dist.len());

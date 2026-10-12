@@ -32,7 +32,7 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
-    internal3_periodic, internal4, linear_final4, round4, stream_blocks, templates,
+    internal3_periodic, internal4, linear_final4, ordered_blocks, round4, stream_blocks, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -1359,13 +1359,7 @@ impl<'a> Builder<'a> {
                 }
                 let block: Vec<Id> = self.state[4 * b..4 * b + 4].to_vec();
                 if self.opts.external_template {
-                    // the block's inputs on top in order, consumed by its
-                    // template
-                    for i in (0..4).rev() {
-                        u[i] =
-                            self.pair_add(block[i], sums[i], &format!("u{}", 4 * b + i), false)?;
-                        self.e.end_line();
-                    }
+                    // the block's outputs on top in order (ordered_block)
                     let kind = if clean {
                         BlockKind::Final
                     } else if b == 0 && before_last {
@@ -1373,8 +1367,8 @@ impl<'a> Builder<'a> {
                     } else {
                         BlockKind::Block
                     };
-                    let res =
-                        self.run_template(blocks(kind), &u, &names[4 * b..4 * b + 4], None)?;
+                    let x = self.state.clone();
+                    let res = self.ordered_block(kind, b, &x, &sums)?;
                     out[4 * b..4 * b + 4].copy_from_slice(&res);
                     continue;
                 }
@@ -1566,17 +1560,11 @@ impl<'a> Builder<'a> {
                     .iter()
                     .find(|p| self.stream_block_fits(p, b, &x, &sums));
                 if let Some(program) = program {
-                    self.stream_block(program, b, &x, &sums, r, kept, &mut out)?;
+                    self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
                     continue;
                 }
             }
-            let mut u = [0; 4];
-            for i in (0..4).rev() {
-                u[i] = self.pair_add(x[4 * b + i], sums[i], &format!("u{}", 4 * b + i), false)?;
-                self.e.end_line();
-            }
-            let names: Vec<String> = (0..4).map(|i| format!("s{}'", 4 * b + i)).collect();
-            let o = self.run_template(blocks(kind), &u, &names, None)?;
+            let o = self.ordered_block(kind, b, &x, &sums)?;
             for (i, &oi) in o.iter().enumerate() {
                 let j = 4 * b + i;
                 if self.e.top(0)? != oi {
@@ -1602,6 +1590,38 @@ impl<'a> Builder<'a> {
         self.sboxed = next.is_some();
         self.stored = next.is_none();
         Ok(())
+    }
+
+    /// The M4 of block b on u = x + S (the column sums), its outputs on top
+    /// in order: with streamed rounds the first program of ordered_blocks
+    /// whose DUPs reach the layout, else the u values and the block template
+    /// (Osaka t = 8 costs 323 gas more with the programs).
+    fn ordered_block(
+        &mut self,
+        kind: BlockKind,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+    ) -> Result<Vec<Id>> {
+        let programs = if self.stream() {
+            ordered_blocks(kind)
+        } else {
+            &[]
+        };
+        let program = programs
+            .iter()
+            .find(|p| self.stream_block_fits(p, b, x, sums));
+        if let Some(program) = program {
+            let o = self.stream_block(program, b, x, sums, None, true, &mut [])?;
+            return Ok(o.to_vec());
+        }
+        let mut u = [0; 4];
+        for i in (0..4).rev() {
+            u[i] = self.pair_add(x[4 * b + i], sums[i], &format!("u{}", 4 * b + i), false)?;
+            self.e.end_line();
+        }
+        let names: Vec<String> = (0..4).map(|i| format!("s{}'", 4 * b + i)).collect();
+        self.run_template(blocks(kind), &u, &names, None)
     }
 
     /// Whether a program of stream_blocks reaches every value it DUPs from
@@ -1672,7 +1692,9 @@ impl<'a> Builder<'a> {
 
     /// One block of a streamed layer from a program of stream_blocks, the
     /// column sums and a PRIME copy on top: its S-box outputs of round r go
-    /// to memory slots, or stay on the stack when kept.
+    /// to memory slots, or stay on the stack when kept. A program of
+    /// ordered_blocks has no lanes and no round; the M4 outputs s_{4b+i}'
+    /// are returned.
     #[allow(clippy::too_many_arguments)]
     fn stream_block(
         &mut self,
@@ -1680,11 +1702,12 @@ impl<'a> Builder<'a> {
         b: usize,
         x: &[Id],
         sums: &[Id; 4],
-        r: usize,
+        r: Option<usize>,
         kept: bool,
         out: &mut [Id],
-    ) -> Result<()> {
+    ) -> Result<[Id; 4]> {
         let p = self.p();
+        let mut o = [0; 4];
         for mv in program.split(' ') {
             if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
                 let j = 4 * b + i;
@@ -1708,6 +1731,9 @@ impl<'a> Builder<'a> {
                 if self.e.top(1)? != p {
                     bail!("lane {j} expects a PRIME copy under s{j}'");
                 }
+                let Some(r) = r else {
+                    bail!("lane {j} without a next round");
+                };
                 let c = self.params.round_constants[r][j];
                 if !self.e.fits_add(self.bound(s), c) {
                     bail!("lane {j}: s{j}' + c overflows");
@@ -1722,8 +1748,11 @@ impl<'a> Builder<'a> {
                 self.e.end_line();
             } else if let Some((op, name)) = mv.split_once('=') {
                 // the outputs o<i> of the M4 are s_{4b+i}'
-                let name = match name.strip_prefix('o') {
-                    Some(i) => format!("s{}'", 4 * b + i.parse::<usize>().expect("output")),
+                let output = name
+                    .strip_prefix('o')
+                    .map(|i| i.parse::<usize>().expect("output"));
+                let name = match output {
+                    Some(i) => format!("s{}'", 4 * b + i),
                     None => name.to_string(),
                 };
                 if op == "q" {
@@ -1743,13 +1772,16 @@ impl<'a> Builder<'a> {
                     }
                     _ => bail!("unknown stream block move {mv}"),
                 };
-                self.e.compute(op, &operands, &name)?;
+                let v = self.e.compute(op, &operands, &name)?;
+                if let Some(i) = output {
+                    o[i] = v;
+                }
                 self.e.end_line();
             } else {
                 bail!("unknown stream block move {mv}");
             }
         }
-        Ok(())
+        Ok(o)
     }
 
     /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on

@@ -586,3 +586,38 @@ Call gas measured by `verify`. Osaka t = 28 is 297 from the period and 84 from t
 - Only the longest and the next shorter period: misses t = 28's period 3, two below the longest.
 - Every shadowed input raw (also s8 to s15 at t = 28): 77,062 / 94,528 with the zeros, 77,027 / 94,485 without them (a shallower stack, so a second probe), but inputs within reach at entry lose their 3-gas `DUP`s and t = 16 / t = 20 then fail as one contract or cost more (t = 16 48,775 against 48,659). Not kept; 25 to 70 gas at t = 24 / t = 28 are left there.
 - Mid entry for a partial call when there is only one full call (Amsterdam t = 24 / t = 28 after the change above): the rotation of a single chain of 23 / 27 elements takes about as many `SWAP`s, more than the 15 gas of the mid exit.
+
+## Wide widths: ordered block programs and the interleaving bound
+
+Baseline ac591e5, 2026-10-12. The layer before the internal rounds and the last linear layer still ran `u = x + S` and the `block` / `exit` / `final` templates, whose outputs end on top in order (161, 164 and 193 gas a block replayed in `sblock`).
+
+### Changes
+
+- `sblock` goals `exit` (outputs `[o0, o1, o2, o3]` on top), `exit0` (`[o0, P, o1, o2, o3]`, block 0 before the internal rounds) and `final` (the reduced M4). Best: exit 152 (none below within a working stack of 10), exit0 155 (none below within 9), final 184 (none below within 11). RESULTS.md has the growth curves.
+- `ordered_blocks` (templates.rs / templates.ts) holds the three programs; `ordered_block` runs the first whose DUPs reach the stack, else the template, in schedules with streamed rounds only (Osaka t = 8 costs 323 gas more with them: 24,822).
+
+| Fork      | Width | Before | After  | Saving | Runtime bytes before / after |
+| --------- | ----: | -----: | -----: | -----: | ---------------------------: |
+| Amsterdam |     8 | 23,969 | 23,933 |     36 | 25,134 / 25,124              |
+| Amsterdam |    12 | 34,342 | 34,288 |     54 | 36,681 / 36,676              |
+| Amsterdam |    16 | 45,038 | 44,966 |     72 | 49,150 / 49,123              |
+| Amsterdam |    20 | 55,853 | 55,763 |     90 | 61,177 / 61,144              |
+| Amsterdam |    24 | 66,539 | 66,431 |    108 | 64,654 / 64,615              |
+| Amsterdam |    28 | 79,158 | 79,032 |    126 | 64,616 / 64,571              |
+| Osaka     |    16 | 48,659 | 48,635 |     24 | 24,306 / 24,302              |
+| Osaka     |    20 | 63,221 | 63,188 |     33 | 24,033 / 24,026              |
+| Osaka     |    24 | 77,087 | 77,045 |     42 | 24,223 / 24,213              |
+| Osaka     |    28 | 94,553 | 94,502 |     51 | 24,383 / 24,370              |
+
+Call gas measured by `verify`. t = 2 to 4 and Osaka t = 8 / t = 12 are byte-identical. Amsterdam saves 18 gas a block (9 in each layer); on Osaka only the last layer takes its program.
+
+### Rejected
+
+- Osaka exit layer with a pushed PRIME (`[PRIME]` or its memory slot) where no copy is within `DUP16` reach: t = 16 48,617 (+58 bytes), t = 20 63,194 (+6 gas), t = 24 and t = 28 12 gas less. Not uniform, not kept.
+- Dead values left on the stack (Amsterdam, `GARBAGE=1`: a `DUP` may leave a spare copy, nothing is popped) for the 347 kept block: none below 347 within a working stack of 8 (102M states, 699 s, 14.7 GB); 9 would pass 30 GB.
+- Interleaving adjacent blocks (the next block's `u` among this block's S-boxes): a lower bound first (`sblock` `ROLL=1`, RESULTS.md), 341 within a working stack of 10 against 347, so at most 6 gas a block and only if every one of its six rolls is a `SWAP` the neighbouring block needs as well. Not worth a two-block search, whose states would be far beyond the memory cap.
+
+### Left open
+
+- The S-boxes after the internal rounds (51 gas a lane: a PRIME copy and a `DUP` of the input over the 45 of the lane) could run in the last internal round's output loop, where each output is on top over a PRIME copy: about 3 gas a lane (45 at t = 16, 81 at t = 28 on Amsterdam), at the price of a hook in every internal round emitter, the shared body included.
+- Column sums (119 gas a round at t = 16): `t` `DUP`s, the `ADD`s and one `ADDMOD` a column; every S-box output has two reads (its column sum and its `u`) and none comes up on top at the right moment, and an unreduced sum (up to `kp`) overflows the M4 (`t0 = u0 + u1` needs `u < 2.6p`). No gain found.

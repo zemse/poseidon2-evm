@@ -56,6 +56,7 @@ import {
   INTERNAL3_PERIODIC,
   INTERNAL4,
   LINEAR_FINAL4,
+  ORDERED_BLOCKS,
   ROUND4_FIRST,
   TEMPLATES,
   streamBlocks,
@@ -1090,21 +1091,13 @@ class Builder {
         if (b === 0 && beforeOutputs) beforeOutputs();
         const block = this.state.slice(4 * b, 4 * b + 4);
         if (this.opts.externalTemplate) {
-          // the block's inputs on top in order, consumed by its template
-          for (let i = 3; i >= 0; i--) {
-            u[i] = this.pairAdd(block[i], S[i], `u${4 * b + i}`, false);
-            e.endLine();
-          }
+          // the block's outputs on top in order (orderedBlock)
           const kind = clean
             ? "final"
             : b === 0 && beforeLast
               ? "exit"
               : "block";
-          const res = this.runTemplate(
-            BLOCKS[kind],
-            u,
-            names.slice(4 * b, 4 * b + 4),
-          );
+          const res = this.orderedBlock(kind, b, this.state, S);
           for (let i = 0; i < 4; i++) out[4 * b + i] = res[i];
           continue;
         }
@@ -1261,13 +1254,7 @@ class Builder {
           return;
         }
       }
-      const u: Value[] = new Array(4);
-      for (let i = 3; i >= 0; i--) {
-        u[i] = this.pairAdd(x[4 * b + i], S[i], `u${4 * b + i}`, false);
-        e.endLine();
-      }
-      const names = [0, 1, 2, 3].map((i) => `s${4 * b + i}'`);
-      const o = this.runTemplate(BLOCKS[kind], u, names);
+      const o = this.orderedBlock(kind, b, x, S);
       for (let i = 0; i < 4; i++) {
         const j = 4 * b + i;
         if (e.top(0) !== o[i]) e.swap(e.find(o[i]) - 1);
@@ -1285,6 +1272,28 @@ class Builder {
     this.state = out;
     this.sboxed = next !== undefined;
     this.stored = next === undefined;
+  }
+
+  // The M4 of block b on u = x + S (the column sums), its outputs on top in
+  // order: with streamed rounds the first program of ORDERED_BLOCKS whose
+  // DUPs reach the layout, else the u values and the block template (Osaka
+  // t = 8 costs 323 gas more with the programs).
+  orderedBlock(
+    kind: "block" | "exit" | "final",
+    b: number,
+    x: Value[],
+    S: Value[],
+  ): Value[] {
+    const programs = this.stream ? ORDERED_BLOCKS[kind] : [];
+    const program = programs.find((p) => this.streamBlockFits(p, b, x, S));
+    if (program) return this.streamBlock(program, b, x, S, undefined, true, []);
+    const u: Value[] = new Array(4);
+    for (let i = 3; i >= 0; i--) {
+      u[i] = this.pairAdd(x[4 * b + i], S[i], `u${4 * b + i}`, false);
+      this.e.endLine();
+    }
+    const names = [0, 1, 2, 3].map((i) => `s${4 * b + i}'`);
+    return this.runTemplate(BLOCKS[kind], u, names);
   }
 
   // Whether a program of streamBlocks reaches every value it DUPs from the
@@ -1347,17 +1356,19 @@ class Builder {
 
   // One block of a streamed layer from a program of streamBlocks, the
   // column sums and a PRIME copy on top: its S-box outputs of round r go to
-  // memory slots, or stay on the stack when kept.
+  // memory slots, or stay on the stack when kept. A program of ORDERED_BLOCKS
+  // has no lanes and no round; the M4 outputs s_{4b+i}' are returned.
   streamBlock(
     program: string,
     b: number,
     x: Value[],
     S: Value[],
-    r: number,
+    r: number | undefined,
     kept: boolean,
     out: Value[],
-  ) {
+  ): Value[] {
     const e = this.e;
+    const outputs: Value[] = new Array(4);
     for (const move of program.split(" ")) {
       let m: RegExpExecArray | null;
       if ((m = /^u(\d+)$/.exec(move))) {
@@ -1377,6 +1388,7 @@ class Builder {
         if (e.top(1) !== this.P) {
           throw new Error(`lane ${j} expects a PRIME copy under s${j}'`);
         }
+        if (r === undefined) throw new Error(`lane ${j} without a next round`);
         const c = this.constant(this.params.roundConstants[r][j], "c");
         if (!e.fitsAdd(s, c)) {
           throw new Error(`lane ${j}: s${j}' + c overflows`);
@@ -1394,12 +1406,14 @@ class Builder {
         const operands = [inplace(e.top(0)), inplace(e.top(1))];
         if (m[1] !== "add") operands.push(inplace(this.P));
         const op = m[1] === "q" ? "mulmod" : (m[1] as "add" | "addmod");
-        e.compute(op, operands, name);
+        const v = e.compute(op, operands, name);
+        if (o) outputs[Number(o[1])] = v;
         e.endLine();
       } else {
         throw new Error(`unknown stream block move ${move}`);
       }
     }
+    return outputs;
   }
 
   // Last round when the caller reads s0' alone (t = 4): row 0 of M4 on the

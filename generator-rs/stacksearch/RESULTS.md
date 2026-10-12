@@ -331,6 +331,24 @@ The working stack counts the kept outputs, so the kept block needs one slot more
 
 Amsterdam streams too (stack only, every block kept, each running the 347 program; `DUPN` reaches every input): a steady external round costs 4 x 347 + 119 for the column sums = 1,507 gas at t = 16 instead of 1,576, and 2,652 instead of 2,775 at t = 28. Call gas: t = 8 24,200 to 23,969, t = 12 34,764 to 34,342, t = 16 45,524 to 45,038, t = 20 56,465 to 55,853, t = 24 67,343 to 66,605, t = 28 80,049 to 79,182. The window 10 run above was made for it and finds nothing below 347.
 
+Two relaxations of the kept block on Amsterdam (`REACH=235`, floor `S0..S3,P,_,_,_,_,x0..x3`, under 347). `GARBAGE=1` leaves dead values and one spare copy a value on the stack instead of popping them (DUPN reaches past them): none below 347 within 8 (102M states, 699 s, 14.7 GB), 9 would pass 30 GB. `ROLL=1` bounds interleaving with the neighbouring blocks: a SWAP with another block's value is, seen from this block, a roll of one of its values to the top or a bury of its top, at half a SWAP each (the other half is the neighbour's). The optimum is a lower bound per block for any interleaving within the window (macros whole):
+
+| Working | 6 | 7 | 8 | 9 | 10 |
+| :------ | -: | -: | -: | -: | -: |
+| bound | 344 (0.6M states, 6 s, 0.1 GB) | 344 (2.4M, 30 s, 0.5 GB) | 342.5 (7.7M, 119 s, 1.8 GB) | 342.5 (21.8M, 410 s, 3.7 GB) | 341 (55.7M, 1,198 s, 7.5 GB) |
+
+The window 10 bound uses no SWAP and six rolls or buries, so a real interleaving saves at most 6 gas a block, and only if each of them is a SWAP the neighbour needs too; window 11 would pass 30 minutes. Not pursued (49 blocks a call at t = 28, 294 gas at the very most).
+
+The layers whose blocks end with their outputs in order, the one before the internal rounds (`exit`, block 0 `exit0` with a PRIME copy under `s0'`) and the last (`final`, reduced), ran `u = x + S` and the templates. Same floor and `REACH=235`, under the template's gas:
+
+| Goal | Template | Working 7 | 8 | 9 | 10 | 11 |
+| :--- | -------: | --------: | -: | -: | -: | -: |
+| `exit` | 161 | 152 (1.5M states, 5 s, 0.2 GB) | 152 (4.4M, 20 s, 0.9 GB) | none below 152 (10.4M, 56 s, 1.8 GB) | none below 152 (19.4M, 121 s, 3.6 GB) | |
+| `exit0` | 164 | | 155 (5.3M, 23 s, 0.9 GB) | none below 155 (14.1M, 75 s, 1.9 GB) | | |
+| `final` | 193 | | 190 (5.9M, 26 s, 0.9 GB) | 187 (17.5M, 93 s, 3.5 GB) | 184 (45.9M, 271 s, 7.2 GB) | none below 184 (107.8M, 721 s, 14.3 GB) |
+
+`final` gains a PRIME copy placed early per slot of window. In the generator (`ordered_blocks`, streamed schedules only): Amsterdam saves 18 gas a block, t = 8 23,969 to 23,933, t = 12 34,342 to 34,288, t = 16 45,038 to 44,966, t = 20 55,853 to 55,763, t = 24 66,539 to 66,431, t = 28 79,158 to 79,032; Osaka takes only `final` (the exit layer's PRIME copies are out of `DUP16` reach), t = 16 48,659 to 48,635, t = 20 63,221 to 63,188, t = 24 77,087 to 77,045, t = 28 94,553 to 94,502.
+
 ## Changes and rejected approaches
 
 - Release an exhausted f bucket instead of retaining every historical frontier's capacity.
