@@ -19,7 +19,7 @@ use crate::reference::permutation;
 use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
 use render::{library_name, render_array_library, render_forge_test, render_hash_library};
-use schedule::{Layout, Mode, build_permutation};
+use schedule::{Layout, Mode, build_hash_entry, build_permutation};
 
 /// Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
 /// via-IR, optimizer off, 200 and 1,000,000 runs): locals up to the DUP16 /
@@ -92,14 +92,18 @@ fn generate(t: usize) -> Result<Output> {
     let layout = layout_for(t);
 
     if t == 4 {
-        let result = build_permutation(&params, &inputs, layout, Mode::Hash, 3)?;
+        let core = build_permutation(&params, &inputs, layout, Mode::Hash, 3)?;
+        let rest = build_permutation(&params, &inputs, layout, Mode::HashRest, 3)?;
+        let entries = (1..=3)
+            .map(|n| build_hash_entry(&params, &inputs, n, 3))
+            .collect::<Result<Vec<_>>>()?;
         let path = "src/bn254/yul/LibPoseidon2Yul.sol".to_string();
         let log = format!(
             "t=4 Rf={} Rp={}: wrote {path}",
             params.rounds_f, params.rounds_p
         );
         return Ok(Output {
-            files: vec![(path, render_hash_library(&result))],
+            files: vec![(path, render_hash_library(&core, &rest, &entries))],
             mkdir: None,
             log: vec![log],
         });

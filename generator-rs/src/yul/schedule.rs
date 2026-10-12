@@ -12,8 +12,8 @@
 use super::program::Program;
 use crate::bail;
 use crate::error::Result;
-use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
-use crate::reference::permutation;
+use crate::field::{PRIME, U256, U512, UINT256_MAX, add, reduce, u256, wide};
+use crate::reference::{matmul_external, permutation};
 use crate::round_constants::Params;
 use crate::value::{Op, Value};
 
@@ -51,6 +51,10 @@ pub enum Mode {
     /// t = 4 library: the inputs are the function arguments s0 .. s3 and
     /// only element 0 is returned, as `result`
     Hash,
+    /// the t = 4 library from round 0's S-boxes on (`poseidon2_rest`): the
+    /// arguments state0 .. state3 are the initial linear layer plus round
+    /// 0's constants, any uint256, folded per arity by `build_hash_entry`
+    HashRest,
     /// in-place permutation of the memory array `state`
     Array,
 }
@@ -89,7 +93,7 @@ impl<'a> Builder<'a> {
         mode: Mode,
         indent: usize,
     ) -> Result<Builder<'a>> {
-        if mode == Mode::Hash && (params.t != 4 || layout.stack_elements != 4) {
+        if mode != Mode::Array && (params.t != 4 || layout.stack_elements != 4) {
             bail!("hash mode is the t = 4 library with all locals");
         }
         if layout.stack_elements > params.t
@@ -338,10 +342,15 @@ impl<'a> Builder<'a> {
 
     /// (s_i + c)^5 written back to element i; y and x2 are popped with the
     /// block
-    fn sbox(&mut self, i: usize, c: U256) -> Result<()> {
+    fn sbox(&mut self, i: usize, c: Option<U256>) -> Result<()> {
         self.p.open();
-        let y = self.add(&self.state[i], &self.p.constant(c), false)?;
-        let y = self.p.let_("y", &y)?;
+        let y = match c {
+            Some(c) => {
+                let y = self.add(&self.state[i], &self.p.constant(c), false)?;
+                self.p.let_("y", &y)?
+            }
+            None => self.state[i].clone(),
+        };
         let x2 = self.p.expr(Op::Mulmod, &[&y, &y, &self.p.p])?;
         let x2 = self.p.let_("x2", &x2)?;
         let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
@@ -496,7 +505,13 @@ impl<'a> Builder<'a> {
 
     fn external_round(&mut self, round: usize, clean: bool, needed: [bool; 4]) -> Result<()> {
         for i in 0..self.t {
+            // HashRest takes round 0's constants already added
             let c = self.params.round_constants[round][i];
+            let c = if self.mode == Mode::HashRest && round == 0 {
+                None
+            } else {
+                Some(c)
+            };
             self.sbox(i, c)?;
         }
         self.external_matrix(clean, needed)
@@ -546,7 +561,7 @@ impl<'a> Builder<'a> {
     fn internal_round(&mut self, round: usize) -> Result<()> {
         let c = self.params.round_constants[round][0];
         if !self.layout.internal_let {
-            self.sbox(0, c)?;
+            self.sbox(0, Some(c))?;
             self.p.open();
             let x5 = self.state[0].clone();
             self.internal_outputs(&x5)?;
@@ -568,15 +583,11 @@ impl<'a> Builder<'a> {
 
     // ---- whole permutation -------------------------------------------------
 
-    fn build(mut self) -> Result<BuildResult> {
+    /// Inputs reduced mod PRIME and the initial linear layer. PRIME is
+    /// declared after the state locals (unless prime_first) so that the
+    /// locals, which are read with temporaries on top, are the deeper slots.
+    fn entry(&mut self) -> Result<()> {
         let t = self.t;
-        let rf_half = self.params.rounds_f / 2;
-        let p_end = rf_half + self.params.rounds_p;
-        let total = self.params.rounds_f + self.params.rounds_p;
-
-        // PRIME is declared after the state locals (unless prime_first) so
-        // that the locals, which are read with temporaries on top, are the
-        // deeper slots
         self.p.comment("inputs reduced mod PRIME");
         let prime = if self.layout.prime_first {
             let c = self.p.constant(PRIME);
@@ -594,7 +605,7 @@ impl<'a> Builder<'a> {
         };
         self.state = vec![prime.clone(); t];
         for i in 0..self.layout.stack_elements {
-            let e = self.p.expr(Op::Mod, &[&raw(&self, i), &prime])?;
+            let e = self.p.expr(Op::Mod, &[&raw(self, i), &prime])?;
             self.state[i] = self.p.let_(&Self::name(i), &e)?;
         }
         if self.in_memory() > 0 {
@@ -605,7 +616,7 @@ impl<'a> Builder<'a> {
             self.p.let_("PRIME", &prime)?;
         }
         for i in self.layout.stack_elements..t {
-            let e = self.p.expr(Op::Mod, &[&raw(&self, i), &self.p.p])?;
+            let e = self.p.expr(Op::Mod, &[&raw(self, i), &self.p.p])?;
             self.state[i] = self.p.mstore(&Self::addr(i, "mem"), &e)?;
         }
         self.p.blank();
@@ -613,6 +624,33 @@ impl<'a> Builder<'a> {
         self.p.comment("initial linear layer");
         self.external_matrix(false, [true; 4])?;
         self.p.blank();
+        Ok(())
+    }
+
+    fn build(mut self) -> Result<BuildResult> {
+        let t = self.t;
+        let rf_half = self.params.rounds_f / 2;
+        let p_end = rf_half + self.params.rounds_p;
+        let total = self.params.rounds_f + self.params.rounds_p;
+
+        if self.mode == Mode::HashRest {
+            let c = self.p.constant(PRIME);
+            self.p.let_("PRIME", &c)?;
+            let folded: Vec<Vec<U256>> = self
+                .inputs
+                .iter()
+                .map(|input| round0_input(self.params, input))
+                .collect();
+            self.state = (0..t)
+                .map(|i| {
+                    let vals = folded.iter().map(|y| y[i]).collect();
+                    self.p.input(&Self::name(i), vals)
+                })
+                .collect();
+            self.p.blank();
+        } else {
+            self.entry()?;
+        }
 
         for r in 0..rf_half {
             self.p.comment(&format!("round {r} (external)"));
@@ -671,7 +709,7 @@ impl<'a> Builder<'a> {
             internal(&mut self)?;
         }
 
-        let needed = if self.mode == Mode::Hash {
+        let needed = if self.mode != Mode::Array {
             [true, false, false, false]
         } else {
             [true; 4]
@@ -686,7 +724,7 @@ impl<'a> Builder<'a> {
         }
 
         self.p.blank();
-        if self.mode == Mode::Hash {
+        if self.mode != Mode::Array {
             let s0 = self.state[0].clone();
             self.p.assign("result", &s0)?;
         } else {
@@ -698,7 +736,7 @@ impl<'a> Builder<'a> {
         }
 
         // outputs must be clean and match the reference permutation
-        let checked = if self.mode == Mode::Hash { 1 } else { t };
+        let checked = if self.mode != Mode::Array { 1 } else { t };
         let outputs = &self.state[..checked];
         for (i, out) in outputs.iter().enumerate() {
             if out.bound >= PRIME {
@@ -728,4 +766,109 @@ pub fn build_permutation(
     indent: usize,
 ) -> Result<BuildResult> {
     Builder::new(params, inputs, layout, mode, indent)?.build()
+}
+
+/// The state after the initial linear layer and round 0's constants, mod p.
+fn round0_input(params: &Params, input: &[U256]) -> Vec<U256> {
+    let mut s: Vec<U256> = input.iter().map(|&x| reduce(x)).collect();
+    matmul_external(&mut s);
+    for (x, &c) in s.iter_mut().zip(&params.round_constants[0]) {
+        *x = add(*x, c);
+    }
+    s
+}
+
+/// hash_n's entry into `poseidon2_rest` (t = 4): the initial linear layer
+/// and round 0's constants on [x, y, z, 0 .., n << 64] folded into four
+/// linear forms over the reduced inputs, assigned to s0 .. s3. The test
+/// inputs supply x, y, z.
+pub fn build_hash_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    n: usize,
+    indent: usize,
+) -> Result<BuildResult> {
+    let mut p = Program::new(inputs.len(), indent);
+    let prime = p.constant(PRIME);
+    p.let_("PRIME", &prime)?;
+    let arg = |p: &Program, i: usize| -> Result<Value> {
+        let name = ["x", "y", "z"][i];
+        let raw = p.input(name, inputs.iter().map(|input| input[i]).collect());
+        p.expr(Op::Mod, &[&raw, &p.p])
+    };
+    // the constant part of each form
+    let mut capacity = vec![U256::ZERO; 4];
+    capacity[3] = u256(n as u64) << 64;
+    let k: Vec<Value> = round0_input(params, &capacity)
+        .into_iter()
+        .map(|c| p.constant(c))
+        .collect();
+    let [one, two, four, five] = [1, 2, 4, 5].map(|v| p.constant(u256(v)));
+    let ys = match n {
+        // [5a, 4a, a, a]
+        1 => {
+            let a = arg(&p, 0)?;
+            let a = p.let_("a", &a)?;
+            vec![
+                p.expr(Op::Mulmod, &[&a, &five, &p.p])?,
+                p.expr(Op::Shl, &[&two, &a])?,
+                a.clone(),
+                a,
+            ]
+        }
+        // with t0 = a + b: [5 t0 + 2b, 4 t0 + 2b, t0 + 2b, t0]
+        2 => {
+            let b = arg(&p, 1)?;
+            let b = p.let_("b", &b)?;
+            let t0 = p.expr(Op::Add, &[&b, &arg(&p, 0)?])?;
+            let t0 = p.let_("t0", &t0)?;
+            let b2 = p.expr(Op::Shl, &[&one, &b])?;
+            let b2 = p.let_("b2", &b2)?;
+            vec![
+                p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&t0, &five, &p.p])?, &b2])?,
+                p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&t0, &four, &p.p])?, &b2])?,
+                p.expr(Op::Add, &[&t0, &b2])?,
+                t0,
+            ]
+        }
+        // with t0 = a + b, u = 2b + c, v = 4c + t0:
+        // [5 t0 + u, 4 t0 + u, v + u, v]
+        3 => {
+            let b = arg(&p, 1)?;
+            let b = p.let_("b", &b)?;
+            let cz = arg(&p, 2)?;
+            let cz = p.let_("c", &cz)?;
+            let t0 = p.expr(Op::Add, &[&b, &arg(&p, 0)?])?;
+            let t0 = p.let_("t0", &t0)?;
+            let u = p.expr(Op::Add, &[&p.expr(Op::Shl, &[&one, &b])?, &cz])?;
+            let u = p.let_("u", &u)?;
+            let v = p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&cz, &four, &p.p])?, &t0])?;
+            let v = p.let_("v", &v)?;
+            vec![
+                p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&t0, &five, &p.p])?, &u])?,
+                p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&t0, &four, &p.p])?, &u])?,
+                p.expr(Op::Addmod, &[&v, &u, &p.p])?,
+                v,
+            ]
+        }
+        _ => bail!("hash_{n} has no entry"),
+    };
+    // hash_1 in order, the others y3 first
+    let order: [usize; 4] = if n == 1 { [0, 1, 2, 3] } else { [3, 2, 1, 0] };
+    let mut out: Vec<Option<Value>> = vec![None; 4];
+    for i in order {
+        let e = p.expr(Op::Add, &[&ys[i], &k[i]])?;
+        out[i] = Some(p.assign(&format!("s{i}"), &e)?);
+    }
+    for (j, input) in inputs.iter().enumerate() {
+        let mut sponge = input[..n].to_vec();
+        sponge.extend(capacity[n..].iter().copied());
+        let want = round0_input(params, &sponge);
+        for (i, y) in out.iter().enumerate() {
+            if reduce(y.as_ref().expect("assigned").vals[j]) != want[i] {
+                bail!("hash_{n} entry vector {j} output {i} mismatch");
+            }
+        }
+    }
+    Ok(BuildResult { lines: p.lines })
 }

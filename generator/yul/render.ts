@@ -13,7 +13,34 @@ const SECURITY =
   "Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md";
 
 // The t = 4 library keeps its hash_1 / hash_2 / hash_3 / poseidon2_core API.
-export function renderHashLibrary(result: BuildResult): string {
+// hash_n fold the initial linear layer and round 0's constants for their
+// arity (entries) and continue in poseidon2_rest (rest), which
+// poseidon2_core does not call, so a contract using only one of them carries
+// one permutation.
+export function renderHashLibrary(
+  core: BuildResult,
+  rest: BuildResult,
+  entries: BuildResult[],
+): string {
+  const names = ["x", "y", "z"];
+  const hashes = entries.map((entry, k) => {
+    const n = k + 1;
+    const args = names.slice(0, n).map((a) => `uint256 ${a}`);
+    const lanes = [...names.slice(0, n), "0", "0"].slice(0, 3);
+    lanes.push(`${n} << 64`);
+    return `    function hash_${n}(${args.join(", ")}) internal pure returns (uint256) {
+        uint256 s0;
+        uint256 s1;
+        uint256 s2;
+        uint256 s3;
+        assembly {
+            // the initial linear layer and round 0's constants on [${lanes.join(", ")}]
+${entry.lines.join("\n")}
+        }
+        return poseidon2_rest(s0, s1, s2, s3);
+    }
+`;
+  });
   return `${HEADER}
 pragma solidity >=0.6.0;
 
@@ -22,21 +49,17 @@ pragma solidity >=0.6.0;
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
 /// ${SECURITY}
 library LibPoseidon2Yul {
-    function hash_1(uint256 x) internal pure returns (uint256) {
-        return poseidon2_core(x, 0, 0, 1 << 64);
-    }
-
-    function hash_2(uint256 x, uint256 y) internal pure returns (uint256) {
-        return poseidon2_core(x, y, 0, 2 << 64);
-    }
-
-    function hash_3(uint256 x, uint256 y, uint256 z) internal pure returns (uint256) {
-        return poseidon2_core(x, y, z, 3 << 64);
-    }
-
+${hashes.join("\n")}
     function poseidon2_core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) internal pure returns (uint256 result) {
         assembly {
-${result.lines.join("\n")}
+${core.lines.join("\n")}
+        }
+    }
+
+    /// @dev The permutation from round 0's S-boxes on: state0 .. state3 are the initial linear layer plus round 0's constants (any uint256)
+    function poseidon2_rest(uint256 state0, uint256 state1, uint256 state2, uint256 state3) internal pure returns (uint256 result) {
+        assembly {
+${rest.lines.join("\n")}
         }
     }
 }

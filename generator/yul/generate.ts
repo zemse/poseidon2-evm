@@ -15,7 +15,7 @@ import { assertKnown } from "../round-constants/assert-known.ts";
 import { generateParams } from "../round-constants/round-constants.ts";
 import { permutation } from "../shared/reference.ts";
 import { testInputs } from "../shared/vectors.ts";
-import { buildPermutation, type Layout } from "./schedule.ts";
+import { buildHashEntry, buildPermutation, type Layout } from "./schedule.ts";
 import {
   libraryName,
   renderArrayLibrary,
@@ -91,15 +91,17 @@ function generate(t: number) {
   const layout = layoutFor(t);
 
   if (t === 4) {
-    const result = buildPermutation(
+    const core = buildPermutation(params, inputs, layout, { kind: "hash" }, 3);
+    const rest = buildPermutation(
       params,
       inputs,
       layout,
-      { kind: "hash" },
+      { kind: "hashRest" },
       3,
     );
+    const entries = [1, 2, 3].map((n) => buildHashEntry(params, inputs, n, 3));
     const path = "src/bn254/yul/LibPoseidon2Yul.sol";
-    writeFileSync(path, renderHashLibrary(result));
+    writeFileSync(path, renderHashLibrary(core, rest, entries));
     console.log(`t=4 Rf=${params.roundsF} Rp=${params.roundsP}: wrote ${path}`);
     return;
   }

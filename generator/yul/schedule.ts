@@ -16,9 +16,9 @@
 // arguments right to left. Every local is kept within DUP16 / SWAP16 by the
 // reach model below, which assumes the literal compile.
 
-import { PRIME, UINT256_MAX } from "../shared/field.ts";
+import { add, mod, PRIME, UINT256_MAX } from "../shared/field.ts";
 import type { Params } from "../round-constants/round-constants.ts";
-import { permutation } from "../shared/reference.ts";
+import { matmulExternal, permutation } from "../shared/reference.ts";
 import { Value } from "../shared/value.ts";
 import { Program } from "./program.ts";
 
@@ -64,6 +64,10 @@ export type Mode =
   // t = 4 library: the inputs are the function arguments s0 .. s3 and only
   // element 0 is returned, as `result`
   | { kind: "hash" }
+  // the t = 4 library from round 0's S-boxes on (poseidon2_rest): the
+  // arguments state0 .. state3 are the initial linear layer plus round 0's
+  // constants, any uint256, folded per arity by buildHashEntry
+  | { kind: "hashRest" }
   // in-place permutation of the memory array `state`
   | { kind: "array" };
 
@@ -95,7 +99,10 @@ class Builder {
     this.mode = mode;
     this.inputs = inputs;
     this.p = new Program(inputs.length, indent);
-    if (mode.kind === "hash" && (params.t !== 4 || layout.stackElements !== 4))
+    if (
+      mode.kind !== "array" &&
+      (params.t !== 4 || layout.stackElements !== 4)
+    )
       throw new Error("hash mode is the t = 4 library with all locals");
     if (
       layout.stackElements > params.t ||
@@ -268,10 +275,13 @@ class Builder {
   }
 
   // (s_i + c)^5 written back to element i; y and x2 are popped with the block
-  sbox(i: number, c: bigint) {
+  sbox(i: number, c?: bigint) {
     const p = this.p;
     p.block(() => {
-      const y = p.let("y", this.add(this.state[i], p.constant(c)));
+      const y =
+        c === undefined
+          ? this.state[i]
+          : p.let("y", this.add(this.state[i], p.constant(c)));
       const x2 = p.let("x2", p.expr("mulmod", y, y, this.P));
       this.set(
         i,
@@ -389,7 +399,11 @@ class Builder {
 
   externalRound(round: number, clean: boolean, needed?: boolean[]) {
     const rc = this.params.roundConstants[round];
-    for (let i = 0; i < this.t; i++) this.sbox(i, rc[i]);
+    // hashRest takes round 0's constants already added
+    const folded = this.mode.kind === "hashRest" && round === 0;
+    for (let i = 0; i < this.t; i++) {
+      this.sbox(i, folded ? undefined : rc[i]);
+    }
     this.externalMatrix(clean, needed);
   }
 
@@ -454,17 +468,12 @@ class Builder {
 
   // ---- whole permutation ---------------------------------------------------
 
-  build(): BuildResult {
+  // Inputs reduced mod PRIME and the initial linear layer. PRIME is declared
+  // after the state locals (unless primeFirst) so that the locals, which are
+  // read with temporaries on top, are the deeper slots.
+  entry() {
     const p = this.p;
     const t = this.t;
-    const { roundsF, roundsP } = this.params;
-    const rfHalf = roundsF / 2;
-    const pEnd = rfHalf + roundsP;
-    const total = roundsF + roundsP;
-
-    // PRIME is declared after the state locals (unless primeFirst) so that
-    // the locals, which are read with temporaries on top, are the deeper
-    // slots
     p.comment("inputs reduced mod PRIME");
     const prime = this.layout.primeFirst
       ? p.let("PRIME", p.constant(PRIME))
@@ -487,6 +496,28 @@ class Builder {
     p.comment("initial linear layer");
     this.externalMatrix(false);
     p.blank();
+  }
+
+  build(): BuildResult {
+    const p = this.p;
+    const t = this.t;
+    const { roundsF, roundsP } = this.params;
+    const rfHalf = roundsF / 2;
+    const pEnd = rfHalf + roundsP;
+    const total = roundsF + roundsP;
+
+    if (this.mode.kind === "hashRest") {
+      p.let("PRIME", p.constant(PRIME));
+      const folded = this.inputs.map((input) =>
+        round0Input(this.params, input),
+      );
+      for (let i = 0; i < t; i++) {
+        this.state[i] = p.input(this.name(i), folded.map((y) => y[i]));
+      }
+      p.blank();
+    } else {
+      this.entry();
+    }
 
     for (let r = 0; r < rfHalf; r++) {
       p.comment(`round ${r} (external)`);
@@ -536,7 +567,7 @@ class Builder {
     }
 
     const needed =
-      this.mode.kind === "hash" ? [true, false, false, false] : undefined;
+      this.mode.kind !== "array" ? [true, false, false, false] : undefined;
     for (let r = pEnd; r < total; r++) {
       p.comment(`round ${r} (external)`);
       const last = r === total - 1;
@@ -545,7 +576,7 @@ class Builder {
     }
 
     p.blank();
-    if (this.mode.kind === "hash") {
+    if (this.mode.kind !== "array") {
       p.assign("result", this.state[0]);
     } else {
       for (let i = 0; i < this.layout.stackElements; i++) {
@@ -555,7 +586,7 @@ class Builder {
     }
 
     // outputs must be clean and match the reference permutation
-    const checked = this.mode.kind === "hash" ? 1 : t;
+    const checked = this.mode.kind !== "array" ? 1 : t;
     for (let i = 0; i < checked; i++) {
       if (this.state[i].bound >= PRIME)
         throw new Error(`output ${i} is not clean`);
@@ -581,4 +612,86 @@ export function buildPermutation(
   indent: number,
 ): BuildResult {
   return new Builder(params, inputs, layout, mode, indent).build();
+}
+
+// The state after the initial linear layer and round 0's constants, mod p.
+function round0Input(params: Params, input: bigint[]): bigint[] {
+  const s = input.map(mod);
+  matmulExternal(s);
+  return s.map((x, i) => add(x, params.roundConstants[0][i]));
+}
+
+// hash_n's entry into poseidon2_rest (t = 4): the initial linear layer and
+// round 0's constants on [x, y, z, 0 .., n << 64] folded into four linear
+// forms over the reduced inputs, assigned to s0 .. s3. The test inputs
+// supply x, y, z.
+export function buildHashEntry(
+  params: Params,
+  inputs: bigint[][],
+  n: number,
+  indent: number,
+): BuildResult {
+  const p = new Program(inputs.length, indent);
+  p.let("PRIME", p.constant(PRIME));
+  const arg = (i: number) =>
+    p.expr(
+      "mod",
+      p.input(["x", "y", "z"][i], inputs.map((input) => input[i])),
+      p.P,
+    );
+  // the constant part of each form
+  const capacity = [0n, 0n, 0n, BigInt(n) << 64n];
+  const k = round0Input(params, capacity).map((c) => p.constant(c));
+  const [one, two, four, five] = [1n, 2n, 4n, 5n].map((v) => p.constant(v));
+  let ys: Value[];
+  if (n === 1) {
+    // [5a, 4a, a, a]
+    const a = p.let("a", arg(0));
+    ys = [p.expr("mulmod", a, five, p.P), p.expr("shl", two, a), a, a];
+  } else if (n === 2) {
+    // with t0 = a + b: [5 t0 + 2b, 4 t0 + 2b, t0 + 2b, t0]
+    const b = p.let("b", arg(1));
+    const t0 = p.let("t0", p.expr("add", b, arg(0)));
+    const b2 = p.let("b2", p.expr("shl", one, b));
+    ys = [
+      p.expr("add", p.expr("mulmod", t0, five, p.P), b2),
+      p.expr("add", p.expr("mulmod", t0, four, p.P), b2),
+      p.expr("add", t0, b2),
+      t0,
+    ];
+  } else if (n === 3) {
+    // with t0 = a + b, u = 2b + c, v = 4c + t0:
+    // [5 t0 + u, 4 t0 + u, v + u, v]
+    const b = p.let("b", arg(1));
+    const c = p.let("c", arg(2));
+    const t0 = p.let("t0", p.expr("add", b, arg(0)));
+    const u = p.let("u", p.expr("add", p.expr("shl", one, b), c));
+    const v = p.let("v", p.expr("add", p.expr("mulmod", c, four, p.P), t0));
+    ys = [
+      p.expr("add", p.expr("mulmod", t0, five, p.P), u),
+      p.expr("add", p.expr("mulmod", t0, four, p.P), u),
+      p.expr("addmod", v, u, p.P),
+      v,
+    ];
+  } else {
+    throw new Error(`hash_${n} has no entry`);
+  }
+  // hash_1 in order, the others y3 first
+  const order = n === 1 ? [0, 1, 2, 3] : [3, 2, 1, 0];
+  const out: Value[] = [];
+  for (const i of order) {
+    out[i] = p.assign(`s${i}`, p.expr("add", ys[i], k[i]));
+  }
+  inputs.forEach((input, j) => {
+    const want = round0Input(params, [
+      ...input.slice(0, n),
+      ...capacity.slice(n),
+    ]);
+    for (let i = 0; i < 4; i++) {
+      if (mod(out[i].vals[j]) !== want[i]) {
+        throw new Error(`hash_${n} entry vector ${j} output ${i} mismatch`);
+      }
+    }
+  });
+  return { lines: p.lines, outputs: out };
 }
