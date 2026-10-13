@@ -1,5 +1,7 @@
 # Osaka optimisation lanes
 
+The Python probes and replays this record names (`*.py`) were removed after the lanes; their outputs stay in `results/` and the measurements below.
+
 ## Lane 1: t = 4 internal boundaries
 
 Baseline b7d7125, 2026-10-10. Serial work in branch `bhai/8cf2de96-fdd6bb`. No production generator changes, no speedup. Both historical searches stopped at their RSS guard before the heuristic correction below. Neither exhausted, and their heuristic was not admissible. The finite incumbent-renaming family has no win once both boundaries are charged; that result is independent of the search heuristic.
@@ -83,13 +85,8 @@ SEARCH="$ROOT/generator-rs/stacksearch"
 cargo fmt --manifest-path "$SEARCH/Cargo.toml" -- --check
 cargo test --release --locked --offline --manifest-path "$SEARCH/Cargo.toml" --bin internal
 cargo build --release --locked --offline --manifest-path "$SEARCH/Cargo.toml" --bin internal
-python3 -m unittest discover -s "$SEARCH" -p internal_test.py -v
-python3 "$SEARCH/internal_check.py" "$SEARCH/results/t4-internal-incumbent.txt" 4 s0,P,s1,s2,s3 s0,P,s1,s2,s3 1 16
-python3 "$SEARCH/internal_layouts.py"
 
 # Historical invocations, not reproduction of the old frontier on corrected code.
-RSS_GIB=8 UB=166 python3 "$SEARCH/bench.py" /tmp/poseidon2-lane1-any-end 300 "$SEARCH/target/release/internal" 4 s0,P,s1,s2,s3 O,O,O,O,P 1 16
-RSS_GIB=8 UB=166 UNORDERED=1 python3 "$SEARCH/bench.py" /tmp/poseidon2-lane1-unordered 300 "$SEARCH/target/release/internal" 4 s0,P,s1,s2,s3 s0,P,s1,s2,s3 1 16
 
 # Compiled baseline checks already run; not repeated after the heuristic correction.
 cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork osaka 2 3 4
@@ -169,7 +166,6 @@ Internal model and compiled execution agree at 6,000 instead of 6,112: 27 low ro
 - Full Rust suite: nine library, four generator and five compiled verifier tests. Both forks now have strict small-width gas assertions, alongside the unchanged t=16/24/28 snapshots.
 - Nine Node tests check accounting, both t=2 policies and both t=3 policies. Rust checks the first bridge, all phases, exact inclusive bounds and threshold-plus-one fallbacks, maximal constants, retained garbage/layout, and final entry with either next-round flag. TS checks the full generated arithmetic counts and external re-entry against the reference.
 - Both-fork serial TS/Rust parity passes for t=2/3/4 sources, tests and stdout. Cargo fmt, Prettier, scoped generated diffs and whitespace checks are run before committing.
-- `python3 "$ROOT/generator-rs/stacksearch/t3_periodic.py"` reads the production TS DSL and independently replays 64 complete 56-round chains, retaining garbage and checking PRIME, outputs, cost and strict bounds. This numeric probe is not a compiled measurement; the revm runs above provide that separate evidence.
 
 No A\* sweep, transformed representation, t=4 search, dependency or lockfile change was needed. An additional `forge test --offline --match-contract 'Poseidon2T[23]Test'` did not reach execution: source-only submodules triggered unsuccessful dependency discovery, and the nested stringutils source was missing. No dependency installation succeeded. `/tmp/poseidon2-lane2-foundry.log` records this environment failure; compiled huff-neo/revm verification and the full Rust suite pass independently.
 
@@ -254,13 +250,9 @@ SEARCH="$ROOT/generator-rs/stacksearch"
 
 cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork osaka 2 3 4
 cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork amsterdam 2 3 4
-python3 "$SEARCH/linear_probe.py" > /tmp/poseidon2-lane3-linear.json
-python3 "$SEARCH/linear_probe.py" --programs > /tmp/poseidon2-lane3-linear.program
-python3 -m unittest discover -s "$SEARCH" -p linear_probe_test.py -v
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" finite_linear_arithmetic_candidates -- --test-threads=1 --nocapture
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
 node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
-python3 "$SEARCH/t3_periodic.py"
 cargo fmt --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --check
 ```
 
@@ -309,8 +301,6 @@ The direct recurrence has coefficients `d0+1, c1, c2, -q0, -q1, -q2`, all nonzer
 ```sh
 ROOT=/absolute/path/to/this/worktree
 SEARCH="$ROOT/generator-rs/stacksearch"
-python3 "$SEARCH/inactive_probe.py" > /tmp/poseidon2-lane4-inactive.json
-python3 -m unittest discover -s "$SEARCH" -p inactive_probe_test.py -v
 ```
 
 Seven Python regressions regenerate [the portable evidence](results/lane4-inactive.json), check all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. The boundary regression ties both original-coordinate endpoints to all four production INTERNAL3_PERIODIC layouts and a matching next external template. Python uses the installed standard library and existing Node, with no dependency or lockfile changes. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy follow-up is recorded below.
@@ -371,8 +361,6 @@ cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" t2_omitted_backing_and_compact_budget -- --test-threads=1 --nocapture
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
 node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
-python3 -m unittest discover -s "$SEARCH" -p '*probe_test.py' -v
-python3 "$SEARCH/t3_periodic.py"
 node "$SEARCH/gas-floor.mjs"
 ```
 

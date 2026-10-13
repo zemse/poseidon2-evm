@@ -61,7 +61,7 @@ target/release/macro 2 s1,P,s0 O,P,O 16 1 8 x 1
 target/release/macro 4 x0,x1,x2,x3 t6,t5,t7,t4 16 0 8 x 2 lazy
 ```
 
-The output is the cost in gas, the layout the program leaves and one move per line with the stack after it; `todsl.py` turns it into the template DSL (`python3 todsl.py result.txt`) and `drive.py <t>` chases the layouts of a width: the entry, rounds until a layout repeats, the exit, the re-entry after the internal rounds and the final round, appending the DSL of every result to `t<t>.dsl.txt` (`CHAIN=<n>` sets the chain depth, default 1). `run23.sh`, `run_entry.sh`, `run_block.sh` and `run_block2.sh` are the runs that produced the programs of t = 2, t = 3 and the blocks.
+The output is the cost in gas, the layout the program leaves and one move per line with the stack after it, which the template DSL transcribes. `run23.sh`, `run_entry.sh`, `run_block.sh` and `run_block2.sh` are the runs that produced the programs of t = 2, t = 3 and the blocks.
 
 A template is the `init` layout (the state elements by index and PRIME copies as the program expects them on top) and the DSL string; the schedule replays the first program of a kind whose layout matches. The t = 3 re-entry layout `s0,P,s1,s2` finishes at 189. Both t = 3 final-cycle layouts now finish at 216. Earlier searches did not finish the full t = 4 external round (over 19 GB in hours) or the t = 3 final round (2 h limit).
 
@@ -75,15 +75,15 @@ The bound requires complete computation history and every output. The CLI theref
 
 ## Composed rounds
 
-`compose.py <t> <init> <goal> <round|final> <output-directory> [seconds-per-order]` fixes all S-boxes before the linear layer, trying each order with the initial top lane first. Each linear search has a 2 GiB RSS guard and a default 180 s limit. Its cache key includes the binary, arguments and time limit; cached and composed programs are independently replayed. The t = 4 linear search uses conservative lazy bounds. These restrictions give up global optimality, and `peak_depth` can exceed the default full-round search's depth. This was the restricted search for the first full t = 4 round candidates.
+The first full t = 4 round candidates came from a restricted search that fixed all S-boxes before the linear layer, trying each order with the initial top lane first, with conservative lazy bounds. These restrictions give up global optimality, and `peak_depth` can exceed the default full-round search's depth.
 
-`interleave.py <k> <round|final> <extra-garbage> <output-directory> [seconds] [ub] [orders...]` fixes only the first k S-boxes of a t = 4 round from `s0,P,s1,s2,s3` (placed as `compose.py` places them) and searches the others together with the linear layer under `bench.py`, with lazy bounds and a garbage limit of the prefix's dead inputs plus `extra-garbage`. With `ub` it asks only for programs cheaper than ub in total. The full program is replayed and written to `full.txt` and `best.json`. The integrated t = 4 round fixes two S-boxes (k = 1 and the unrestricted search find nothing cheaper), the final round three (k = 2 and k = 1 find nothing cheaper).
+A second restricted search fixed only the first k S-boxes of a t = 4 round from `s0,P,s1,s2,s3` and searched the others together with the linear layer, with lazy bounds and a garbage limit of the prefix's dead inputs. The integrated t = 4 round fixes two S-boxes (k = 1 and the unrestricted search find nothing cheaper), the final round three (k = 2 and k = 1 find nothing cheaper). The Python drivers of both searches were removed; the programs they found are the generator's templates.
 
 ## Profiling
 
-`bench.py <output-directory> <seconds> <binary> <arguments...>` runs one search under `/usr/bin/time -l`, samples process-group RSS, and stops at the time limit or 48 GiB RSS (`RSS_GIB` overrides this up to 56). It writes a live `snapshot.json`, stdout, stderr and a result record, including the search environment. Successful programs are independently replayed on 64 deterministic BN254 inputs, including boundaries, with checks for ADD overflow, operands, output order, reduction and gas. `check.py <result-file> <arguments...>` runs the macro replay separately. The `internal` binary uses `internal_check.py` instead, also runnable with the same result-file/arguments convention (`UNORDERED=1` matches the search). Its numeric replay is not a symbolic proof over all inputs.
+Run a search under `/usr/bin/time -l` with a time and RSS limit. The programs a search finds are checked where they land: the generator's compiled `verify` replays every template in revm against the reference permutation.
 
-`python3 internal_layouts.py` evaluates the six inactive-lane renamings of the current t = 4 internal template with shortest SWAP-only adapters, including both boundaries of two and 56 rounds. `python3 -m unittest discover -s . -p internal_test.py` tests the numeric replay, adapters and runner. [OSAKA-OPTIMISATION.md](OSAKA-OPTIMISATION.md) records the lane's bounded searches and exact scope.
+[OSAKA-OPTIMISATION.md](OSAKA-OPTIMISATION.md) records the lane's bounded searches and exact scope.
 
 Build the profiling features separately:
 
