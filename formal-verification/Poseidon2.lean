@@ -34,3 +34,4 @@ import Poseidon2.Evm.Sim
 import Poseidon2.Evm.Bytes
 import Poseidon2.Evm.Memory
 import Poseidon2.Evm.MemSim
+import Poseidon2.Evm.Decode
