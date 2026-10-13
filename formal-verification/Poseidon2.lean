@@ -29,4 +29,5 @@ import Poseidon2.Checker.FieldSound
 import Poseidon2.Checker.Mutations
 import Poseidon2.Soundness
 import Poseidon2.Theorems
+import Poseidon2.Evm.Steps
 import Poseidon2.Evm.Sim

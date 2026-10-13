@@ -1,22 +1,31 @@
-import Ethereum.Theory.OpcodeLemmas
 import Poseidon2.Checker.FieldSound
-import Poseidon2.Evm.Eip8024
+import Poseidon2.Evm.Steps
 
 /-!
-# Simulation of single opcodes (first lemmas)
+# Simulation of single opcodes
 
-The EVM half of the checker's soundness relates one checker step to one EVMLean `Xstep`. This
-file starts it with the stack relation and some of the opcodes the Huff permutation bodies are made
-of: `MULMOD` and `ADDMOD` by `P` and `ADD` on field values (`sim_mulmod`, `sim_addmod`,
-`sim_add_field`), `POP` and `DUP1` (`sim_pop`, `sim_dup1`). The `Xstep` side comes from
-EVMLean's own `Ethereum/Theory/OpcodeLemmas.lean` (`step_mulmod`, ...). Each lemma says: the
-EVM runs out of gas, or it takes the step the checker took, and the new stack is described by
-the checker's values.
+The EVM half of the checker's soundness relates one checker step to one EVM step
+(`Eip8024.Xstep`: EVMLean's `Xstep` with DUPN / SWAPN). `Simulates e ρ s c n stk` says: the EVM's
+step from `s` runs out of gas, or it pays `c` gas, moves `pc` by `n`, leaves everything else
+as it was, and its new stack is described by the checker's stack `stk` (`StkRel`).
+
+Each lemma here takes a checker `step` that succeeded on an instruction, a stack the checker's
+stack describes, and the instruction EVMLean decodes at `pc`, and proves `Simulates` for the
+checker's new stack. Stack overflow cannot happen (the checker's `push` refuses a full stack)
+and stack underflow cannot either (the checker's stack has the EVM's length); the only other
+exceptional halt of these opcodes is running out of gas. The `Xstep` side comes from EVMLean's
+`Ethereum/Theory/OpcodeLemmas.lean` and from `Steps.lean`.
+
+Covered: every instruction `Checker.step` accepts except the memory and data ones (`MLOAD`,
+`MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY`, `CODECOPY`); control flow (`JUMP`, `JUMPI`,
+`STOP`, `RETURN`, `REVERT`) is `ctl`, not `step`.
 -/
 
 namespace Poseidon2.Evm.Sim
 
-open Ethereum Ethereum.EVM Poseidon2.Checker Poseidon2.Spec
+open Ethereum Ethereum.EVM Poseidon2.Checker Poseidon2.Spec Poseidon2.Evm
+
+set_option linter.unusedSimpArgs false
 
 variable (e : Env) (ρ : Nat → F)
 
@@ -24,138 +33,337 @@ variable (e : Env) (ρ : Nat → F)
 def StkRel : List SV → List UInt256 → Prop :=
   List.Forall₂ (fun v w => v.Rel e ρ w.toNat)
 
-theorem toNat_lt (w : UInt256) : w.toNat < W := w.val.isLt
+/-- The EVM's step from `s`, as the checker's step to the stack `stk` describes it: out of gas,
+or `c` gas paid, `pc` moved by `n`, and a new stack that `stk` describes, nothing else changed. -/
+def Simulates (s : State) (c n : Nat) (stk : List SV) : Prop :=
+  Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
+    ∃ t, StkRel e ρ stk t ∧ c ≤ s.machineState.gasAvailable.toNat ∧
+      Eip8024.Xstep (D_J s.executionEnv.code 0) s = .ok ({s with
+        machineState.stack := t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat n
+        machineState.execLength := s.machineState.execLength + 1}, none)
 
-/-- A word value that is exactly `n` describes only the word `n`. -/
-theorem rel_exact (v : SV) (w : Nat) (n : Nat) (hv : v.Rel e ρ w) (hn : v.exact = some n) :
-    w = n := by
-  cases v with
-  | word x => obtain ⟨hx, rfl⟩ := hv; exact Word.holds_exact e x hx n hn
-  | lin _ _ => simp [SV.exact] at hn
-  | pw _ _ _ => simp [SV.exact] at hn
-
-theorem mulMod_P (a b c : UInt256) (hc : c.toNat = P) :
-    (UInt256.mulMod a b c).toNat = a.toNat * b.toNat % P := by
-  unfold UInt256.mulMod UInt256.eq0
-  have : c.toNat ≠ 0 := by rw [hc]; decide
-  simp only [UInt256.toNat] at hc this ⊢
-  rw [if_neg (by intro h; apply this; simp only [beq_iff_eq] at h; rw [h]; rfl)]
-  simp only [UInt256.ofNat, Id.run, Fin.ofNat, hc]
-  exact Nat.mod_eq_of_lt (lt_trans (Nat.mod_lt _ (by decide)) P_lt_W)
-
-/-- `MULMOD` by `P` on field values: the EVM runs out of gas, or replaces the three top words
-by `mulMod`, which the checker's `mulModP` result describes. -/
-theorem sim_mulmod (s : State) (x y n : SV) (a b c : UInt256) (t : List UInt256)
-    (tb tb' : Tab) (v : SV)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.MULMOD, .none))
-    (hstk : s.machineState.stack = a :: b :: c :: t) (hlen : t.length + 3 ≤ 1024)
-    (hx : x.Rel e ρ a.toNat) (hy : y.Rel e ρ b.toNat) (hn : n.Rel e ρ c.toNat)
-    (hnP : n.exact = some P) (hm : mulModP x y tb = .ok (v, tb')) (hv : Tab.Valid e ρ tb') :
-    Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
-      ∃ s', Xstep (D_J s.executionEnv.code 0) s = .ok (s', none) ∧
-        s'.machineState.stack = UInt256.mulMod a b c :: t ∧
-        v.Rel e ρ (UInt256.mulMod a b c).toNat := by
-  have hc : c.toNat = P := rel_exact e ρ n c.toNat P hn hnP
-  have hr := (mulModP_sound e ρ x y a.toNat b.toNat tb tb' v hm hx hy hv).1
-  rw [step_mulmod s hdec, hstk]
-  have hov : ¬ ((a :: b :: c :: t).length - 3 + 1 > 1024) := by simp only [List.length_cons]; omega
-  by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gmid
-  · left; simp only [hg, if_true]
+/-- The usual shape of a step: the gas check, the stack overflow check, the new state. -/
+theorem sim_of (s : State) (c n : Nat) (stk : List SV) (t : List UInt256) (L : Nat)
+    (hx : Eip8024.Xstep (D_J s.executionEnv.code 0) s =
+      if s.machineState.gasAvailable.toNat < c then .error .OutOfGass
+      else if L > 1024 then .error .StackOverflow
+      else .ok ({s with
+        machineState.stack := t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat n
+        machineState.execLength := s.machineState.execLength + 1}, none))
+    (hL : L ≤ 1024) (hr : StkRel e ρ stk t) : Simulates e ρ s c n stk := by
+  rw [Simulates, hx]
+  by_cases hg : s.machineState.gasAvailable.toNat < c
+  · left; rw [if_pos hg]
   · right
-    simp only [hg, if_false, hov]
-    refine ⟨_, rfl, rfl, ?_⟩
-    rw [mulMod_P a b c hc]; exact hr
+    rw [if_neg hg, if_neg (by omega)]
+    exact ⟨t, hr, by omega, rfl⟩
 
-theorem addMod_P (a b c : UInt256) (hc : c.toNat = P) :
-    (UInt256.addMod a b c).toNat = (a.toNat + b.toNat) % P := by
-  unfold UInt256.addMod UInt256.eq0
-  have : c.toNat ≠ 0 := by rw [hc]; decide
-  simp only [UInt256.toNat] at hc this ⊢
-  rw [if_neg (by intro h; apply this; simp only [beq_iff_eq] at h; rw [h]; rfl)]
-  simp only [UInt256.ofNat, Id.run, Fin.ofNat, hc]
-  exact Nat.mod_eq_of_lt (lt_trans (Nat.mod_lt _ (by decide)) P_lt_W)
+/-! ## Stack lemmas -/
 
-theorem add_toNat (a b : UInt256) : (a + b).toNat = (a.toNat + b.toNat) % W := by
-  show (a.val + b.val).val = _
-  rw [Fin.val_add]; rfl
+theorem StkRel.length {stk : List SV} {t : List UInt256} (h : StkRel e ρ stk t) :
+    stk.length = t.length :=
+  List.Forall₂.length_eq h
 
-/-- `ADDMOD a b P` on field values. -/
-theorem sim_addmod (s : State) (x y n : SV) (a b c : UInt256) (t : List UInt256)
-    (tb tb1 tb2 : Tab) (la lb : Lin) (ba bb : Nat)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.ADDMOD, .none))
-    (hstk : s.machineState.stack = a :: b :: c :: t) (hlen : t.length + 3 ≤ 1024)
-    (hx : x.Rel e ρ a.toNat) (hy : y.Rel e ρ b.toNat) (hn : n.Rel e ρ c.toNat)
-    (hnP : n.exact = some P) (h1 : toLin x tb = .ok (la, ba, tb1))
-    (h2 : toLin y tb1 = .ok (lb, bb, tb2)) (hv : Tab.Valid e ρ tb2) :
-    Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
-      ∃ s', Xstep (D_J s.executionEnv.code 0) s = .ok (s', none) ∧
-        s'.machineState.stack = UInt256.addMod a b c :: t ∧
-        (SV.lin (la.add lb) (P - 1)).Rel e ρ (UInt256.addMod a b c).toNat := by
-  have hc : c.toNat = P := rel_exact e ρ n c.toNat P hn hnP
-  have e2 := toLin_ext y tb1 tb2 lb bb h2
-  have sa := toLin_sound e ρ x a.toNat tb tb1 la ba h1 hx (hv.of_ext e2)
-  have sb := toLin_sound e ρ y b.toNat tb1 tb2 lb bb h2 hy hv
-  rw [step_addmod s hdec, hstk]
-  have hov : ¬ ((a :: b :: c :: t).length - 3 + 1 > 1024) := by simp only [List.length_cons]; omega
-  by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gmid
-  · left; simp only [hg, if_true]
-  · right
-    simp only [hg, if_false, hov]
-    refine ⟨_, rfl, rfl, ?_⟩
-    rw [addMod_P a b c hc]
-    exact addModP_sound e ρ la lb _ _ sa.2.2.1 sb.2.2.1
+theorem StkRel.getElem {stk : List SV} {t : List UInt256} (h : StkRel e ρ stk t) (i : Nat)
+    (hi : i < stk.length) (ht : i < t.length) : stk[i].Rel e ρ t[i].toNat :=
+  List.Forall₂.get h hi ht
 
-/-- `ADD` of two field values whose bounds sum below `2^256`. -/
-theorem sim_add_field (s : State) (x y : SV) (a b : UInt256) (t : List UInt256)
-    (tb tb1 tb2 : Tab) (la lb : Lin) (ba bb : Nat)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.ADD, .none))
-    (hstk : s.machineState.stack = a :: b :: t) (hlen : t.length + 2 ≤ 1024)
-    (hx : x.Rel e ρ a.toNat) (hy : y.Rel e ρ b.toNat) (h1 : toLin x tb = .ok (la, ba, tb1))
-    (h2 : toLin y tb1 = .ok (lb, bb, tb2)) (hlt : ba + bb < W) (hv : Tab.Valid e ρ tb2) :
-    Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
-      ∃ s', Xstep (D_J s.executionEnv.code 0) s = .ok (s', none) ∧
-        s'.machineState.stack = (a + b) :: t ∧
-        (SV.lin (la.add lb) (ba + bb)).Rel e ρ (a + b).toNat := by
-  rw [step_add s hdec, hstk]
-  have hov : ¬ ((a :: b :: t).length - 2 + 1 > 1024) := by simp only [List.length_cons]; omega
-  by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gverylow
-  · left; simp only [hg, if_true]
-  · right
-    simp only [hg, if_false, hov]
-    refine ⟨_, rfl, rfl, ?_⟩
-    rw [add_toNat]
-    exact (addField_sound e ρ x y _ _ tb tb1 tb2 la lb ba bb h1 h2 hlt hx hy hv).1
+theorem StkRel.cons_inv {x : SV} {r : List SV} {t : List UInt256} (h : StkRel e ρ (x :: r) t) :
+    ∃ a t', t = a :: t' ∧ x.Rel e ρ a.toNat ∧ StkRel e ρ r t' := by
+  cases t with
+  | nil => cases h
+  | cons a t' => exact ⟨a, t', rfl, (List.forall₂_cons.mp h).1, (List.forall₂_cons.mp h).2⟩
 
-/-- `POP`: the rest of the stack still relates. -/
-theorem sim_pop (s : State) (x : SV) (r : List SV) (a : UInt256) (t : List UInt256)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.POP, .none))
-    (hstk : s.machineState.stack = a :: t) (hlen : t.length + 1 ≤ 1024)
-    (hrel : StkRel e ρ (x :: r) (a :: t)) :
-    Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
-      ∃ s', Xstep (D_J s.executionEnv.code 0) s = .ok (s', none) ∧
-        s'.machineState.stack = t ∧ StkRel e ρ r t := by
-  rw [step_pop s hdec, hstk]
-  have hov : ¬ ((a :: t).length - 1 + 0 > 1024) := by simp only [List.length_cons]; omega
-  by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gbase
-  · left; simp only [hg, if_true]
-  · right
-    simp only [hg, if_false, hov]
-    exact ⟨_, rfl, rfl, (List.forall₂_cons.mp hrel).2⟩
+theorem StkRel.set {stk : List SV} {t : List UInt256} (h : StkRel e ρ stk t) (i : Nat)
+    (v : SV) (w : UInt256) (hv : v.Rel e ρ w.toNat) : StkRel e ρ (stk.set i v) (t.set i w) := by
+  induction h generalizing i with
+  | nil => exact List.Forall₂.nil
+  | cons hab _ ih =>
+    cases i with
+    | zero => exact List.Forall₂.cons hv (by assumption)
+    | succ i => exact List.Forall₂.cons hab (ih i)
 
-/-- `DUP1`: the copy relates as the original does. -/
-theorem sim_dup1 (s : State) (x : SV) (r : List SV) (a : UInt256) (t : List UInt256)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.DUP1, .none))
-    (hstk : s.machineState.stack = a :: t) (hlen : t.length + 2 ≤ 1024)
-    (hrel : StkRel e ρ (x :: r) (a :: t)) :
-    Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
-      ∃ s', Xstep (D_J s.executionEnv.code 0) s = .ok (s', none) ∧
-        s'.machineState.stack = a :: a :: t ∧ StkRel e ρ (x :: x :: r) (a :: a :: t) := by
-  rw [step_dup1 s hdec, hstk]
-  have hov : ¬ ((a :: t).length - 1 + 2 > 1024) := by simp only [List.length_cons]; omega
-  by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gverylow
-  · left; simp only [hg, if_true]
-  · right
-    simp only [hg, if_false, hov]
-    exact ⟨_, rfl, rfl, List.Forall₂.cons (List.forall₂_cons.mp hrel).1 hrel⟩
+/-! ## Checker steps
+
+What a successful `step` on each instruction looks like. -/
+
+theorem bind_ok {ε α β : Type} {m : Except ε α} {f : α → Except ε β} {y : β}
+    (h : m >>= f = .ok y) : ∃ x, m = .ok x ∧ f x = .ok y := by
+  cases m with
+  | error _ => cases h
+  | ok x => exact ⟨x, rfl, h⟩
+
+theorem pop1_ok {s s' : St} {a : SV} (h : pop1 s = .ok (a, s')) :
+    s.stk = a :: s'.stk ∧ s' = { s with stk := s'.stk } := by
+  unfold pop1 at h
+  split at h
+  · cases h; rename_i hs; exact ⟨hs, rfl⟩
+  · cases h
+
+theorem pop2_ok {s s' : St} {a b : SV} (h : pop2 s = .ok (a, b, s')) :
+    s.stk = a :: b :: s'.stk ∧ s' = { s with stk := s'.stk } := by
+  unfold pop2 at h
+  split at h
+  · cases h; rename_i hs; exact ⟨hs, rfl⟩
+  · cases h
+
+theorem pop3_ok {s s' : St} {a b c : SV} (h : pop3 s = .ok (a, b, c, s')) :
+    s.stk = a :: b :: c :: s'.stk ∧ s' = { s with stk := s'.stk } := by
+  unfold pop3 at h
+  split at h
+  · cases h; rename_i hs; exact ⟨hs, rfl⟩
+  · cases h
+
+theorem push_ok {s s' : St} {v : SV} (h : push s v = .ok s') :
+    s.stk.length < 1024 ∧ s' = { s with stk := v :: s.stk } := by
+  unfold push at h
+  split at h
+  · cases h; exact ⟨by assumption, rfl⟩
+  · cases h
+
+
+/-! ## Stack opcodes -/
+
+theorem const_rel (v : Nat) (w : UInt256) (h : w.toNat = v) : (SV.const v).Rel e ρ w.toNat :=
+  ⟨Word.const_holds e v (h ▸ toNat_lt w), h⟩
+
+/-- `PUSH1` .. `PUSH32` (the immediate as EVMLean decodes it). -/
+theorem sim_push (fs : Facts) (code : Code) (s : State) (st st' : St) (op : Operation.POp)
+    (arg : UInt256) (w v : Nat) (hop : op ≠ .PUSH0)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.Push op, some (arg, w)))
+    (harg : arg.toNat = v) (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.push v) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow (w + 1) st'.stk := by
+  obtain ⟨hl, rfl⟩ := push_ok h
+  refine sim_of e ρ s _ _ _ (arg :: s.machineState.stack) (s.machineState.stack.length - 0 + 1)
+    ?_ (by rw [← hrel.length]; omega) (List.Forall₂.cons (const_rel e ρ v arg harg) hrel)
+  rw [xstep_overlay _ s _ _ hdec (by simp)]
+  exact step_push s op arg w hop hdec
+
+/-- `PUSH0`. -/
+theorem sim_push0 (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.PUSH0, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.push 0) st = .ok st') :
+    Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  obtain ⟨hl, rfl⟩ := push_ok h
+  refine sim_of e ρ s _ _ _ (⟨0⟩ :: s.machineState.stack) (s.machineState.stack.length - 0 + 1)
+    ?_ (by rw [← hrel.length]; omega) (List.Forall₂.cons (const_rel e ρ 0 ⟨0⟩ rfl) hrel)
+  rw [xstep_overlay _ s _ _ hdec (by simp)]
+  exact step_push0 s hdec
+
+/-- `DUP1` .. `DUP16`: the checker's `DUP` byte `b` and EVMLean's `DUPn` with `n = b - 0x7f`. -/
+theorem sim_dup (fs : Facts) (code : Code) (s : State) (st st' : St) (b : Nat)
+    (d : Operation.DOp) (hb : 0x80 ≤ b ∧ b ≤ 0x8f) (hd : dupN d = b - 0x7f)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.Dup d, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op b) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_pos hb] at h
+  split at h
+  · rename_i v hv
+    obtain ⟨hl, rfl⟩ := push_ok h
+    have hi : b - 0x80 < st.stk.length := (List.getElem?_eq_some_iff.mp hv).1
+    have hv' : st.stk[b - 0x80] = v := (List.getElem?_eq_some_iff.mp hv).2
+    have hlen := hrel.length
+    have hn : ¬ s.machineState.stack.length < dupN d := by omega
+    have hx := xstep_dup s d hdec
+    rw [if_neg hn] at hx
+    refine sim_of e ρ s _ 1 _
+      ((s.machineState.stack.take (dupN d)).getLast! :: s.machineState.stack)
+      (s.machineState.stack.length + 1) ?_ (by omega) ?_
+    · rw [xstep_overlay _ s _ _ hdec (by simp), hx]; rfl
+    · rw [take_getLast _ _ (by omega) (by omega)]
+      refine List.Forall₂.cons ?_ hrel
+      have := hrel.getElem e ρ (b - 0x80) hi (by omega)
+      rw [hv'] at this
+      have e1 : dupN d - 1 = b - 0x80 := by omega
+      simp only [e1]; exact this
+  · cases h
+
+/-- The checker's swap describes EVMLean's. -/
+theorem swap_rel (stk : List SV) (t : List UInt256) (n : Nat) (a c : SV) (hn : 1 ≤ n)
+    (hrel : StkRel e ρ stk t) (ha : stk[0]? = some a) (hc : stk[n]? = some c) :
+    n < t.length ∧ StkRel e ρ ((stk.set 0 c).set n a) (swapList n t) := by
+  have hl := hrel.length
+  have hn' : n < stk.length := (List.getElem?_eq_some_iff.mp hc).1
+  have h0 : 0 < stk.length := by omega
+  refine ⟨by omega, ?_⟩
+  rw [swapList_eq n t hn (by omega)]
+  have r0 := hrel.getElem e ρ 0 h0 (by omega)
+  have rn := hrel.getElem e ρ n hn' (by omega)
+  rw [(List.getElem?_eq_some_iff.mp ha).2] at r0
+  rw [(List.getElem?_eq_some_iff.mp hc).2] at rn
+  exact (hrel.set e ρ 0 c _ rn).set e ρ n a _ r0
+
+/-- `SWAP1` .. `SWAP16`. -/
+theorem sim_swap (fs : Facts) (code : Code) (s : State) (st st' : St) (b : Nat)
+    (x : Operation.ExOp) (hb : 0x90 ≤ b ∧ b ≤ 0x9f) (hx : swapN x = b - 0x8f)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.Exchange x, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hlen : st.stk.length ≤ 1024)
+    (h : step fs code (.op b) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by omega), if_pos hb] at h
+  split at h
+  · rename_i a tl c hs hc
+    cases h
+    obtain ⟨hlt, hr⟩ := swap_rel e ρ st.stk _ (b - 0x8f) a c (by omega) hrel (by simp [hs]) hc
+    have hn : ¬ s.machineState.stack.length < swapN x + 1 := by omega
+    have hx' := xstep_swap s x hdec
+    rw [if_neg hn] at hx'
+    refine sim_of e ρ s _ 1 _ (swapList (swapN x) s.machineState.stack)
+      s.machineState.stack.length ?_ (by rw [← hrel.length]; exact hlen) (by rw [hx]; exact hr)
+    rw [xstep_overlay _ s _ _ hdec (by simp), hx']; rfl
+  · cases h
+
+/-- `sim_of` with the stack check first (as `Eip8024.exec` does it). -/
+theorem sim_of' (s : State) (c n : Nat) (stk : List SV) (t : List UInt256) (L : Nat)
+    (hx : Eip8024.Xstep (D_J s.executionEnv.code 0) s =
+      if L > 1024 then .error .StackOverflow
+      else if s.machineState.gasAvailable.toNat < c then .error .OutOfGass
+      else .ok ({s with
+        machineState.stack := t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat n
+        machineState.execLength := s.machineState.execLength + 1}, none))
+    (hL : L ≤ 1024) (hr : StkRel e ρ stk t) : Simulates e ρ s c n stk := by
+  rw [Simulates, hx, if_neg (by omega)]
+  by_cases hg : s.machineState.gasAvailable.toNat < c
+  · left; rw [if_pos hg]
+  · right; rw [if_neg hg]; exact ⟨t, hr, by omega, rfl⟩
+
+/-- DUPN (EIP-8024). -/
+theorem sim_dupn (fs : Facts) (code : Code) (s : State) (st st' : St) (n : Nat) (hn : 1 ≤ n)
+    (hdec : Eip8024.decode s.executionEnv.code s.machineState.pc.toNat = some (some (.dupn n)))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.dupn n) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 2 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  split at h
+  · rename_i v hv
+    obtain ⟨hl, rfl⟩ := push_ok h
+    have hi : n - 1 < st.stk.length := (List.getElem?_eq_some_iff.mp hv).1
+    have hv' : st.stk[n - 1] = v := (List.getElem?_eq_some_iff.mp hv).2
+    have hlen := hrel.length
+    have hx := xstep_dupn (D_J s.executionEnv.code 0) s n hdec
+    rw [if_neg (by omega)] at hx
+    refine sim_of' e ρ s _ 2 _ ((s.machineState.stack.take n).getLast! :: s.machineState.stack)
+      (s.machineState.stack.length + 1) hx (by omega) ?_
+    rw [take_getLast _ _ hn (by omega)]
+    refine List.Forall₂.cons ?_ hrel
+    have := hrel.getElem e ρ (n - 1) hi (by omega)
+    rw [hv'] at this; exact this
+  · cases h
+
+/-- SWAPN (EIP-8024). -/
+theorem sim_swapn (fs : Facts) (code : Code) (s : State) (st st' : St) (n : Nat) (hn : 1 ≤ n)
+    (hdec : Eip8024.decode s.executionEnv.code s.machineState.pc.toNat = some (some (.swapn n)))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hlen : st.stk.length ≤ 1024)
+    (h : step fs code (.swapn n) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 2 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  split at h
+  · rename_i a tl c hs hc
+    cases h
+    obtain ⟨hlt, hr⟩ := swap_rel e ρ st.stk _ n a c hn hrel (by simp [hs]) hc
+    have hx := xstep_swapn (D_J s.executionEnv.code 0) s n hdec
+    rw [if_neg (by omega)] at hx
+    exact sim_of' e ρ s _ 2 _ (swapList n s.machineState.stack)
+      (s.machineState.stack.length + 0) hx (by rw [← hrel.length]; omega) hr
+  · cases h
+
+/-- `POP`. -/
+theorem sim_pop (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.POP, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hlen : st.stk.length ≤ 1024)
+    (h : step fs code (.op 0x50) st = .ok st') :
+    Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, st1⟩, hp, h⟩ := bind_ok h
+  cases h
+  obtain ⟨hs, -⟩ := pop1_ok hp
+  rw [hs] at hrel hlen
+  obtain ⟨a, t, ht, -, hr⟩ := hrel.cons_inv
+  have hl := hr.length
+  refine sim_of e ρ s _ 1 _ t ((a :: t).length - 1 + 0) ?_ (by simp at hlen ⊢; omega) hr
+  rw [xstep_overlay _ s _ _ hdec (by simp), step_pop s hdec, ht]
+  rfl
+
+
+/-- `JUMPDEST`. -/
+theorem sim_jumpdest (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.JUMPDEST, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hlen : st.stk.length ≤ 1024)
+    (h : step fs code (.op 0x5b) st = .ok st') :
+    Simulates e ρ s GasConstants.Gjumpdest 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  cases h
+  refine sim_of e ρ s _ 1 _ s.machineState.stack (s.machineState.stack.length - 0 + 0) ?_
+    (by rw [← hrel.length]; omega) hrel
+  rw [xstep_overlay _ s _ _ hdec (by simp), step_jumpdest s hdec]
+  rfl
+
+/-- An input word the checker pushes describes its value. -/
+theorem input_rel (fs : Facts) (hf : Facts.Hold e fs) (t : Term) (w : UInt256)
+    (hw : w.toNat = t.eval e) : (SV.word (mkInput fs t full)).Rel e ρ w.toNat := by
+  have hlt : t.eval e < W := hw ▸ toNat_lt w
+  have := mkInput_sound e fs hf t full (full_sound _ hlt) hlt
+  exact ⟨this.1, by rw [this.2, hw]⟩
+
+/-- `CALLVALUE`, for a call whose value is the environment's. -/
+theorem sim_callvalue (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hcv : s.executionEnv.weiValue.toNat = e.cv % W)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.CALLVALUE, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op 0x34) st = .ok st') :
+    Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨hl, rfl⟩ := push_ok h
+  refine sim_of e ρ s _ 1 _ (s.executionEnv.weiValue :: s.machineState.stack)
+    (s.machineState.stack.length - 0 + 1) ?_ (by rw [← hrel.length]; omega)
+    (List.Forall₂.cons (input_rel e ρ fs hf .cv _ hcv) hrel)
+  rw [xstep_overlay _ s _ _ hdec (by simp), step_callvalue s hdec]
+  rfl
+
+/-- `CALLDATASIZE`, for a call whose calldata is the environment's. -/
+theorem sim_calldatasize (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hf : Facts.Hold e fs) (hcd : s.executionEnv.calldata.size = e.cd.length)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.CALLDATASIZE, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op 0x36) st = .ok st') :
+    Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨hl, rfl⟩ := push_ok h
+  refine sim_of e ρ s _ 1 _ (UInt256.ofNat s.executionEnv.calldata.size :: s.machineState.stack)
+    (s.machineState.stack.length - 0 + 1) ?_ (by rw [← hrel.length]; omega)
+    (List.Forall₂.cons (input_rel e ρ fs hf .cds _ (by rw [toNat_ofNat, hcd]; rfl)) hrel)
+  rw [xstep_overlay _ s _ _ hdec (by simp), step_calldatasize s hdec]
+  rfl
+
+/-- `RETURNDATASIZE`: zero, as nothing here sets return data. -/
+theorem sim_returndatasize (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hrd : s.machineState.returnData.size = 0)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.RETURNDATASIZE, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op 0x3d) st = .ok st') :
+    Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨hl, rfl⟩ := push_ok h
+  refine sim_of e ρ s _ 1 _ (UInt256.ofNat s.machineState.returnData.size :: s.machineState.stack)
+    (s.machineState.stack.length - 0 + 1) ?_ (by rw [← hrel.length]; omega)
+    (List.Forall₂.cons (const_rel e ρ 0 _ (by rw [toNat_ofNat, hrd]; rfl)) hrel)
+  rw [xstep_overlay _ s _ _ hdec (by simp), step_returndatasize s hdec]
+  rfl
 
 end Poseidon2.Evm.Sim
