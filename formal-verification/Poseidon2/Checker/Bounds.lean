@@ -50,8 +50,8 @@ instance : Repr Word where
   reprPrec w p :=
     match w.t with
     | .const v => if w.lo = v ∧ w.hi = v then Repr.addAppParen (.text s!"Word.const {v}") p
-      else Repr.addAppParen (.text s!"Word.mk ({reprStr w.t}) {w.lo} {w.hi}") p
-    | t => Repr.addAppParen (.text s!"Word.mk ({reprStr t}) {w.lo} {w.hi}") p
+      else Repr.addAppParen ("Word.mk (" ++ repr w.t ++ s!") {w.lo} {w.hi}") p
+    | t => Repr.addAppParen ("Word.mk (" ++ repr t ++ s!") {w.lo} {w.hi}") p
 
 /-- A comparison result: decided, or `[0, 1]`. -/
 def decided (yes no : Bool) : Nat × Nat := if yes then (1, 1) else if no then (0, 0) else (0, 1)

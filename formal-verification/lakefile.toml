@@ -21,9 +21,10 @@ globs = ["Poseidon2", "Poseidon2.Audit", "Poseidon2.AxiomCheck", "Poseidon2.Soun
   "Poseidon2.Bytecode.+"]
 
 # The kernel checks of the exported bytecode (Poseidon2/Proofs/, written by
-# scripts/Emit.lean), each file one artifact: `lake build Poseidon2Proofs`. Not
-# a default target: the larger files take minutes and up to 20 GB each, so
-# build them with `lake build -j1 Poseidon2Proofs`. Proofs/Audit.lean audits them.
+# scripts/Emit.lean through scripts/proof.sh): the 17 small artifacts are
+# committed and audited by Proofs/Audit.lean (`lake build Poseidon2Proofs`);
+# the 18 large ones are written to Proofs/Generated/ (not committed) by
+# `scripts/proof.sh <artifact>`, which also builds them. Not a default target.
 [[lean_lib]]
 name = "Poseidon2Proofs"
 roots = ["Poseidon2.Proofs.Audit"]

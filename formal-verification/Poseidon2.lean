@@ -22,6 +22,7 @@ import Poseidon2.Checker.Bounds
 import Poseidon2.Checker.SymExec
 import Poseidon2.Checker.Check
 import Poseidon2.Checker.Segments
+import Poseidon2.Checker.SpecSegments
 import Poseidon2.Checker.BoundsSound
 import Poseidon2.Checker.Bridge
 import Poseidon2.Checker.FieldSound

@@ -18,6 +18,7 @@ import Poseidon2.Proofs.Yul.Runs200.T3
 import Poseidon2.Proofs.Yul.Runs200.T4
 
 /-! Fails the build of `Poseidon2Proofs` if a file under `Poseidon2/Proofs/` is not imported here,
-declares an axiom, or depends on `sorry`, `native_decide` or a non-standard axiom. -/
+declares an axiom, or depends on `sorry`, `native_decide` or a non-standard axiom. The proofs
+under `Generated/` (not committed, written by `scripts/proof.sh`) audit themselves. -/
 
-#assert_standard_axioms Poseidon2.Proofs "Poseidon2/Proofs"
+#assert_standard_axioms Poseidon2.Proofs "Poseidon2/Proofs" skipping Poseidon2.Proofs.Generated

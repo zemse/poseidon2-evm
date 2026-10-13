@@ -70,4 +70,27 @@ elab_rules : command
     throwError "non-standard axioms {bad.toList} reached"
   logInfo m!"{ours.size} constants of {files.size} {pre} modules use only standard axioms"
 
+/-- `#assert_standard_axioms_here` does the same for every constant the current file declares,
+for files that no audit imports (the generated proofs that are not committed). -/
+syntax "#assert_standard_axioms_here" : command
+
+elab_rules : command
+  | `(#assert_standard_axioms_here) => do
+  let env ← getEnv
+  let mut ours : Array Name := #[]
+  for (name, info) in env.constants.map₂.toList do
+    if info matches .axiomInfo _ then
+      throwError "{privateToUserName name} is an axiom declared here"
+    ours := ours.push name
+  let (_, s) := ((ours.forM CollectAxioms.collect).run env).run {}
+  let bad := s.axioms.filter (fun a => !standard.contains a)
+  unless bad.isEmpty do
+    for name in ours do
+      let axs ← liftCoreM <| collectAxioms name
+      let b := axs.filter (fun a => !standard.contains a)
+      unless b.isEmpty do
+        throwError "{privateToUserName name} depends on non-standard axioms {b.toList}"
+    throwError "non-standard axioms {bad.toList} reached"
+  logInfo m!"{ours.size} constants of this file use only standard axioms"
+
 end Poseidon2.AxiomCheck
