@@ -14,6 +14,7 @@ rev = "v4.29.0"
 
 [[lean_lib]]
 name = "Poseidon2"
+roots = ["Poseidon2", "Poseidon2.Audit"]
 
 # EVM semantics. Only its Lean modules are built here: its `extern_lib`
 # (C sources cloned from GitHub, compiled with `cc`) is linked into

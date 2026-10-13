@@ -1,1 +1,10 @@
+import Poseidon2.Spec.Permutation
+import Poseidon2.Spec.Sponge
+import Poseidon2.Spec.Constants.T2
+import Poseidon2.Spec.Constants.T3
+import Poseidon2.Spec.Constants.T4
+import Poseidon2.Spec.Constants.T8
+import Poseidon2.Spec.Constants.T12
+import Poseidon2.Spec.Constants.T16
+import Poseidon2.Spec.Vectors
 import Poseidon2.Evm.Smoke
