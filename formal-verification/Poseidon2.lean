@@ -10,4 +10,6 @@ import Poseidon2.Spec.Constants.T20
 import Poseidon2.Spec.Constants.T24
 import Poseidon2.Spec.Constants.T28
 import Poseidon2.Spec.Vectors
+import Poseidon2.Spec.Grain
+import Poseidon2.Spec.GrainCheck
 import Poseidon2.Evm.Smoke
