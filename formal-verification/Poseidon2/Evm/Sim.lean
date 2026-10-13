@@ -19,6 +19,14 @@ exceptional halt of these opcodes is running out of gas. The `Xstep` side comes 
 Covered: every instruction `Checker.step` accepts except the memory and data ones (`MLOAD`,
 `MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY`, `CODECOPY`); control flow (`JUMP`, `JUMPI`,
 `STOP`, `RETURN`, `REVERT`) is `ctl`, not `step`.
+
+What the lemmas assume and the composition has to supply: the instruction EVMLean decodes at
+`pc` for the checker's instruction (`DUPn` with `dupN d = b - 0x7f`, `SWAPn` with
+`swapN x = b - 0x8f`, the `PUSH` immediate's value, DUPN / SWAPN with `1 ≤ n`); a checker
+stack of at most 1024 items (`POP`, `JUMPDEST`, `SWAP`, SWAPN); a valuation valid on the
+checker's new atom table (the field operations); the facts of the case (word terms); for
+`CALLVALUE` / `CALLDATASIZE` the call's value and calldata, and for `RETURNDATASIZE` empty
+return data.
 -/
 
 namespace Poseidon2.Evm.Sim
@@ -365,5 +373,595 @@ theorem sim_returndatasize (fs : Facts) (code : Code) (s : State) (st st' : St)
     (List.Forall₂.cons (const_rel e ρ 0 _ (by rw [toNat_ofNat, hrd]; rfl)) hrel)
   rw [xstep_overlay _ s _ _ hdec (by simp), step_returndatasize s hdec]
   rfl
+
+
+/-! ## Arithmetic and comparison -/
+
+/-- The shape of a unary operation `f` in EVMLean's `Xstep`. -/
+def UnStep (s : State) (c : Nat) (f : UInt256 → UInt256) : Prop :=
+  ∀ a t, s.machineState.stack = a :: t →
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s =
+      if s.machineState.gasAvailable.toNat < c then .error .OutOfGass
+      else if (a :: t).length - 1 + 1 > 1024 then .error .StackOverflow
+      else .ok ({s with
+        machineState.stack := f a :: t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat 1
+        machineState.execLength := s.machineState.execLength + 1}, none)
+
+/-- The shape of a binary operation `f` (top of the stack first). -/
+def BinStep (s : State) (c : Nat) (f : UInt256 → UInt256 → UInt256) : Prop :=
+  ∀ a b t, s.machineState.stack = a :: b :: t →
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s =
+      if s.machineState.gasAvailable.toNat < c then .error .OutOfGass
+      else if (a :: b :: t).length - 2 + 1 > 1024 then .error .StackOverflow
+      else .ok ({s with
+        machineState.stack := f a b :: t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat 1
+        machineState.execLength := s.machineState.execLength + 1}, none)
+
+/-- The shape of a ternary operation `f`. -/
+def TriStep (s : State) (c : Nat) (f : UInt256 → UInt256 → UInt256 → UInt256) : Prop :=
+  ∀ a b d t, s.machineState.stack = a :: b :: d :: t →
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s =
+      if s.machineState.gasAvailable.toNat < c then .error .OutOfGass
+      else if (a :: b :: d :: t).length - 3 + 1 > 1024 then .error .StackOverflow
+      else .ok ({s with
+        machineState.stack := f a b d :: t
+        machineState.gasAvailable := s.machineState.gasAvailable.subNat c
+        machineState.pc := s.machineState.pc + UInt256.ofNat 1
+        machineState.execLength := s.machineState.execLength + 1}, none)
+
+theorem sim_un (s : State) (c : Nat) (f : UInt256 → UInt256) (hx : UnStep s c f)
+    (x v : SV) (r : List SV) (hrel : StkRel e ρ (x :: r) s.machineState.stack)
+    (hl : r.length < 1024) (hv : ∀ a, x.Rel e ρ a.toNat → v.Rel e ρ (f a).toNat) :
+    Simulates e ρ s c 1 (v :: r) := by
+  obtain ⟨a, t, ht, ha, hr⟩ := hrel.cons_inv
+  have := hr.length
+  exact sim_of e ρ s c 1 _ (f a :: t) _ (hx a t ht) (by simp; omega)
+    (List.Forall₂.cons (hv a ha) hr)
+
+theorem sim_bin (s : State) (c : Nat) (f : UInt256 → UInt256 → UInt256) (hx : BinStep s c f)
+    (x y v : SV) (r : List SV) (hrel : StkRel e ρ (x :: y :: r) s.machineState.stack)
+    (hl : r.length < 1024)
+    (hv : ∀ a b, x.Rel e ρ a.toNat → y.Rel e ρ b.toNat → v.Rel e ρ (f a b).toNat) :
+    Simulates e ρ s c 1 (v :: r) := by
+  obtain ⟨a, t1, ht1, ha, hr1⟩ := hrel.cons_inv
+  obtain ⟨b, t, ht, hb, hr⟩ := hr1.cons_inv
+  subst ht
+  have := hr.length
+  exact sim_of e ρ s c 1 _ (f a b :: t) _ (hx a b t ht1) (by simp; omega)
+    (List.Forall₂.cons (hv a b ha hb) hr)
+
+theorem sim_tri (s : State) (c : Nat) (f : UInt256 → UInt256 → UInt256 → UInt256)
+    (hx : TriStep s c f) (x y z v : SV) (r : List SV)
+    (hrel : StkRel e ρ (x :: y :: z :: r) s.machineState.stack) (hl : r.length < 1024)
+    (hv : ∀ a b d, x.Rel e ρ a.toNat → y.Rel e ρ b.toNat → z.Rel e ρ d.toNat →
+      v.Rel e ρ (f a b d).toNat) :
+    Simulates e ρ s c 1 (v :: r) := by
+  obtain ⟨a, t1, ht1, ha, hr1⟩ := hrel.cons_inv
+  obtain ⟨b, t2, ht2, hb, hr2⟩ := hr1.cons_inv
+  obtain ⟨d, t, ht, hd, hr⟩ := hr2.cons_inv
+  subst ht ht2
+  have := hr.length
+  exact sim_of e ρ s c 1 _ (f a b d :: t) _ (hx a b d t ht1) (by simp; omega)
+    (List.Forall₂.cons (hv a b d ha hb hd) hr)
+
+/-- A word operation the checker built with `mkBin` describes the EVM's result. -/
+theorem wordBin_rel (fs : Facts) (hf : Facts.Hold e fs) (op : Nat) (x y v : SV)
+    (f : UInt256 → UInt256 → UInt256)
+    (hbin : ∀ a b : UInt256, binOp op a.toNat b.toNat = some (f a b).toNat)
+    (h : wordBin fs op x y = .ok v) (a b : UInt256) (ha : x.Rel e ρ a.toNat)
+    (hb : y.Rel e ρ b.toNat) : v.Rel e ρ (f a b).toNat := by
+  unfold wordBin wordOf at h
+  cases x with
+  | lin _ _ => cases h
+  | pw _ _ _ => cases h
+  | word wa =>
+    cases y with
+    | lin _ _ => cases h
+    | pw _ _ _ => cases h
+    | word wb =>
+      simp only [bind, Except.bind] at h
+      split at h
+      · rename_i w hw
+        cases h
+        obtain ⟨ha1, ha2⟩ := ha
+        obtain ⟨hb1, hb2⟩ := hb
+        have := mkBin_sound e fs hf op wa wb w ha1 hb1 hw
+        refine ⟨this.1, ?_⟩
+        have h2 := this.2
+        rw [← ha2, ← hb2, hbin] at h2
+        exact (Option.some.inj h2).symm
+      · cases h
+
+/-- The word-only binary operations of `step`. -/
+def WordBinOp (b : Nat) : Prop :=
+  b = 0x03 ∨ b = 0x04 ∨ b = 0x10 ∨ b = 0x11 ∨ b = 0x12 ∨ b = 0x13 ∨ b = 0x14 ∨ b = 0x16 ∨
+    b = 0x17 ∨ b = 0x18 ∨ b = 0x1c
+
+theorem step_wordBin (fs : Facts) (code : Code) (st st' : St) (b : Nat) (hb : WordBinOp b)
+    (h : step fs code (.op b) st = .ok st') :
+    ∃ x y r v, st.stk = x :: y :: r ∧ wordBin fs b x y = .ok v ∧ r.length < 1024 ∧
+      st'.stk = v :: r := by
+  have h' : (do let (x, y, s) ← pop2 st; push s (← wordBin fs b x y)) = Except.ok st' := by
+    unfold WordBinOp at hb
+    unfold Checker.step at h; dsimp only at h
+    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    · rw [if_neg (by decide), if_neg (by decide)] at h; exact h
+  obtain ⟨⟨x, y, st1⟩, hp, h1⟩ := bind_ok h'
+  obtain ⟨v, hw, h2⟩ := bind_ok h1
+  obtain ⟨hs, -⟩ := pop2_ok hp
+  obtain ⟨hl, rfl⟩ := push_ok h2
+  exact ⟨x, y, st1.stk, v, hs, hw, hl, rfl⟩
+
+/-- `SUB`, `DIV`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `AND`, `OR`, `XOR`, `SHR` (on words), given
+EVMLean's step for the operation `f`. -/
+theorem sim_wordBin (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (b c : Nat) (hb : WordBinOp b) (f : UInt256 → UInt256 → UInt256)
+    (hbin : ∀ a b' : UInt256, binOp b a.toNat b'.toNat = some (f a b').toNat)
+    (hx : BinStep s c f) (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op b) st = .ok st') : Simulates e ρ s c 1 st'.stk := by
+  obtain ⟨x, y, r, v, hs, hw, hl, hst⟩ := step_wordBin fs code st st' b hb h
+  rw [hst]
+  rw [hs] at hrel
+  exact sim_bin e ρ s c f hx x y v r hrel hl (wordBin_rel e ρ fs hf b x y v f hbin hw)
+
+
+/-- `SUB`. -/
+theorem sim_sub (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SUB, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x03) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x03 _ (by unfold WordBinOp; decide) (UInt256.sub) binOp_sub
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_sub s hdec, ht]; rfl) hrel h
+
+/-- `DIV`. -/
+theorem sim_div (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.DIV, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x04) st = .ok st') :
+    Simulates e ρ s GasConstants.Glow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x04 _ (by unfold WordBinOp; decide) (UInt256.div) binOp_div
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_div s hdec, ht]; rfl) hrel h
+
+/-- `LT`. -/
+theorem sim_lt (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.LT, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x10) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x10 _ (by unfold WordBinOp; decide) (UInt256.lt) binOp_lt
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_lt s hdec, ht]; rfl) hrel h
+
+/-- `GT`. -/
+theorem sim_gt (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.GT, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x11) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x11 _ (by unfold WordBinOp; decide) (UInt256.gt) binOp_gt
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_gt s hdec, ht]; rfl) hrel h
+
+/-- `SLT`. -/
+theorem sim_slt (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SLT, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x12) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x12 _ (by unfold WordBinOp; decide) (UInt256.slt) binOp_slt
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_slt s hdec, ht]; rfl) hrel h
+
+/-- `SGT`. -/
+theorem sim_sgt (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SGT, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x13) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x13 _ (by unfold WordBinOp; decide) (UInt256.sgt) binOp_sgt
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_sgt s hdec, ht]; rfl) hrel h
+
+/-- `EQ`. -/
+theorem sim_eq (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.EQ, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x14) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x14 _ (by unfold WordBinOp; decide) (UInt256.eq) binOp_eq
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_eq s hdec, ht]; rfl) hrel h
+
+/-- `AND`. -/
+theorem sim_and (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.AND, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x16) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x16 _ (by unfold WordBinOp; decide) (UInt256.land) binOp_and
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_and s hdec, ht]; rfl) hrel h
+
+/-- `OR`. -/
+theorem sim_or (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.OR, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x17) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x17 _ (by unfold WordBinOp; decide) (UInt256.lor) binOp_or
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_or s hdec, ht]; rfl) hrel h
+
+/-- `XOR`. -/
+theorem sim_xor (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.XOR, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x18) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x18 _ (by unfold WordBinOp; decide) (UInt256.xor) binOp_xor
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_xor s hdec, ht]; rfl) hrel h
+
+/-- `SHR`. -/
+theorem sim_shr (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SHR, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x1c) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_wordBin e ρ fs code s st st' hf 0x1c _ (by unfold WordBinOp; decide) (fun a b => UInt256.shiftRight b a) binOp_shr
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_shr s hdec, ht]; rfl) hrel h
+
+
+/-- A word operation the checker built with `mkBin` describes the operation's value. -/
+theorem wordBin_rel' (fs : Facts) (hf : Facts.Hold e fs) (op : Nat) (x y v : SV)
+    (h : wordBin fs op x y = .ok v) (a b : Nat) (ha : x.Rel e ρ a) (hb : y.Rel e ρ b) :
+    v.Rel e ρ ((binOp op a b).getD 0) := by
+  unfold wordBin wordOf at h
+  cases x with
+  | lin _ _ => cases h
+  | pw _ _ _ => cases h
+  | word wa =>
+    cases y with
+    | lin _ _ => cases h
+    | pw _ _ _ => cases h
+    | word wb =>
+      simp only [bind, Except.bind] at h
+      split at h
+      · rename_i w hw
+        cases h
+        obtain ⟨ha1, rfl⟩ := ha
+        obtain ⟨hb1, rfl⟩ := hb
+        have := mkBin_sound e fs hf op wa wb w ha1 hb1 hw
+        refine ⟨this.1, ?_⟩
+        rw [← this.2]; rfl
+      · cases h
+
+/-- A value the checker knows exactly describes only that word. -/
+theorem rel_exact (v : SV) (w n : Nat) (hv : v.Rel e ρ w) (hn : v.exact = some n) : w = n := by
+  cases v with
+  | word x => obtain ⟨hx, rfl⟩ := hv; exact Word.holds_exact e x hx n hn
+  | lin _ _ => simp [SV.exact] at hn
+  | pw _ _ _ => simp [SV.exact] at hn
+
+/-- The field `ADD` / `MUL` of `addMul`. -/
+theorem fieldAddMul_rel (op : Nat) (hop : op = 0x01 ∨ op = 0x02) (x y v : SV) (tb tb' : Tab)
+    (h : (if op = 1 then do
+        let (la, ba, tb) ← toLin x tb
+        let (lb, bb, tb) ← toLin y tb
+        if ba + bb < W then .ok (.lin (la.add lb) (ba + bb), tb)
+        else .error "ADD may overflow"
+      else
+        match x.exact, y.exact with
+        | some c, _ => do
+          let (l, bnd, tb) ← toLin y tb
+          if bnd * c < W then .ok (.lin (l.scale c) (bnd * c), tb) else .error "MUL may overflow"
+        | _, some c => do
+          let (l, bnd, tb) ← toLin x tb
+          if bnd * c < W then .ok (.lin (l.scale c) (bnd * c), tb) else .error "MUL may overflow"
+        | _, _ => .error "MUL of two field values") = Except.ok (v, tb'))
+    (hv : Tab.Valid e ρ tb') (a b : Nat) (ha : x.Rel e ρ a) (hb : y.Rel e ρ b) :
+    v.Rel e ρ ((binOp op a b).getD 0) := by
+  split at h
+  · rename_i hop1
+    subst hop1
+    obtain ⟨⟨la, ba, tb1⟩, h1, h'⟩ := bind_ok h
+    obtain ⟨⟨lb, bb, tb2⟩, h2, h''⟩ := bind_ok h'
+    dsimp only at h''
+    split at h''
+    · cases h''
+      rename_i hlt
+      exact (addField_sound e ρ x y a b tb tb1 _ la lb ba bb h1 h2 hlt ha hb hv).1
+    · cases h''
+  · have hop2 : op = 2 := by omega
+    subst hop2
+    cases hc : x.exact with
+    | some c =>
+      simp only [hc] at h
+      obtain ⟨⟨l, bnd, tb1⟩, h1, h'⟩ := bind_ok h
+      dsimp only at h'
+      split at h'
+      · cases h'
+        rename_i hlt
+        have := toLin_sound e ρ y b tb _ l bnd h1 hb hv
+        have hac := rel_exact e ρ x a c ha hc
+        subst hac
+        exact mulConst_sound e ρ l bnd a b this.1 this.2.2.1 hlt
+      · cases h'
+    | none =>
+      cases hd : y.exact with
+      | some c =>
+        simp only [hc, hd] at h
+        obtain ⟨⟨l, bnd, tb1⟩, h1, h'⟩ := bind_ok h
+        dsimp only at h'
+        split at h'
+        · cases h'
+          rename_i hlt
+          have := toLin_sound e ρ x a tb _ l bnd h1 ha hv
+          have hbc := rel_exact e ρ y b c hb hd
+          subst hbc
+          show SV.Rel e ρ _ ((a * b) % W)
+          rw [Nat.mul_comm a b]
+          exact mulConst_sound e ρ l bnd b a this.1 this.2.2.1 hlt
+        · cases h'
+      | none => simp [hc, hd] at h
+
+/-- `addMul` (the checker's `ADD` / `MUL`) describes the EVM's result. -/
+theorem addMul_rel (fs : Facts) (hf : Facts.Hold e fs) (op : Nat) (hop : op = 0x01 ∨ op = 0x02)
+    (x y v : SV) (tb tb' : Tab) (h : addMul fs op x y tb = .ok (v, tb'))
+    (hv : Tab.Valid e ρ tb') (a b : Nat) (ha : x.Rel e ρ a) (hb : y.Rel e ρ b) :
+    v.Rel e ρ ((binOp op a b).getD 0) := by
+  unfold addMul at h
+  dsimp only at h
+  split at h <;> split at h
+  all_goals first
+    | (obtain ⟨v', hw, h2⟩ := bind_ok h
+       cases h2
+       exact wordBin_rel' e ρ fs hf op _ _ v hw a b ha hb)
+    | exact fieldAddMul_rel e ρ op hop _ _ v tb tb' h hv a b ha hb
+
+theorem sim_addMul (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (b c : Nat) (hb : b = 0x01 ∨ b = 0x02) (f : UInt256 → UInt256 → UInt256)
+    (hbin : ∀ a b' : UInt256, binOp b a.toNat b'.toNat = some (f a b').toNat)
+    (hx : BinStep s c f) (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (hv : Tab.Valid e ρ st'.tab) (h : step fs code (.op b) st = .ok st') :
+    Simulates e ρ s c 1 st'.stk := by
+  have h' : (do
+      let (x, y, s) ← pop2 st
+      let (v, tb) ← addMul fs b x y s.tab
+      push { s with tab := tb } v) = Except.ok st' := by
+    unfold Checker.step at h; dsimp only at h
+    rcases hb with rfl | rfl <;>
+    · rw [if_neg (by decide), if_neg (by decide)] at h; exact h
+  obtain ⟨⟨x, y, st1⟩, hp, h1⟩ := bind_ok h'
+  obtain ⟨⟨v, tb⟩, hw, h2⟩ := bind_ok h1
+  obtain ⟨hs, -⟩ := pop2_ok hp
+  obtain ⟨hl, rfl⟩ := push_ok h2
+  rw [hs] at hrel
+  refine sim_bin e ρ s c f hx x y v st1.stk hrel hl (fun a b' ha hb' => ?_)
+  have := addMul_rel e ρ fs hf b hb x y v st1.tab tb hw hv a.toNat b'.toNat ha hb'
+  rw [hbin] at this
+  exact this
+
+/-- `ADD`: on words, or on field values whose bounds sum below `2^256`. -/
+theorem sim_add (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.ADD, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hv : Tab.Valid e ρ st'.tab)
+    (h : step fs code (.op 0x01) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_addMul e ρ fs code s st st' hf 0x01 _ (.inl rfl) UInt256.add binOp_add
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_add s hdec, ht]; rfl)
+    hrel hv h
+
+/-- `MUL`: on words, or a field value by a constant, the bound kept below `2^256`. -/
+theorem sim_mul (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.MUL, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hv : Tab.Valid e ρ st'.tab)
+    (h : step fs code (.op 0x02) st = .ok st') :
+    Simulates e ρ s GasConstants.Glow 1 st'.stk :=
+  sim_addMul e ρ fs code s st st' hf 0x02 _ (.inr rfl) UInt256.mul binOp_mul
+    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_mul s hdec, ht]; rfl)
+    hrel hv h
+
+/-- `ISZERO`, `NOT` (on words). -/
+theorem sim_unWord (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (b c : Nat) (hb : b = 0x15 ∨ b = 0x19) (f : UInt256 → UInt256)
+    (hun : ∀ a : UInt256, unOp b a.toNat = some (f a).toNat)
+    (hx : UnStep s c f) (hrel : StkRel e ρ st.stk s.machineState.stack)
+    (h : step fs code (.op b) st = .ok st') :
+    Simulates e ρ s c 1 st'.stk := by
+  have h' : (do
+      let (x, s) ← pop1 st
+      let w ← wordOf x
+      match mkUn fs b w with
+      | some w => push s (.word w)
+      | none => .error "unsupported unary operation") = Except.ok st' := by
+    unfold Checker.step at h; dsimp only at h
+    rcases hb with rfl | rfl <;>
+    · rw [if_neg (by decide), if_neg (by decide)] at h; exact h
+  obtain ⟨⟨x, st1⟩, hp, h1⟩ := bind_ok h'
+  obtain ⟨wx, hw, h2⟩ := bind_ok h1
+  obtain ⟨hs, -⟩ := pop1_ok hp
+  rw [hs] at hrel
+  split at h2
+  · rename_i w hmk
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    have hxw : x = .word wx := by
+      unfold wordOf at hw; split at hw <;> cases hw; rfl
+    subst hxw
+    refine sim_un e ρ s c f hx _ _ st1.stk hrel hl (fun a ha => ?_)
+    obtain ⟨ha1, ha2⟩ := ha
+    have := mkUn_sound e fs hf b wx w ha1 hmk
+    refine ⟨this.1, ?_⟩
+    have h3 := this.2
+    rw [← ha2, hun] at h3
+    exact (Option.some.inj h3).symm
+  · cases h2
+
+/-- `ISZERO`. -/
+theorem sim_iszero (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.ISZERO, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x15) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_unWord e ρ fs code s st st' hf 0x15 _ (.inl rfl) UInt256.isZero unOp_iszero
+    (fun a t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_iszero s hdec, ht]; rfl)
+    hrel h
+
+/-- `NOT`. -/
+theorem sim_not (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.NOT, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x19) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
+  sim_unWord e ρ fs code s st st' hf 0x19 _ (.inr rfl) UInt256.lnot unOp_not
+    (fun a t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_not s hdec, ht]; rfl)
+    hrel h
+
+/-- `SHL`: on words, or `v · 2^k` of a field value with the bound kept below `2^256`. -/
+theorem sim_shl (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SHL, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x1b) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, y, st1⟩, hp, h1⟩ := bind_ok h
+  obtain ⟨hs, -⟩ := pop2_ok hp
+  rw [hs] at hrel
+  have hx : BinStep s GasConstants.Gverylow (fun a b => UInt256.shiftLeft b a) :=
+    fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_shl s hdec, ht]; rfl
+  dsimp only at h1
+  split at h1
+  · rename_i k l bnd hk
+    split at h1
+    · rename_i hlt
+      obtain ⟨hl, rfl⟩ := push_ok h1
+      refine sim_bin e ρ s _ _ hx x _ _ st1.stk hrel hl (fun a b ha hb => ?_)
+      have hak := rel_exact e ρ x a.toNat k ha hk
+      obtain ⟨hb1, -, hb3⟩ := hb
+      have := shlField_sound e ρ l bnd k b.toNat hb1 hb3 hlt.2
+      have e1 := binOp_shl a b
+      rw [hak, binOp, if_pos hlt.1] at e1
+      rw [← Option.some.inj e1]
+      exact this
+    · cases h1
+  · obtain ⟨v, hw, h2⟩ := bind_ok h1
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    exact sim_bin e ρ s _ _ hx x _ v st1.stk hrel hl
+      (wordBin_rel e ρ fs hf 0x1b x _ v _ binOp_shl hw)
+
+theorem exactOf_ok {what : String} {v : SV} {n : Nat} (h : exactOf what v = .ok n) :
+    v.exact = some n := by
+  unfold exactOf at h
+  split at h
+  · cases h; assumption
+  · cases h
+
+
+theorem mod_toNat (a b : UInt256) :
+    (UInt256.mod a b).toNat = if b.toNat = 0 then 0 else a.toNat % b.toNat := by
+  have := binOp_mod a b
+  simp only [binOp] at this
+  exact (Option.some.inj this).symm
+
+/-- `MOD`: of exact words, or by `P`. -/
+theorem sim_mod (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.MOD, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hv : Tab.Valid e ρ st'.tab)
+    (h : step fs code (.op 0x06) st = .ok st') :
+    Simulates e ρ s GasConstants.Glow 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, n, st1⟩, hp, h1⟩ := bind_ok h
+  obtain ⟨hs, -⟩ := pop2_ok hp
+  rw [hs] at hrel
+  dsimp only at h1
+  obtain ⟨m, hm, h2⟩ := bind_ok h1
+  have hn := exactOf_ok hm
+  have hx : BinStep s GasConstants.Glow UInt256.mod :=
+    fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_mod s hdec, ht]; rfl
+  split at h2
+  · rename_i v hxv
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    refine sim_bin e ρ s _ _ hx x n _ st1.stk hrel hl (fun a b ha hb => ?_)
+    refine const_rel e ρ _ _ ?_
+    rw [mod_toNat, rel_exact e ρ x a.toNat v ha hxv, rel_exact e ρ n b.toNat m hb hn]
+  · split at h2
+    · cases h2
+    · rename_i hmP
+      have hmP' : m = P := by simpa using hmP
+      subst hmP'
+      have hP : ∀ b : UInt256, n.Rel e ρ b.toNat → ¬ b.toNat = 0 ∧ b.toNat = P := fun b hb => by
+        have := rel_exact e ρ n b.toNat P hb hn
+        exact ⟨by rw [this]; decide, this⟩
+      split at h2
+      · obtain ⟨hl, rfl⟩ := push_ok h2
+        refine sim_bin e ρ s _ _ hx _ n _ st1.stk hrel hl (fun a b ha hb => ?_)
+        rw [mod_toNat, if_neg (hP b hb).1, (hP b hb).2]
+        exact modP_pw e ρ _ _ _ _ ha
+      · obtain ⟨⟨l, bnd, tb⟩, ht, h3⟩ := bind_ok h2
+        obtain ⟨hl, rfl⟩ := push_ok h3
+        refine sim_bin e ρ s _ _ hx _ n _ st1.stk hrel hl (fun a b ha hb => ?_)
+        rw [mod_toNat, if_neg (hP b hb).1, (hP b hb).2]
+        have := toLin_sound e ρ _ a.toNat _ _ l bnd ht ha hv
+        exact modP_lin e ρ l bnd a.toNat ⟨this.1, this.2.1, this.2.2.1⟩
+
+
+/-- `ADDMOD`: of exact words, or by `P`. -/
+theorem sim_addmod (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.ADDMOD, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hv : Tab.Valid e ρ st'.tab)
+    (h : step fs code (.op 0x08) st = .ok st') :
+    Simulates e ρ s GasConstants.Gmid 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, y, n, st1⟩, hp, h1⟩ := bind_ok h
+  obtain ⟨hs, -⟩ := pop3_ok hp
+  rw [hs] at hrel
+  dsimp only at h1
+  obtain ⟨m, hm, h2⟩ := bind_ok h1
+  have hn := exactOf_ok hm
+  have hx : TriStep s GasConstants.Gmid UInt256.addMod :=
+    fun a b d t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_addmod s hdec, ht]; rfl
+  split at h2
+  · rename_i u w hxu hyw
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    refine sim_tri e ρ s _ _ hx x y n _ st1.stk hrel hl (fun a b d ha hb hd => ?_)
+    refine const_rel e ρ _ _ ?_
+    rw [toNat_addMod, rel_exact e ρ x a.toNat u ha hxu, rel_exact e ρ y b.toNat w hb hyw,
+      rel_exact e ρ n d.toNat m hd hn]
+  · split at h2
+    · cases h2
+    · rename_i hmP
+      have hmP' : m = P := by simpa using hmP
+      subst hmP'
+      obtain ⟨⟨la, ba, tb1⟩, h3, h4⟩ := bind_ok h2
+      obtain ⟨⟨lb, bb, tb2⟩, h5, h6⟩ := bind_ok h4
+      obtain ⟨hl, rfl⟩ := push_ok h6
+      refine sim_tri e ρ s _ _ hx x y n _ st1.stk hrel hl (fun a b d ha hb hd => ?_)
+      have hdP := rel_exact e ρ n d.toNat P hd hn
+      rw [toNat_addMod, hdP, if_neg (by decide)]
+      have e2 := toLin_ext y tb1 tb2 lb bb h5
+      have sa := toLin_sound e ρ x a.toNat _ tb1 la ba h3 ha (hv.of_ext e2)
+      have sb := toLin_sound e ρ y b.toNat tb1 tb2 lb bb h5 hb hv
+      exact addModP_sound e ρ la lb _ _ sa.2.2.1 sb.2.2.1
+
+/-- `MULMOD`: of exact words, or by `P` (`mulModP`). -/
+theorem sim_mulmod (fs : Facts) (code : Code) (s : State) (st st' : St)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.MULMOD, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (hv : Tab.Valid e ρ st'.tab)
+    (h : step fs code (.op 0x09) st = .ok st') :
+    Simulates e ρ s GasConstants.Gmid 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, y, n, st1⟩, hp, h1⟩ := bind_ok h
+  obtain ⟨hs, -⟩ := pop3_ok hp
+  rw [hs] at hrel
+  dsimp only at h1
+  obtain ⟨m, hm, h2⟩ := bind_ok h1
+  have hn := exactOf_ok hm
+  have hx : TriStep s GasConstants.Gmid UInt256.mulMod :=
+    fun a b d t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_mulmod s hdec, ht]; rfl
+  split at h2
+  · rename_i u w hxu hyw
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    refine sim_tri e ρ s _ _ hx x y n _ st1.stk hrel hl (fun a b d ha hb hd => ?_)
+    refine const_rel e ρ _ _ ?_
+    rw [toNat_mulMod, rel_exact e ρ x a.toNat u ha hxu, rel_exact e ρ y b.toNat w hb hyw,
+      rel_exact e ρ n d.toNat m hd hn]
+  · split at h2
+    · cases h2
+    · rename_i hmP
+      have hmP' : m = P := by simpa using hmP
+      subst hmP'
+      obtain ⟨⟨v, tb⟩, h3, h4⟩ := bind_ok h2
+      obtain ⟨hl, rfl⟩ := push_ok h4
+      refine sim_tri e ρ s _ _ hx x y n _ st1.stk hrel hl (fun a b d ha hb hd => ?_)
+      have hdP := rel_exact e ρ n d.toNat P hd hn
+      rw [toNat_mulMod, hdP, if_neg (by decide)]
+      exact (mulModP_sound e ρ x y a.toNat b.toNat _ _ v h3 ha hb hv).1
 
 end Poseidon2.Evm.Sim
