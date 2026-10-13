@@ -36,7 +36,7 @@ inductive Term where
   | cv
   | un (op : Nat) (a : Term)
   | bin (op : Nat) (a b : Term)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 /-- Structural equality. -/
 def Term.beq : Term → Term → Bool
@@ -102,7 +102,7 @@ def Term.eval (e : Env) : Term → Nat
 structure Lin where
   c : Nat
   ts : List (Nat × Nat)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 def termsBeq : List (Nat × Nat) → List (Nat × Nat) → Bool
   | [], [] => true
@@ -150,7 +150,7 @@ inductive Def where
   | word (t : Term)
   /-- the fifth power of a form over earlier atoms -/
   | pow5 (l : Lin)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 def Def.beq : Def → Def → Bool
   | .word a, .word b => a.beq b
@@ -161,7 +161,7 @@ def Def.beq : Def → Def → Bool
 structure Tab where
   defs : List (Nat × Def)
   next : Nat
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 def Tab.empty : Tab := ⟨[], 0⟩
 

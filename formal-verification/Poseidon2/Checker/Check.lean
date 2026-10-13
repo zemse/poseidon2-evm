@@ -38,6 +38,8 @@ structure Case where
   facts : Facts
   expect : Expect
 
+instance : Inhabited Case := ⟨⟨"", [], .revertEmpty⟩⟩
+
 /-- The atoms of the input words, as forms. -/
 def inputForms (fs : Facts) : List Term → Tab → List Lin × Tab
   | [], tb => ([], tb)
@@ -138,17 +140,32 @@ def hashV2Cases (c : Params) : List Case := (hashCapCases [] c).drop 4
 
 /-- `yulPerm` with selector `sel`: every reverting class, and the call. -/
 def yulPermCases (c : Params) (sel : Nat) : List Case :=
-  let cvs : List (String × Nat × Nat) := [("no value", 0, 0), ("value", 1, W - 1)]
-  let short := cvs.map fun (n, cv) => (⟨s!"size < 4, {n}", [(.cds, 0, 3), (.cv, cv)], .revertEmpty⟩ : Case)
-  let lowSel := cvs.map fun (n, cv) =>
-    (⟨s!"selector below, {n}", [(.cds, 4, cdsMax), (selTerm, 0, sel - 1), (.cv, cv)], .revertEmpty⟩ : Case)
-  let highSel := cvs.map fun (n, cv) =>
-    (⟨s!"selector above, {n}", [(.cds, 4, cdsMax), (selTerm, sel + 1, 2 ^ 32 - 1), (.cv, cv)],
-      .revertEmpty⟩ : Case)
-  let args := 4 + 32 * c.t
-  short ++ (if sel = 0 then [] else lowSel) ++ highSel ++
-  [⟨"call value", [(.cds, 4, cdsMax), (selTerm, sel, sel), (.cv, 1, W - 1)], .revertEmpty⟩,
-   ⟨"short arguments", [(.cds, 4, args - 1), (selTerm, sel, sel), (.cv, 0, 0)], .revertEmpty⟩,
-   ⟨"call", [(.cds, args, cdsMax), (selTerm, sel, sel), (.cv, 0, 0)], .perm c (cdlWords 4 c.t)⟩]
+  let low : List Case :=
+    if sel = 0 then [] else
+    [⟨"selector below, no value", [(.cds, 4, cdsMax), (selTerm, 0, sel - 1), (.cv, 0, 0)], .revertEmpty⟩,
+     ⟨"selector below, value", [(.cds, 4, cdsMax), (selTerm, 0, sel - 1), (.cv, 1, W - 1)],
+      .revertEmpty⟩]
+  [⟨"size < 4, no value", [(.cds, 0, 3), (.cv, 0, 0)], .revertEmpty⟩,
+   ⟨"size < 4, value", [(.cds, 0, 3), (.cv, 1, W - 1)], .revertEmpty⟩] ++ low ++
+  [⟨"selector above, no value", [(.cds, 4, cdsMax), (selTerm, sel + 1, 2 ^ 32 - 1), (.cv, 0, 0)],
+    .revertEmpty⟩,
+   ⟨"selector above, value", [(.cds, 4, cdsMax), (selTerm, sel + 1, 2 ^ 32 - 1), (.cv, 1, W - 1)],
+    .revertEmpty⟩,
+   ⟨"call value", [(.cds, 4, cdsMax), (selTerm, sel, sel), (.cv, 1, W - 1)], .revertEmpty⟩,
+   ⟨"short arguments", [(.cds, 4, 4 + 32 * c.t - 1), (selTerm, sel, sel), (.cv, 0, 0)], .revertEmpty⟩,
+   ⟨"call", [(.cds, 4 + 32 * c.t, cdsMax), (selTerm, sel, sel), (.cv, 0, 0)], .perm c (cdlWords 4 c.t)⟩]
+
+end Poseidon2.Checker
+
+namespace Poseidon2.Checker
+
+/-- Every element passes if every index does (for the per-case kernel theorems). -/
+theorem all_of_getD {α : Type} [Inhabited α] (f : α → Bool) :
+    ∀ (l : List α), (∀ j, j < l.length → f (l.getD j default) = true) → l.all f = true
+  | [], _ => rfl
+  | a :: l, h => by
+    simp only [List.all_cons, Bool.and_eq_true]
+    refine ⟨h 0 (by simp), all_of_getD f l fun j hj => ?_⟩
+    simpa using h (j + 1) (by simp; omega)
 
 end Poseidon2.Checker

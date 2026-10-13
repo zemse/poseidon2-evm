@@ -33,14 +33,20 @@ partial def modulesIn (dir : System.FilePath) (pre : Name) : IO (Array Name) := 
       if let some stem := e.path.fileStem then out := out.push (pre.str stem)
   return out
 
-elab "#assert_standard_axioms " pre:ident dir:str : command => do
+syntax "#assert_standard_axioms " ident str (" skipping " ident)? : command
+
+elab_rules : command
+  | `(#assert_standard_axioms $pre:ident $dir:str $[ skipping $skip?]?) => do
   let env ← getEnv
   let pre := pre.getId
+  let skip := skip?.map (·.getId)
   let mods := env.header.moduleNames
-  -- every file under `dir` is in the environment, except the module running the audit
+  -- every file under `dir` is in the environment, except the module running the audit and
+  -- the modules under `skip`, which another audit covers
   let here := env.header.mainModule
   let files ← modulesIn dir.getString pre
   for m in files do
+    if skip.any (·.isPrefixOf m) then continue
     unless m == here || mods.contains m do
       throwError "{m} is not imported by the audit, so it is neither built nor checked"
   -- constants defined in our modules, of every kind

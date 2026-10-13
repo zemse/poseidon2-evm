@@ -32,7 +32,7 @@ inductive SV where
   | lin (l : Lin) (b : Nat)
   /-- the value `c · l^k mod P`, `2 ≤ k ≤ 4` -/
   | pw (c : Nat) (l : Lin) (k : Nat)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 def SV.const (v : Nat) : SV := .word (Word.const v)
 
@@ -50,7 +50,7 @@ inductive Ins where
   | swapn (n : Nat)
   /-- an EIP-8024 immediate out of range, or PUSH data cut by the end of the code -/
   | bad (b : Nat)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 /-- `n` bytes big-endian, `none` if the code ends first. -/
 def takeBytes : Nat → List Nat → Nat → Option (Nat × List Nat)
@@ -62,22 +62,39 @@ def takeBytes : Nat → List Nat → Nat → Option (Nat × List Nat)
 def decodeSingle (x : Nat) : Option Nat :=
   if x ≤ 90 ∨ 128 ≤ x then some ((x + 145) % 256) else none
 
-/-- The instructions with their `pc` (fuel: the byte count). -/
+/-- One instruction from its first byte `b` and the bytes after it: the instruction, its length
+in bytes, and the bytes after it (`none`: decoding stops after this one). -/
+def decodeOne (b : Nat) (bs : List Nat) : Ins × Nat × Option (List Nat) :=
+  if 0x60 ≤ b ∧ b ≤ 0x7f then
+    match takeBytes (b - 0x5f) bs 0 with
+    | some (v, rest) => (.push v, 1 + (b - 0x5f), some rest)
+    | none => (.bad b, 1, none)
+  else if b = 0x5f then (.push 0, 1, some bs)
+  else if b = 0xe6 ∨ b = 0xe7 then
+    match decodeSingle (bs.headD 0) with
+    | some n => (if b = 0xe6 then .dupn n else .swapn n, 2, some bs.tail)
+    | none => (.bad b, 1, none)
+  else (.op b, 1, some bs)
+
+theorem decodeOne_len (b : Nat) (bs : List Nat) : 1 ≤ (decodeOne b bs).2.1 := by
+  unfold decodeOne
+  split
+  · split <;> simp
+  · split
+    · simp
+    · split
+      · split <;> simp
+      · simp
+
+/-- The instructions with their `pc` (fuel: the most instructions to decode). -/
 def decode : Nat → Nat → List Nat → List (Nat × Ins)
   | 0, _, _ => []
   | _, _, [] => []
   | f + 1, pc, b :: bs =>
-    if 0x60 ≤ b ∧ b ≤ 0x7f then
-      match takeBytes (b - 0x5f) bs 0 with
-      | some (v, rest) => (pc, .push v) :: decode f (pc + 1 + (b - 0x5f)) rest
-      | none => [(pc, .bad b)]
-    else if b = 0x5f then (pc, .push 0) :: decode f (pc + 1) bs
-    else if b = 0xe6 ∨ b = 0xe7 then
-      let x := bs.headD 0
-      match decodeSingle x with
-      | some n => (pc, if b = 0xe6 then .dupn n else .swapn n) :: decode f (pc + 2) bs.tail
-      | none => [(pc, .bad b)]
-    else (pc, .op b) :: decode f (pc + 1) bs
+    let (i, n, rest) := decodeOne b bs
+    (pc, i) :: match rest with
+      | some r => decode f (pc + n) r
+      | none => []
 
 /-- The valid jump destinations, as EVMLean's `D_J` finds them: every `0x5b` byte that is not
 PUSH data (DUPN / SWAPN count as one-byte instructions there). -/
@@ -108,9 +125,13 @@ structure Code where
   ins : List (Nat × Ins)
   dests : List (Nat × List (Nat × Ins))
 
+/-- The decoding budget: more bytes than any code has (a literal, not `bs.length`, which the
+kernel would evaluate as a deep recursion). -/
+def codeFuel : Nat := 2 ^ 20
+
 def Code.ofBytes (bs : List Nat) : Code :=
-  let ins := decode bs.length 0 bs
-  ⟨bs, ins, destSuffixes (jumpdests bs.length 0 bs) ins⟩
+  let ins := decode codeFuel 0 bs
+  ⟨bs, ins, destSuffixes (jumpdests codeFuel 0 bs) ins⟩
 
 /-- The word of the code at `off`, zero past the end (`CODECOPY`). -/
 def codeWord (bs : List Nat) (off : Nat) : Nat :=
@@ -125,7 +146,7 @@ structure St where
   /-- active memory in bytes, a multiple of 32 -/
   msize : Nat
   tab : Tab
-  deriving Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 def St.init : St := ⟨[], [], 0, Tab.empty⟩
 
@@ -416,57 +437,115 @@ inductive Res where
   /-- `STOP` or the end of the code -/
   | stop
   | fail (pc : Nat) (msg : String)
-  deriving Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
+/-- After one instruction: the instructions to run next and the state, or the end. -/
+inductive Out where
+  | next (is : List (Nat × Ins)) (s : St)
+  | done (r : Res)
+  deriving Repr, Inhabited, DecidableEq
+
+/-- What one instruction does to control flow: fall through, jump, or end the run. -/
+inductive Ctl where
+  | fall (s : St)
+  | jump (target : Nat) (s : St)
+  | stop (r : Res)
+
+/-- One instruction at `pc`. -/
+def ctl (fs : Facts) (code : Code) (pc : Nat) (i : Ins) (s : St) : Ctl :=
+  let jump (target : SV) (s : St) : Ctl :=
+    match target.exact with
+    | none => .stop (.fail pc "symbolic jump target")
+    | some t => .jump t s
+  match i with
+  | .op 0x00 => .stop .stop
+  | .op 0x56 =>
+    match pop1 s with
+    | .ok (t, s) => jump t s
+    | .error e => .stop (.fail pc e)
+  | .op 0x57 =>
+    match pop2 s with
+    | .ok (t, c, s) =>
+      match c with
+      | .word w =>
+        if 0 < w.lo then jump t s
+        else if w.hi = 0 then .fall s
+        else .stop (.fail pc "undecided JUMPI")
+      | _ => .stop (.fail pc "JUMPI on a field value")
+    | .error e => .stop (.fail pc e)
+  | .op 0xf3 =>
+    match pop2 s with
+    | .ok (off, sz, s) =>
+      match off.exact, sz.exact with
+      | some o, some n =>
+        if n % 32 ≠ 0 then .stop (.fail pc "RETURN size not a multiple of 32") else
+        match readWords s.mem (n / 32) o with
+        | .ok ws => .stop (.ret ws s.tab)
+        | .error e => .stop (.fail pc e)
+      | _, _ => .stop (.fail pc "symbolic RETURN range")
+    | .error e => .stop (.fail pc e)
+  | .op 0xfd =>
+    match pop2 s with
+    | .ok (_, sz, _) =>
+      match sz.exact with
+      | some n => .stop (.revert n)
+      | none => .stop (.fail pc "symbolic REVERT size")
+    | .error e => .stop (.fail pc e)
+  | i =>
+    match step fs code i s with
+    | .ok s => .fall s
+    | .error e => .stop (.fail pc e)
+
+/-- One instruction from the instruction list `is`. -/
+def step1 (fs : Facts) (code : Code) : List (Nat × Ins) → St → Out
+  | [], _ => .done .stop
+  | (pc, i) :: rest, s =>
+    match ctl fs code pc i s with
+    | .fall s => .next rest s
+    | .jump t s =>
+      match findDest t code.dests with
+      | some is => .next is s
+      | none => .done (.fail pc s!"invalid jump destination {t}")
+    | .stop r => .done r
 /-- Runs from the instruction list `is` (fuel: the instruction budget). -/
 def run (fs : Facts) (code : Code) : Nat → List (Nat × Ins) → St → Res
   | 0, _, _ => .fail 0 "out of fuel"
-  | _, [], _ => .stop
-  | f + 1, (pc, i) :: rest, s =>
-    let jump (target : SV) (s : St) : Res :=
-      match target.exact with
-      | none => .fail pc "symbolic jump target"
-      | some t =>
-        match findDest t code.dests with
-        | some is => run fs code f is s
-        | none => .fail pc s!"invalid jump destination {t}"
-    match i with
-    | .op 0x00 => .stop
-    | .op 0x56 =>
-      match pop1 s with
-      | .ok (t, s) => jump t s
-      | .error e => .fail pc e
-    | .op 0x57 =>
-      match pop2 s with
-      | .ok (t, c, s) =>
-        match c with
-        | .word w =>
-          if 0 < w.lo then jump t s
-          else if w.hi = 0 then run fs code f rest s
-          else .fail pc "undecided JUMPI"
-        | _ => .fail pc "JUMPI on a field value"
-      | .error e => .fail pc e
-    | .op 0xf3 =>
-      match pop2 s with
-      | .ok (off, sz, s) =>
-        match off.exact, sz.exact with
-        | some o, some n =>
-          if n % 32 ≠ 0 then .fail pc "RETURN size not a multiple of 32" else
-          match readWords s.mem (n / 32) o with
-          | .ok ws => .ret ws s.tab
-          | .error e => .fail pc e
-        | _, _ => .fail pc "symbolic RETURN range"
-      | .error e => .fail pc e
-    | .op 0xfd =>
-      match pop2 s with
-      | .ok (_, sz, _) =>
-        match sz.exact with
-        | some n => .revert n
-        | none => .fail pc "symbolic REVERT size"
-      | .error e => .fail pc e
-    | i =>
-      match step fs code i s with
-      | .ok s => run fs code f rest s
-      | .error e => .fail pc e
+  | f + 1, is, s =>
+    match step1 fs code is s with
+    | .next is s => run fs code f is s
+    | .done r => r
+
+/-- At most `n` instructions: where the run stands after them, or its end. -/
+def runN (fs : Facts) (code : Code) : Nat → List (Nat × Ins) → St → Out
+  | 0, is, s => .next is s
+  | n + 1, is, s =>
+    match step1 fs code is s with
+    | .next is s => runN fs code n is s
+    | .done r => .done r
+
+/-- A run splits at any point it reaches: the basis of checking it in segments. -/
+theorem run_add (fs : Facts) (code : Code) :
+    ∀ (k f : Nat) (is is' : List (Nat × Ins)) (s s' : St),
+      runN fs code k is s = .next is' s' → run fs code (k + f) is s = run fs code f is' s'
+  | 0, f, is, is', s, s', h => by
+    simp only [runN, Out.next.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    simp
+  | k + 1, f, is, is', s, s', h => by
+    rw [show k + 1 + f = (k + f) + 1 by omega]
+    simp only [runN] at h
+    simp only [run]
+    split at h
+    · rename_i is₁ s₁ h₁
+      exact run_add fs code k f is₁ is' s₁ s' h
+    · cases h
+
+end Poseidon2.Checker
+
+namespace Poseidon2.Checker
+
+theorem dropWhile_false {α : Type} : ∀ l : List α, l.dropWhile (fun _ => false) = l
+  | [] => rfl
+  | _ :: _ => rfl
 
 end Poseidon2.Checker

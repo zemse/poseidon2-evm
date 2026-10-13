@@ -9,7 +9,8 @@ few rewrites put equal words into one shape:
 
 * `a + c` with `c ≥ 2^255` is `a - (2^256 - c)`;
 * commutative operations keep a constant operand second;
-* `shl(s, shr(r, x))` with `r ≤ s < 256` is `and(shl(s - r, x), 2^256 - 2^s)`.
+* `and(shl(k, x), 2^256 - 2^s)` with `k ≤ s < 256` is `shl(s, shr(s - k, x))` (both clear the
+  low `s` bits of `x · 2^k`).
 
 `Facts` are assumptions on the call (the calldata size, the call value, the selector word):
 intervals for given terms, intersected with what the operation gives. A theorem about a
@@ -38,11 +39,19 @@ structure Word where
   t : Term
   lo : Nat
   hi : Nat
-  deriving Repr, Inhabited
+  deriving Inhabited, DecidableEq
 
 def Word.exact (w : Word) : Option Nat := if w.lo = w.hi then some w.lo else none
 
 def Word.const (v : Nat) : Word := ⟨.const v, v, v⟩
+
+/-- Constants print as `Word.const v` (shorter checkpoint literals). -/
+instance : Repr Word where
+  reprPrec w p :=
+    match w.t with
+    | .const v => if w.lo = v ∧ w.hi = v then Repr.addAppParen (.text s!"Word.const {v}") p
+      else Repr.addAppParen (.text s!"Word.mk ({reprStr w.t}) {w.lo} {w.hi}") p
+    | t => Repr.addAppParen (.text s!"Word.mk ({reprStr t}) {w.lo} {w.hi}") p
 
 /-- A comparison result: decided, or `[0, 1]`. -/
 def decided (yes no : Bool) : Nat × Nat := if yes then (1, 1) else if no then (0, 0) else (0, 1)
@@ -75,13 +84,19 @@ def isConst : Term → Bool
 def commutative (op : Nat) : Bool :=
   op == 0x01 || op == 0x02 || op == 0x14 || op == 0x16 || op == 0x17 || op == 0x18
 
+/-- `some s` if `m = 2^256 - 2^s` (`s < 256`). -/
+def lowZeros (m : Nat) : Option Nat :=
+  ((List.range 256).find? fun s => m + 2 ^ s = W)
+
 /-- The term of `bin op a b`, normalized (see the module doc). -/
 def binTerm (op : Nat) (a b : Term) : Term :=
   match op, a, b with
   | 0x01, x, .const c => if 2 ^ 255 ≤ c ∧ c < W then .bin 0x03 x (.const (W - c)) else .bin op x (.const c)
-  | 0x1b, .const s, .bin 0x1c (.const r) x =>
-    if r ≤ s ∧ s < 256 then .bin 0x16 (.bin 0x1b (.const (s - r)) x) (.const (W - 2 ^ s))
-    else .bin op a b
+  | 0x16, .bin 0x1b (.const k) x, .const m =>
+    match lowZeros m with
+    | some s => if k ≤ s ∧ s < 256 then .bin 0x1b (.const s) (.bin 0x1c (.const (s - k)) x)
+      else .bin op a b
+    | none => .bin op a b
   | _, _, _ => .bin op a b
 
 /-- `bin op a b` on words: constants fold, else the normalized term and its interval.
