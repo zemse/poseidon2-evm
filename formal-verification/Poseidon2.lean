@@ -16,3 +16,4 @@ import Poseidon2.Evm.Smoke
 import Poseidon2.Spec.Interface
 import Poseidon2.Spec.DiagCheck
 import Poseidon2.Evm.Eip8024
+import Poseidon2.Bytecode.All

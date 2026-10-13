@@ -1,7 +1,8 @@
 // poseidon2-gen: the Huff and Yul generators of generator/huff/generate.ts
 // and generator/yul/generate.ts, writing the same files relative to the
 // working directory (the repository root), and `verify`, which compiles and
-// runs the generated Huff (huff/verify.rs).
+// runs the generated Huff (huff/verify.rs), and `lean-export`, which writes
+// the bytecode the formal verification checks (lean_export.rs).
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -11,7 +12,7 @@ use poseidon2_gen::assert_known::assert_known;
 use poseidon2_gen::error::Result;
 use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, fork};
 use poseidon2_gen::huff::verify::verify;
-use poseidon2_gen::{bail, huff, yul};
+use poseidon2_gen::{bail, huff, lean_export, yul};
 
 #[derive(Parser)]
 #[command(
@@ -47,6 +48,21 @@ enum Command {
     },
     /// Yul library for each state width (default: 4)
     Yul { widths: Vec<usize> },
+    /// Writes the runtime bytecode of the Huff contracts (per hardfork), the
+    /// Yul wrappers (per forge out/ directory) and the deployed artifacts as
+    /// Lean data for formal-verification/
+    LeanExport {
+        /// directory of the Lean files
+        #[arg(long, default_value = "formal-verification/Poseidon2/Bytecode")]
+        out: String,
+        /// hardforks of the Huff contracts
+        #[arg(long = "hardfork", default_values = ["amsterdam", "osaka"])]
+        hardforks: Vec<String>,
+        /// label=dir: a forge out/ directory with the Yul wrappers, its label
+        /// naming the solc settings it was built with
+        #[arg(long)]
+        yul: Vec<String>,
+    },
 }
 
 /// The widths to build, 4 when none are given; Poseidon2 defines t = 2, 3
@@ -96,6 +112,11 @@ fn run(cli: Cli) -> Result<()> {
             let w = widths(w)?;
             yul::run(root, &w, assert_known)
         }
+        Command::LeanExport {
+            out,
+            hardforks,
+            yul,
+        } => lean_export::run(root, Path::new(&out), &hardforks, &yul),
     }
 }
 

@@ -22,6 +22,9 @@ outside the ABI the contracts document, as read from the sources at this commit:
   256-bit words (so `cds < 4` wraps), and returns element 0 of the permutation. On ABI calldata
   (`cds = 4 + 32·n`, `n = 1, 2, 3`) this is `hashWords` of the `n` words (`hash_entries_abi`
   checks both t = 4 entries against `hashWords` on four such calldatas; `yulCapacity_abi`).
+* `hashV2`: the deployed v2 Huff t = 4 contract of `deployed-artifacts/bn254-huff/v2`, built
+  from older sources: as `yulHash` but without the call value check, for calldata of at least 4
+  bytes (below that it differs, see `hashV2`).
 * `yulPerm` (the `Poseidon2YulT<t>` contracts of `test/Poseidon2YulT<t>.t.sol`, the Foundry
   wrappers that call `LibPoseidon2YulT<t>.permute` on a `uint256[t] memory` and return it):
   a Solidity external function `permute(uint256[t])`. Reverts with empty data when the calldata
@@ -79,6 +82,15 @@ def yulCapacity (cds : Nat) : Nat :=
 /-- `Poseidon2Yul_BN254`: call value `v`. -/
 def yulHash (c : Params) (cd : List UInt8) (v : Nat) : Outcome :=
   if v ≠ 0 then .revert [] else
+  let ws := calldataWords cd 4 3 ++ [yulCapacity cd.length]
+  .ret (encodeWords [(permutationWords c ws).headD 0])
+
+/-- The deployed v2 Huff t = 4 contract (`deployed-artifacts/bn254-huff/v2`, older than the
+source at this commit) on calldata of at least 4 bytes: `yulHash` without the call value check.
+Below 4 bytes it adds the capacity word, which wrapped below zero, to another word without
+reducing it first, and returns `0x0fcc8f62b28d181b60d780425f6a28111c2de73ab52e084c8c15975a470682d5`,
+not this value (the checker computes that constant; anvil returns the same). -/
+def hashV2 (c : Params) (cd : List UInt8) : Outcome :=
   let ws := calldataWords cd 4 3 ++ [yulCapacity cd.length]
   .ret (encodeWords [(permutationWords c ws).headD 0])
 

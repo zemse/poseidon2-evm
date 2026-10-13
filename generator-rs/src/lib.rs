@@ -7,6 +7,7 @@ pub mod error;
 pub mod fdlibm;
 pub mod field;
 pub mod huff;
+pub mod lean_export;
 pub mod reference;
 pub mod round_constants;
 pub mod value;

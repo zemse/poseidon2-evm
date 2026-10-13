@@ -53,9 +53,9 @@ const CALLER: Address = address!("0x1000000000000000000000000000000000000001");
 
 /// Huff sources: the generated files in memory over the repository.
 #[derive(Debug)]
-struct Sources {
-    root: PathBuf,
-    files: HashMap<String, String>,
+pub(crate) struct Sources {
+    pub(crate) root: PathBuf,
+    pub(crate) files: HashMap<String, String>,
 }
 
 /// `a/./b/../c` as `a/c`
@@ -117,12 +117,12 @@ fn evm_version(fork: &Fork) -> EVMVersion {
     })
 }
 
-struct Compiled {
-    initcode: Vec<u8>,
-    runtime: Vec<u8>,
+pub(crate) struct Compiled {
+    pub(crate) initcode: Vec<u8>,
+    pub(crate) runtime: Vec<u8>,
 }
 
-fn compile(sources: &Arc<Sources>, path: &str, fork: &Fork) -> Result<Compiled> {
+pub(crate) fn compile(sources: &Arc<Sources>, path: &str, fork: &Fork) -> Result<Compiled> {
     let fail = |err: &dyn std::fmt::Display| Error(format!("huff-neo, {path}: {err}"));
     let evm = evm_version(fork);
     let provider: Arc<dyn FileProvider> = sources.clone();
