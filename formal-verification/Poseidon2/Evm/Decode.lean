@@ -83,8 +83,9 @@ theorem decodeOne_rest (b : Nat) (tl : List Nat) :
 far below `2^256`, and the next instruction at `pc` plus its length. -/
 theorem Dec.cons {bs : List Nat} {p : Nat} {i : Ins} {rest : List (Nat × Ins)}
     (h : Dec bs ((p, i) :: rest)) :
-    ∃ b tl n r, bs.drop p = b :: tl ∧ decodeOne b tl = (i, n, r) ∧ p + 33 ≤ 33 * codeFuel ∧
-      Dec bs rest ∧ ∀ p' i' rest', rest = (p', i') :: rest' → p' = p + n := by
+    ∃ b tl n r, bs.drop p = b :: tl ∧ decodeOne b tl = (i, n, r) ∧
+      p + 33 ≤ 33 * codeFuel ∧ Dec bs rest ∧
+      ∀ p' i' rest', rest = (p', i') :: rest' → p' = p + n := by
   obtain ⟨f, q, he, hb⟩ := h
   cases f with
   | zero => simp [Checker.decode] at he
@@ -123,7 +124,8 @@ theorem Dec.cons {bs : List Nat} {p : Nat} {i : Ins} {rest : List (Nat × Ins)}
               exact hrest.1.1.symm
 
 /-- Every suffix of a reachable instruction list is reachable. -/
-theorem Dec.suffix {bs : List Nat} : ∀ {is l : List (Nat × Ins)}, Dec bs is → l <:+ is → Dec bs l
+theorem Dec.suffix {bs : List Nat} :
+    ∀ {is l : List (Nat × Ins)}, Dec bs is → l <:+ is → Dec bs l
   | [], l, _, hl => by rw [List.suffix_nil.mp hl]; exact Dec.nil bs
   | (p, i) :: rest, l, h, hl => by
     rcases List.suffix_cons_iff.mp hl with rfl | hl
@@ -225,11 +227,13 @@ theorem parse_some : ∀ n, n < 256 → (parseInstr (UInt8.ofNat n)).isSome = tr
   decide +kernel
 
 /-- The immediate width EVMLean gives each byte: `PUSH1` .. `PUSH32` only. -/
-theorem parse_width : ∀ n, n < 256 → argOnNBytesOfInstr ((parseInstr (UInt8.ofNat n)).getD .INVALID) =
-    if 0x60 ≤ n ∧ n ≤ 0x7f then n - 0x5f else 0 := by
+theorem parse_width : ∀ n, n < 256 →
+    argOnNBytesOfInstr ((parseInstr (UInt8.ofNat n)).getD .INVALID) =
+      if 0x60 ≤ n ∧ n ≤ 0x7f then n - 0x5f else 0 := by
   decide +kernel
 
-theorem parse_jumpdest : ∀ n, n < 256 → (parseInstr (UInt8.ofNat n) = some .JUMPDEST ↔ n = 0x5b) := by
+theorem parse_jumpdest : ∀ n, n < 256 →
+    (parseInstr (UInt8.ofNat n) = some .JUMPDEST ↔ n = 0x5b) := by
   decide +kernel
 
 /-- `PUSH1` .. `PUSH32`. -/
@@ -380,7 +384,8 @@ theorem immediate_lt {bs : List Nat} (hall : bs.all (· < 256) = true) {p b : Na
     {tl : List Nat} (hd : bs.drop p = b :: tl) : tl.headD 0 < 256 := by
   cases tl with
   | nil => simp
-  | cons x tl => exact head_lt hall (show bs.drop (p + 1) = x :: tl by rw [← List.drop_drop, hd]; rfl)
+  | cons x tl =>
+    exact head_lt hall (show bs.drop (p + 1) = x :: tl by rw [← List.drop_drop, hd]; rfl)
 
 /-- DUPN as the checker decodes it is EIP-8024's DUPN, with `17 ≤ n`. -/
 theorem decode_dupn {bs : List Nat} (hall : bs.all (· < 256) = true) {p : Nat} {tl : List Nat}
@@ -483,7 +488,8 @@ theorem jumpdests_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) :
 
 /-- A jump destination the checker accepts passes EVMLean's jump check. -/
 theorem mem_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) {t : Nat}
-    (ht : t ∈ jumpdests codeFuel 0 bs) : (D_J (codeBA bs) 0).contains (UInt256.ofNat t) = true := by
+    (ht : t ∈ jumpdests codeFuel 0 bs) :
+    (D_J (codeBA bs) 0).contains (UInt256.ofNat t) = true := by
   rw [Array.contains_iff_mem]
   exact jumpdests_D_J hall codeFuel 0 #[] t (by simpa using ht)
 

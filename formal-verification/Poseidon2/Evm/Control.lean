@@ -95,7 +95,8 @@ theorem sim_jump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts) 
         have hc : (D_J s.executionEnv.code 0).contains a = true := by
           rw [hcode, hag]; exact mem_D_J hall hj
         have hl := hrt.length
-        rw [if_neg hg, if_neg (by simp [Array.contains_iff_mem.mp hc]), if_neg (by simp at hlen ⊢; omega)]
+        rw [if_neg hg, if_neg (by simp [Array.contains_iff_mem.mp hc]),
+          if_neg (by simp at hlen ⊢; omega)]
         refine ⟨t, s.machineState.memory, s.machineState.activeWords, by omega, ?_, ?_⟩
         · rw [hag]; rfl
         · exact StRel.pop e ρ hr (by rw [hst1]) (by rw [hst1]) t hrt _ _ _
@@ -144,7 +145,8 @@ theorem sim_jumpi_jump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : F
             have hc : (D_J s.executionEnv.code 0).contains a = true := by
               rw [hcode, hag]; exact mem_D_J hall hj
             have hl := hrt.length
-            rw [if_neg hg, if_neg (by simp [Array.contains_iff_mem.mp hc]), if_neg (by simp at hlen ⊢; omega)]
+            rw [if_neg hg, if_neg (by simp [Array.contains_iff_mem.mp hc]),
+              if_neg (by simp at hlen ⊢; omega)]
             refine ⟨t, s.machineState.memory, s.machineState.activeWords, by omega, ?_, ?_⟩
             · rw [hb0, if_pos rfl, hag]; rfl
             · exact StRel.pop e ρ hr (by rw [hst1]) (by rw [hst1]) t hrt _ _ _
