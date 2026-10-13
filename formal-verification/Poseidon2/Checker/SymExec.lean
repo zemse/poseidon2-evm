@@ -292,12 +292,17 @@ def addMul (fs : Facts) (op : Nat) (a b : SV) (tb : Tab) : M (SV × Tab) :=
         if bnd * c < W then .ok (.lin (l.scale c) (bnd * c), tb) else .error "MUL may overflow"
       | _, _ => .error "MUL of two field values"
 
-/-- Writes `n` words from the code at `src` to memory at `dst`. -/
-def codeCopy (bs : List Nat) (s : St) : Nat → Nat → Nat → M St
-  | 0, _, _ => .ok s
-  | n + 1, dst, src => do
-    let s ← mstore s dst (SV.const (codeWord bs src))
-    codeCopy bs s n (dst + 32) (src + 32)
+/-- Writes `n` words from the code at `src` to memory at `dst`. The code is dropped to `src` once,
+not once per word: the kernel walks a list by structural recursion, and walking a 64 KB code once
+per word took gigabytes. -/
+def codeCopy (bs : List Nat) (s : St) (n dst src : Nat) : M St :=
+  go (bs.drop src) s n dst
+where
+  go (bs : List Nat) (s : St) : Nat → Nat → M St
+    | 0, _ => .ok s
+    | n + 1, dst => do
+      let s ← mstore s dst (SV.const (codeWord bs 0))
+      go (bs.drop 32) s n (dst + 32)
 
 /-- Writes `n` calldata words from `src` to memory at `dst`. -/
 def cdCopy (fs : Facts) (s : St) : Nat → Nat → Nat → M St
