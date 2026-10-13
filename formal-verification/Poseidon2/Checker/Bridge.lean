@@ -1,4 +1,4 @@
-import Poseidon2.Checker.Forms
+import Poseidon2.Checker.BoundsSound
 import Poseidon2.Spec.Sponge
 import Mathlib.Tactic.Ring
 import Mathlib.Tactic.LinearCombination
@@ -255,26 +255,6 @@ namespace Poseidon2.Checker
 open Poseidon2.Spec
 
 /-! ## Structural equality is equality -/
-
-theorem Term.beq_eq : ∀ a b : Term, a.beq b = true → a = b
-  | .const x, .const y, h => by simp [Term.beq] at h; rw [h]
-  | .cdl x, .cdl y, h => by simp [Term.beq] at h; rw [h]
-  | .cds, .cds, _ => rfl
-  | .cv, .cv, _ => rfl
-  | .un o a, .un o' a', h => by
-    simp only [Term.beq, Bool.and_eq_true, beq_iff_eq] at h
-    rw [h.1, Term.beq_eq a a' h.2]
-  | .bin o a b, .bin o' a' b', h => by
-    simp only [Term.beq, Bool.and_eq_true, beq_iff_eq] at h
-    rw [h.1.1, Term.beq_eq a a' h.1.2, Term.beq_eq b b' h.2]
-  | .const _, .cdl _, h | .const _, .cds, h | .const _, .cv, h | .const _, .un _ _, h
-  | .const _, .bin _ _ _, h | .cdl _, .const _, h | .cdl _, .cds, h | .cdl _, .cv, h
-  | .cdl _, .un _ _, h | .cdl _, .bin _ _ _, h | .cds, .const _, h | .cds, .cdl _, h
-  | .cds, .cv, h | .cds, .un _ _, h | .cds, .bin _ _ _, h | .cv, .const _, h | .cv, .cdl _, h
-  | .cv, .cds, h | .cv, .un _ _, h | .cv, .bin _ _ _, h | .un _ _, .const _, h
-  | .un _ _, .cdl _, h | .un _ _, .cds, h | .un _ _, .cv, h | .un _ _, .bin _ _ _, h
-  | .bin _ _ _, .const _, h | .bin _ _ _, .cdl _, h | .bin _ _ _, .cds, h
-  | .bin _ _ _, .cv, h | .bin _ _ _, .un _ _, h => by simp [Term.beq] at h
 
 theorem termsBeq_eq : ∀ a b : List (Nat × Nat), termsBeq a b = true → a = b
   | [], [], _ => rfl
