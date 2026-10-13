@@ -272,7 +272,10 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     let bounds := 0 :: ends ++ [mainStart]
     let parts := (bounds.zip bounds.tail).zip (List.range (bounds.length - 1))
     for ((b, e), i) in parts do
-      let imps := if i == 0 then imports else [s!"{ns}.Part{i - 1}"]
+      -- the parts only run the checker; the EVM proofs `Theorems` brings in are left to the
+      -- main file, so the processes doing the kernel checks load fewer modules
+      let imps := if i == 0 then imports.filter (· != "Poseidon2.Theorems")
+        else [s!"{ns}.Part{i - 1}"]
       writeFile s!"{dir}/Part{i}.lean" imps
         [s!"Part {i} of the kernel check of `{a.name}`; `{modPath}.lean` puts the parts together."]
         (lines.extract b e).toList
