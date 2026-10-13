@@ -17,13 +17,38 @@ in general and `sponge_eq_hash_1` / `_2` / `_3` relate for t = 4.
 
 namespace Poseidon2.Spec
 
-/-- The state `hash` permutes for inputs `xs`: the inputs, zeros, and `n · 2^64` last. -/
+section
+variable {α σ : Type} (A : Ops α σ)
+
+/-- The state `hash` permutes for inputs `xs`: the inputs, zeros, and `n · 2^64` last, over
+any `Ops`. Meant for `xs.length ≤ t - 1`; longer inputs give a longer state. -/
+def spongeStateG (t : Nat) (xs : List α) : List α :=
+  xs ++ List.replicate (t - 1 - xs.length) A.zero ++ [A.addC A.zero (xs.length * 2 ^ 64)]
+
+/-- One permutation of `spongeStateG`, element 0 of the output, over any `Ops`. -/
+def hashG (c : Params) (xs : List α) (st : σ) : α × σ :=
+  let r := permG A c (spongeStateG A c.t xs) st
+  (r.1.headD A.zero, r.2)
+
+end
+
+/-- `spongeStateG` over a commutative semiring. -/
 def spongeState {R : Type} [CommSemiring R] (t : Nat) (xs : List R) : List R :=
-  xs ++ List.replicate (t - 1 - xs.length) 0 ++ [((xs.length * 2 ^ 64 : Nat) : R)]
+  spongeStateG (ringOps R) t xs
 
 /-- One permutation of `spongeState`, element 0 of the output. For `xs.length ≤ t - 1`. -/
 def hash {R : Type} [CommSemiring R] (c : Params) (xs : List R) : R :=
-  (permutation c (spongeState c.t xs)).headD 0
+  (hashG (ringOps R) c xs ()).1
+
+theorem spongeState_eq {R : Type} [CommSemiring R] (t : Nat) (xs : List R) :
+    spongeState t xs = xs ++ List.replicate (t - 1 - xs.length) 0 ++
+      [((xs.length * 2 ^ 64 : Nat) : R)] := by
+  simp [spongeState, spongeStateG, ringOps]
+
+theorem hash_eq {R : Type} [CommSemiring R] (c : Params) (xs : List R) :
+    hash c xs = (permutation c (spongeState c.t xs)).headD 0 := by
+  simp only [hash, hashG, permutation, spongeState]
+  rfl
 
 /-- `hash` on 256-bit words: inputs read modulo `P`, output below `P`. -/
 def hashWords (c : Params) (ws : List Nat) : Nat :=
@@ -55,13 +80,13 @@ variable {R : Type} [CommSemiring R] (c : Params) (h : c.t = 4)
 include h
 
 theorem sponge_eq_hash_1 (a : R) : sponge c [a] = hash c [a] := by
-  simp [sponge, hash, absorb, duplex, spongeState, h]
+  simp [sponge, hash_eq, absorb, duplex, spongeState_eq, h]
 
 theorem sponge_eq_hash_2 (a b : R) : sponge c [a, b] = hash c [a, b] := by
-  simp [sponge, hash, absorb, duplex, spongeState, h]
+  simp [sponge, hash_eq, absorb, duplex, spongeState_eq, h]
 
 theorem sponge_eq_hash_3 (a b d : R) : sponge c [a, b, d] = hash c [a, b, d] := by
-  simp [sponge, hash, absorb, duplex, spongeState, h]
+  simp [sponge, hash_eq, absorb, duplex, spongeState_eq, h]
 
 end T4
 
