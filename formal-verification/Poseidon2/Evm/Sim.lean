@@ -17,8 +17,9 @@ exceptional halt of these opcodes is running out of gas. The `Xstep` side comes 
 `Ethereum/Theory/OpcodeLemmas.lean` and from `Steps.lean`.
 
 Covered: every instruction `Checker.step` accepts except the memory and data ones (`MLOAD`,
-`MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY`, `CODECOPY`); control flow (`JUMP`, `JUMPI`,
-`STOP`, `RETURN`, `REVERT`) is `ctl`, not `step`.
+`MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY`, `CODECOPY`, which `MemSim.lean` covers with
+the memory relation of `Memory.lean`, where `sim_lift` carries every lemma here over); control
+flow (`JUMP`, `JUMPI`, `STOP`, `RETURN`, `REVERT`) is `ctl`, not `step`.
 
 What the lemmas assume and the composition has to supply: the instruction EVMLean decodes at
 `pc` for the checker's instruction (`DUPn` with `dupN d = b - 0x7f`, `SWAPn` with
