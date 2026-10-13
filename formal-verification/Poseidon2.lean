@@ -31,3 +31,4 @@ import Poseidon2.Soundness
 import Poseidon2.Theorems
 import Poseidon2.Evm.Steps
 import Poseidon2.Evm.Sim
+import Poseidon2.Evm.Bytes
