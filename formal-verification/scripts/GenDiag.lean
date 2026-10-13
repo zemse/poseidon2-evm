@@ -42,7 +42,7 @@ def gen (t rf rp k : Nat) (ss : List Nat) : IO Unit := do
     p s!"/-- The skipped states for t = {t} (none). -/\ndef diagStatesT{t} : List Nat := []\n"
     p s!"theorem steps_t{t} : Grain.stepsChain 254 diagStartT{t} diagStatesT{t} = true := rfl\n"
   else
-    p s!"/-- The skipped states for t = {t}. -/\ndef diagStatesT{t} : List Nat :=\n  {" ++ ".intercalate names}\n"
+    p s!"/-- The skipped states for t = {t}. -/\ndef diagStatesT{t} : List Nat :=\n  {names.foldr (fun x acc => if acc == "" then x else s!"{x} ++ ({acc})") ""}\n"
     -- proof: stepsChain_append_of nested
     let rec proof (j : Nat) (fuel : Nat) : String :=
       match fuel with
