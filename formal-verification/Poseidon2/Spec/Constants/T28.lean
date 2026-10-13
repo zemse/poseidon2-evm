@@ -3,16 +3,17 @@ import Poseidon2.Spec.Permutation
 /-!
 # Poseidon2 BN254 constants, t = 28: NOT externally referenced
 
-No other implementation publishes BN254 Poseidon2 parameters for t = 28, so these tables
+No external reference for BN254 Poseidon2 parameters with t = 28 was found, so these tables
 come from this repository's own generator: `generator-rs/src/round_constants.rs`
 (`generate_params_uncached(28)`, a port of the HorizenLabs `poseidon2_rust_params.sage`
 script) at commit 93ee03367af2, dumped and transcribed by a script.
 The same generator reproduces the externally referenced tables for t = 2, 3, 4, 8, 12, 16
-value for value (checked when this file was written), which is the only evidence for these
-values. `ROUNDS_F = 8`, `ROUNDS_P = 59`.
+value for value (checked when this file was written). `ROUNDS_F = 8`, `ROUNDS_P = 59`.
 
-A claim about t = 28 is therefore a claim about the permutation with these constants, not
-about an independently specified instance.
+The round constants are also derived independently: `GrainCheck.lean` proves they are the
+output of the Grain LFSR generation of the HorizenLabs script (`Grain.lean`) for this t, R_F
+and R_P. The internal diagonal `diagM1` and the round numbers have no independent check;
+a claim about t = 28 is a claim about the permutation with these constants.
 -/
 
 namespace Poseidon2.Spec.Constants.T28
