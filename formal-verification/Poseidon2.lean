@@ -24,6 +24,7 @@ import Poseidon2.Checker.Check
 import Poseidon2.Checker.Segments
 import Poseidon2.Checker.BoundsSound
 import Poseidon2.Checker.Bridge
+import Poseidon2.Checker.FieldSound
 import Poseidon2.Checker.Mutations
 import Poseidon2.Soundness
 import Poseidon2.Theorems
