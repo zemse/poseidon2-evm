@@ -1,0 +1,151 @@
+name: formal-verification
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'formal-verification/**'
+      - 'src/**'
+      - 'test/**'
+      - 'generator-rs/**'
+      - 'deployed-artifacts/**'
+      - 'foundry.toml'
+      - '.github/workflows/formal-verification.yml'
+  pull_request:
+    paths:
+      - 'formal-verification/**'
+      - 'src/**'
+      - 'test/**'
+      - 'generator-rs/**'
+      - 'deployed-artifacts/**'
+      - 'foundry.toml'
+      - '.github/workflows/formal-verification.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: formal-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # one Lean thread, so Lake runs one Lean process at a time: every file then stays below
+  # 11.1 GB (GrainCheck.lean; the largest kernel check of an artifact is 8.0 GB), within the
+  # 16 GB of a GitHub-hosted runner (see formal-verification/README.md)
+  LEAN_NUM_THREADS: 1
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+
+    # spec, constants (GrainCheck, DiagCheck), checker, theorems, the audit, and the
+    # committed kernel checks of the 17 small artifacts (Proofs/Audit.lean imports them)
+    name: Lean build
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        # .lake (7.6 GB), the toolchain (2.5 GB) and the cache archive come close to the 14 GB a
+        # hosted runner guarantees; the Android SDK, .NET and GHC are not needed here
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: formal-verification
+          use-mathlib-cache: true
+          build-args: Poseidon2 Poseidon2.Proofs.Audit
+
+      - name: Check the committed proofs are what scripts/proof.sh writes
+        working-directory: formal-verification
+        run: |
+          scripts/proof.sh $(scripts/proof.sh --list small)
+          git diff --exit-code Poseidon2/Proofs || (echo "A committed proof is out of sync. Run scripts/proof.sh \$(scripts/proof.sh --list small) and commit the changes." && exit 1)
+
+      - name: Disk usage
+        run: |
+          df -h /
+          du -sh formal-verification/.lake ~/.elan
+
+  bytecode:
+    strategy:
+      fail-fast: true
+
+    name: Exported bytecode is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # the version the committed Yul bytecode was built with (its metadata hash depends on it)
+          version: v1.8.5
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: generator-rs
+
+      - name: Check Poseidon2/Bytecode is what the sources compile to
+        run: |
+          formal-verification/scripts/export.sh
+          git diff --exit-code formal-verification/Poseidon2/Bytecode || (echo "The exported bytecode is out of sync. Run formal-verification/scripts/export.sh and commit the changes." && exit 1)
+
+  artifacts:
+    name: List the large artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      large: ${{ steps.list.outputs.large }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List
+        id: list
+        working-directory: formal-verification
+        run: echo "large=$(scripts/proof.sh --list large | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
+
+  proofs:
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.artifacts.outputs.large) }}
+
+    name: Kernel check ${{ matrix.artifact }}
+    needs: [build, artifacts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Free disk space
+        # .lake (7.6 GB), the toolchain (2.5 GB) and the cache archive come close to the 14 GB a
+        # hosted runner guarantees; the Android SDK, .NET and GHC are not needed here
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Restore the build
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: formal-verification
+          use-mathlib-cache: true
+          auto-config: false
+          build: false
+
+      - name: Write and kernel-check the proof
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/proof.sh ${{ matrix.artifact }}
+          else
+            scripts/proof.sh ${{ matrix.artifact }}
+          fi
