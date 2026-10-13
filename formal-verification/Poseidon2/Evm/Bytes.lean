@@ -99,11 +99,13 @@ theorem size_copySlice (S : ByteArray) (so : Nat) (A : ByteArray) (d len : Nat) 
 
 /-- A slice copied into an empty array: `len` bytes from `so`, zero past the source's end. -/
 theorem byteAt_slice (S : ByteArray) (so len : Nat) (ex : Bool) (j : Nat) :
-    byteAt (S.copySlice so ByteArray.empty 0 len ex) j = if j < len then byteAt S (so + j) else 0 := by
+    byteAt (S.copySlice so ByteArray.empty 0 len ex) j =
+      if j < len then byteAt S (so + j) else 0 := by
   have := byteAt_of_le S (so + j)
   have h0 : ByteArray.empty.size = 0 := rfl
   rw [byteAt_copySlice]
-  simp only [h0, Nat.min_zero, Nat.zero_le, Nat.sub_zero, byteAt_of_le ByteArray.empty _ (Nat.zero_le _)]
+  simp only [h0, Nat.min_zero, Nat.zero_le, Nat.sub_zero,
+    byteAt_of_le ByteArray.empty _ (Nat.zero_le _)]
   split_ifs <;> first | rfl | omega
 
 theorem size_slice (S : ByteArray) (so len : Nat) (ex : Bool) :
@@ -367,7 +369,8 @@ theorem bytes_eq_wordBytes (l : List UInt8) (hl : l.length = 32) :
   · intro j h1 h2
     simp only [Spec.Interface.wordBytes, List.getElem_map, List.getElem_range]
     have := beVal_digit (l.map UInt8.toNat)
-      (fun x hx => by obtain ⟨y, -, rfl⟩ := List.mem_map.mp hx; exact UInt8.toNat_lt y) j (by simpa using h1)
+      (fun x hx => by obtain ⟨y, -, rfl⟩ := List.mem_map.mp hx; exact UInt8.toNat_lt y) j
+      (by simpa using h1)
     simp only [List.getElem_map, List.length_map, hl] at this
     rw [← this]
     simp

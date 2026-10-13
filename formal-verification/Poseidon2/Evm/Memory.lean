@@ -97,7 +97,8 @@ theorem readMem_ok (a : Nat) : ∀ (mem : List (Nat × SV)) (v : SV), readMem a 
 theorem writeMem_ok (a : Nat) (v : SV) : ∀ (mem mem' : List (Nat × SV)),
     mem.Pairwise (fun x y => Disj x.1 y.1) → writeMem a v mem = .ok mem' →
     mem'.Pairwise (fun x y => Disj x.1 y.1) ∧ (a, v) ∈ mem' ∧
-      (∀ x ∈ mem', x = (a, v) ∨ (x ∈ mem ∧ Disj x.1 a)) ∧ (∀ x ∈ mem, x ∈ mem' ∨ x.1 = a)
+      (∀ x ∈ mem', x = (a, v) ∨ (x ∈ mem ∧ Disj x.1 a)) ∧
+      (∀ x ∈ mem, x ∈ mem' ∨ x.1 = a)
   | [], mem', _, h => by
     simp only [writeMem] at h; cases h
     simp
@@ -387,7 +388,8 @@ theorem sim_lift (fs : Facts) (code : Code) (i : Ins) (s : State) (c n : Nat) (s
 
 /-! ## Memory expansion -/
 
-theorem M_eq (s f l : Nat) : MachineState.M s f l = if l = 0 then s else max s ((f + l + 31) / 32) := by
+theorem M_eq (s f l : Nat) :
+    MachineState.M s f l = if l = 0 then s else max s ((f + l + 31) / 32) := by
   cases l <;> rfl
 
 theorem Cm_eq (a : UInt256) : Cₘ a = 3 * a.toNat + a.toNat * a.toNat / 512 := rfl

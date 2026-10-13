@@ -83,7 +83,8 @@ theorem sim_mload (fs : Facts) (code : Code) (s : State) (st st' : St)
     unfold memoryExpansionCost memoryExpansionCost.μᵢ'; rw [ht]; rfl
   refine simM_mem e ρ s _ _ 1 _
     ((if w.toNat ≥ s.machineState.memory.size then (⟨0⟩ : UInt256)
-      else UInt256.ofNat (fromByteArrayBigEndian (s.machineState.memory.readWithPadding w.toNat 32)))
+      else UInt256.ofNat
+        (fromByteArrayBigEndian (s.machineState.memory.readWithPadding w.toNat 32)))
       :: t) s.machineState.memory
     (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat w.toNat 32))
     ((w :: t).length - 1 + 1) ?_ (by simp; omega) ?_
@@ -165,7 +166,8 @@ theorem sim_msize (fs : Facts) (code : Code) (s : State) (st st' : St)
   unfold Checker.step at h'; dsimp only at h'
   rw [if_neg (by decide), if_neg (by decide)] at h'
   obtain ⟨hl, hst'⟩ := push_ok h'
-  refine sim_lift e ρ fs code _ s _ _ st st' h (by decide) (by decide) (by decide) (by decide) hr ?_
+  refine sim_lift e ρ fs code _ s _ _ st st' h (by decide) (by decide) (by decide) (by decide)
+    hr ?_
   rw [hst']
   have haw := aw_lt _ _ hr.gas
   refine sim_of e ρ s _ 1 _ ((s.machineState.activeWords * ⟨32⟩) :: s.machineState.stack)
@@ -196,7 +198,8 @@ theorem sim_calldataload (fs : Facts) (code : Code) (s : State) (st st' : St)
   obtain ⟨off, ho, h'⟩ := bind_ok h'
   obtain ⟨hl, hst'⟩ := push_ok h'
   obtain ⟨hs, -⟩ := pop1_ok hp
-  refine sim_lift e ρ fs code _ s _ _ st st' h (by decide) (by decide) (by decide) (by decide) hr ?_
+  refine sim_lift e ρ fs code _ s _ _ st st' h (by decide) (by decide) (by decide) (by decide)
+    hr ?_
   rw [hst']
   have hrs := hr.stk
   rw [hs] at hrs
@@ -304,7 +307,8 @@ theorem sim_calldatacopy (fs : Facts) (code : Code) (s : State) (st st' : St)
     obtain ⟨hm', hz', hk', -⟩ := zeroFill_rel e ρ _ _ st1 st' _ hm1 h
     rw [h32'] at hm' hz'
     have hbv : b.toNat = e.cd.length := by
-      rw [show y = SV.word ⟨.cds, lo, hi⟩ from heq] at hb; rw [hb.2]; show e.cd.length % W = _; exact Nat.mod_eq_of_lt hcdl
+      rw [show y = SV.word ⟨.cds, lo, hi⟩ from heq] at hb
+      rw [hb.2]; show e.cd.length % W = _; exact Nat.mod_eq_of_lt hcdl
     refine key (hk' ▸ hrt) _ ?_
       (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1])
     intro j
