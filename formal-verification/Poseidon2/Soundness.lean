@@ -1,4 +1,5 @@
 import Poseidon2.Checker.Check
+import Poseidon2.Checker.Valuation
 import Poseidon2.Evm.Eip8024
 import Poseidon2.Spec.Interface
 
@@ -11,10 +12,14 @@ every call that satisfies the case's facts, run by `Eip8024.Ξ` with any gas, ei
 gas (`OutOfGass`, or EVMLean's step budget `OutOfFuel`, which `Ξ` sets to the gas plus one) or
 ends exactly as the case expects: returns the spec's words, or reverts with empty data.
 
-It is **not proven here**. It is a definition, a `Prop`, so nothing in this library assumes
-it: `Theorems.lean` states every result as `CheckerSound → ...`. What is proven about it is
-listed in `formal-verification/README.md`; the remaining work is a simulation proof of
-`Checker.run` against `Eip8024.X` (one lemma per opcode the checker supports).
+It is proven in `Evm/Final.lean` (`checkerSound`), from the per-opcode simulations of
+`Evm/Sim.lean`, `Evm/MemSim.lean`, `Evm/Control.lean`, the run of `Evm/Run.lean` and the
+valuation of `Checker/Valuation.lean`. `Theorems.lean` instantiates it for every contract kind.
+
+The case's input words must be 256-bit words (`t.eval e < 2^256`): the checker reads an input
+word pinned by a fact as that constant, which is only the word's value for a value below
+`2^256` (every case of `Check.lean` reads calldata words or the capacity word, all below
+`2^256`).
 
 Partial correctness only: the statement allows running out of gas, and says nothing about the
 gas a call uses.
@@ -48,10 +53,12 @@ def Matches : Except EVM.ExecutionException
   | .ok (.revert _ o), .revert out => o.data.toList = out
   | _, _ => False
 
-/-- **The soundness proposition** (not proven): an accepted case is the EVM's behaviour. -/
+/-- **The soundness proposition** (proven in `Evm/Final.lean`): an accepted case is the EVM's
+behaviour. -/
 def CheckerSound : Prop :=
   ∀ (bs : List Nat) (cs : Case), bs.all (· < 256) = true → checkCase (Code.ofBytes bs) cs = true →
     ∀ (cd : List UInt8) (v : Nat), cd.length < 2 ^ 64 → v < W → FactsHold ⟨cd, v⟩ cs.facts →
+      (∀ t ∈ cs.expect.inputs, t.eval ⟨cd, v⟩ < W) →
       ∀ (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv),
         env ⟨(bs.map UInt8.ofNat).toArray⟩ cd v I →
         Matches (Eip8024.Ξ σ σ₀ g A I) (outcome ⟨cd, v⟩ cs.expect)

@@ -21,9 +21,8 @@ import Poseidon2.Soundness
   The segment checkpoints of `Proofs/` need nothing more: `seg_run` turns them into this one
   `run`.
 
-What is left for `CheckerSound` is the last instruction, `RETURN` or `REVERT` from a state
-related by `At`, and the valuation `ρ` on the last atom table (see
-`formal-verification/README.md`).
+The last instruction, `RETURN` or `REVERT` from a state related by `At`, the valuation `ρ` on
+the last atom table and `CheckerSound` itself are in `Final.lean`.
 -/
 
 namespace Poseidon2.Evm.Sim

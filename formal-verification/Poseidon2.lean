@@ -38,3 +38,4 @@ import Poseidon2.Evm.Decode
 import Poseidon2.Evm.Control
 import Poseidon2.Evm.Run
 import Poseidon2.Checker.Valuation
+import Poseidon2.Evm.Final

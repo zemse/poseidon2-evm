@@ -9,7 +9,7 @@ import Mathlib.Tactic.LinearCombination
 The checker compares returned forms with `permG linOps` (and `hashG linOps`) run on input
 atoms. This file proves that such a run, evaluated under any atom valuation `ρ` that agrees
 with the atom table it ends with, is `permG (ringOps F)` run on the evaluated inputs:
-`permG_bridge`, `hashG_bridge`. Together with a simulation of the bytecode (not proven yet),
+`permG_bridge`, `hashG_bridge`. Together with the simulation of the bytecode (`Evm/`),
 this is what turns "the forms match" into "the contract returns the permutation".
 
 The proof is generic: `permG` (and every function it is built from) commutes with any map

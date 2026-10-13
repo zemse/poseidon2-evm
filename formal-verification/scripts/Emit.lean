@@ -205,7 +205,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     p s!"    | {j}, _ => exact case{j}"
   p s!"    | n + {cases.length}, h => exact absurd h (by omega)"
   p ""
-  -- the contract-level statement, conditional on the checker's soundness
+  -- the contract-level statement, from the checker's soundness (`Soundness.checkerSound`)
   let art := s!"Poseidon2.Bytecode.{mod}.artifact"
   let c := s!"Constants.T{a.t}.params"
   let (iface, thm, extraHyp, extraArg, args) := match a.kind with
@@ -217,14 +217,14 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     | .hashV2 => (s!"Interface.hashV2 {c} cd", "hashV2_correct", " (h4 : 4 ≤ cd.length)", " h4", "")
     | .huffPart _ _ => ("", "", "", "", "")
   unless thm.isEmpty do
-    p "/-- The contract statement, **conditional on `CheckerSound`** (not proven, see"
-    p "`Soundness.lean`): every call either runs out of gas or ends as the interface says. -/"
-    p s!"theorem correct (hs : Soundness.CheckerSound) (cd : List UInt8) (v : Nat)"
+    p "/-- The contract statement: every call of the bytecode by the EVM (`Evm.Eip8024.Ξ`) either"
+    p "runs out of gas or ends as the interface says (`Theorems.lean`, `Soundness.checkerSound`). -/"
+    p s!"theorem correct (cd : List UInt8) (v : Nat)"
     p s!"    (hcd : cd.length < 2 ^ 64){extraHyp} (hv : v < W) (σ σ₀ : Ethereum.AccountMap)"
     p s!"    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)"
     p s!"    (hI : Theorems.Runs {art} cd v I) :"
     p s!"    Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) ({iface}) :="
-    p s!"  Theorems.{thm} hs {art} {c} {args}check cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  Theorems.{thm} {art} {c} {args}check cd v hcd{extraArg} hv σ σ₀ g A I hI"
     p ""
   let lines ← buf.get
   let cuts ← cuts.get

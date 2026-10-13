@@ -10,7 +10,7 @@ or `c · l^k` equal to `x` (then below `P`). This file proves that the checker's
 (`toLin`, `toPow`, `scaleMod`, `mulModP`, the field `ADD` / `MUL` of `addMul`) describe what the
 EVM computes (`ADD` / `MUL` modulo `2^256`, `MULMOD` / `ADDMOD` / `MOD` by `P`), for any `ρ`
 valid on the atom table the run ends with. With `BoundsSound.lean` this is the value half of the
-per-opcode simulation; the stack, memory and control-flow half against EVMLean is not done.
+per-opcode simulation; the stack, memory and control-flow half against EVMLean is in `Evm/`.
 -/
 
 namespace Poseidon2.Checker

@@ -72,14 +72,14 @@ theorem check : cases.all (checkCase code) = true :=
     | 2, _ => exact case2
     | n + 3, h => exact absurd h (by omega)
 
-/-- The contract statement, **conditional on `CheckerSound`** (not proven, see
-`Soundness.lean`): every call either runs out of gas or ends as the interface says. -/
-theorem correct (hs : Soundness.CheckerSound) (cd : List UInt8) (v : Nat)
+/-- The contract statement: every call of the bytecode by the EVM (`Evm.Eip8024.Ξ`) either
+runs out of gas or ends as the interface says (`Theorems.lean`, `Soundness.checkerSound`). -/
+theorem correct (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) :
     Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffHash Constants.T4.params cd) :=
-  Theorems.huffHash_correct hs Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params check cd v hcd hv σ σ₀ g A I hI
+  Theorems.huffHash_correct Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params check cd v hcd hv σ σ₀ g A I hI
 
 #assert_standard_axioms_here
 
