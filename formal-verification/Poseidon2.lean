@@ -14,3 +14,4 @@ import Poseidon2.Spec.Grain
 import Poseidon2.Spec.GrainCheck
 import Poseidon2.Evm.Smoke
 import Poseidon2.Spec.Interface
+import Poseidon2.Spec.DiagCheck

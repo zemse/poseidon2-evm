@@ -19,7 +19,7 @@ https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60
 
 namespace Poseidon2.Spec.Constants.T2
 
-/-- `MAT_DIAG_M_1`: the internal matrix is `1 + diag(diagM1)`. -/
+/-- `MAT_DIAG_M_1`: the internal matrix is `J + diag(diagM1)` (J all ones). -/
 def diagM1 : List Nat :=
   [0x0000000000000000000000000000000000000000000000000000000000000001,
    0x0000000000000000000000000000000000000000000000000000000000000002]

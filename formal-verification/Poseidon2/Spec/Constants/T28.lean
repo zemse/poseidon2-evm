@@ -12,13 +12,17 @@ value for value (checked when this file was written). `ROUNDS_F = 8`, `ROUNDS_P 
 
 The round constants are also derived independently: `GrainCheck.lean` proves they are the
 output of the Grain LFSR generation of the HorizenLabs script (`Grain.lean`) for this t, R_F
-and R_P. The internal diagonal `diagM1` and the round numbers have no independent check;
-a claim about t = 28 is a claim about the permutation with these constants.
+and R_P. `DiagCheck.lean` proves the internal diagonal `diagM1` is the script's diagonal draw
+number 34 after them; that this draw is the first one passing the script's minimal-polynomial
+check, and the round numbers, have no independent check here. t = 28 also has no reference
+implementation of its linear layers (HorizenLabs and TaceoLabs stop at t = 24); they follow the
+script's generic `t % 4 == 0` matrix. A claim about t = 28 is a claim about the permutation with
+these constants.
 -/
 
 namespace Poseidon2.Spec.Constants.T28
 
-/-- `M_I = 1 + diag(diagM1)` -/
+/-- `M_I = J + diag(diagM1)` (J all ones) -/
 def diagM1 : List Nat :=
   [0x06bab517cbec6dc1436e6534d6ef00b929a17e511f6dbc3ad4a0fe34d0c1dbb1,
    0x00697045b0581dc09e226f188b5dbe69ad447721fe57f744b94db25f406a7f2d,

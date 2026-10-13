@@ -63,31 +63,58 @@ def statesT24 : List Nat :=
 def statesT28 : List Nat :=
   [0xd0fe3a52a93efa0b5fae, 0x44085becd11ffaa0be42, 0xf34196268521cae00dde, 0x782083823d0b2192d392, 0xcab7147b783995edef9c, 0x5b39e0d68b3cd9f7c9ca, 0x6fb033983b59880b53eb, 0x7260256b282ad61cc81e, 0xc0eae249a233721bc8ac, 0xd6e117601fe77ddb0b7a, 0xc102005b2cb55d4cb728, 0x4161486830f7e2bf0315, 0x7b03ac2f8cbbbccbd715, 0x514915a46fd5999c4f77, 0x42d618c35176a492803a, 0x756390721dc6f32b4a96, 0xeefb8f664ccb8207e42a, 0x508bf57b921d1a2c8b11, 0x74be34d8c861ebcac34a, 0x6bda05568097a6bc6d38, 0xc4c000777d13591c299d, 0xdc58b0bc4257f97628f5, 0xc4f5df93880e1b2aecf5, 0xcaa276add5819424fdfc, 0xfac3a23a7d15d868a56a, 0x4a2353b7ba5c8e655403, 0xc76a4b14f5b53610d5a5, 0xeaab7f67cff37b68b560, 0xd20aedad8d7def6375fe, 0xeab91ec8bd722a0f7cb8, 0xc0a853cde70d4f688a63, 0x67fcb7cfa6d1c1cd59e4, 0xcce63c3ee3c385ac0749, 0x43b0210631b22c46834f, 0x6fcddd9dbe170a3834e0, 0xd3d2d32513d39158e0e7, 0x4e0a7c53a8566ffab2aa, 0x7ce3f74a860547f576c7, 0x7193d943521c51eb49f5, 0xcc26cb5999881f6e49aa, 0xf470690cf40f6aecb4fa, 0x6e419d3e2efe53a21048, 0x6132f4f7007c5788f1fa, 0x5a8a31cc974470a61fb7, 0x5ef64912e19b58cc3d09, 0x74b40cb3225ee63a3918, 0xf6a88e0acedc3748162a, 0x77b707d6b8693c8edce7, 0xd24b8a63116a55e63a52, 0xcc8a391de1d4e66fbee9, 0x5a56bfeb6e6da78b16fd, 0x5eb8b2daadddfe1088f9, 0x5c7f91f67f26d2d02f39, 0x47ecf7e78f410fc9eaab, 0x59837a2120f0365551a8, 0xf88797d1a76b0e37e8ac, 0x523662e376b03c43974d, 0xe235e59704b8c4e1723a, 0x546ba4a1eaced728de1f, 0xd8a4406cc61c9dac1d30, 0x6ce2e6a6f1c7dac4c47c, 0xd7bf054d2f49d4454e7c, 0x494997189a3581657778, 0xfbb51fd7907efc71228e, 0x4b6ca17b1ee5e1e92693, 0xef325dff2bbcbfb7df5e, 0xdf294ed141d24e027c95, 0x44b4017bbdee1f5e16c2, 0xccebdb53888ed01d74ca, 0xcb355b4883f8c7600937, 0xcbbfce97a0c90eff05bc, 0xd79a13633db182215b31, 0x6e56889d6ecea5a34d56, 0xf551ec138ef15594dfd1, 0x6ee6a29db8f471f7f66e, 0x7caf2f96ac2b038c8efe, 0xe3d6f8c2e895d2d5c704, 0x7749e5703a4c1858bdcb, 0x4c38b9f44e9bdc93615c, 0xcee9b4a404d0fa8f990a, 0xd5a6cbc0c52b4e2ec5be, 0x429225712a9e6fac4c23, 0x55e54d99d8bcbe25f9f1, 0x5bdc1ff29d196a23d36e, 0xf1384481dbf1ac45e1a5, 0x474eea81f5b77a5f0485, 0xdbaffc22fef580866a8f, 0x490edda98dc848aac397, 0xef8abae7e52172050033, 0x7189e21c87490c510074, 0xe13f1c635197ec1318da, 0x40052b264c5d0e5fbc1f, 0x6a9774f2c02bf8a8077d, 0x496c9a7ba4f7a11c145f, 0xc9ea7f16b98edd1dace3, 0x542075fb8e2db8a1fd0f, 0x57a47098cb1f3d9d7f87, 0x6be8375d8b202ae44c26, 0xdbce88496a9b60f0010f, 0x465a93d02f5a27b4b14f, 0xcf9c2f349017d448e7f8, 0x48033c5a5f404fa51d12, 0x6bf86b9b18cf42261fce, 0x7a60804118eb1ca21a4a, 0xd1f4a6cd30a796716ac9, 0xe3520e5f1f9597e23657, 0xf811be5445bd15db2fdb, 0x42334dfe0eb5141625f4, 0xe5c1c30cb2bb657390b9, 0x577349d4a8a3cb092011, 0x70a904f27c5f1037498f, 0xc3ed90b7e6193d93335b, 0x72b19ab1c241dabdf7e4, 0x73990d910ef0252b3798, 0x5ab1ab5e2de104581a45, 0xf584c2b138b599720857, 0xf66b27bdc83857a067ef, 0x408ad3ccfe1ec0f7e4a4, 0xd0e7d2a998ebe30fff94, 0x734dc356cb53b235808b, 0xe9add429dcd544ba9b3c, 0x794fd5ed4bb0cfdb0bea, 0xd05a240d254b63d07c5b, 0xc6ce0a5059c4525e9f72, 0xc91af7e96daaf0264167, 0x7ec61aca3a603ddb2c6e, 0x694e9ece9bba670d2250, 0x4d758453319ade49ffa5, 0x7ca67e15253593ff4772, 0x579b89dbec670c521f4a, 0x7aa1ea5a54b225139deb, 0xc51b1913819332f4fa3d, 0xe14163c7670cc4c0936e, 0x59c09848b13e3147b58b, 0x4319d454d24e943a3079, 0xe22e711772044abce01f, 0xee6a1ee870df0ac0eb82, 0x7e277d1f61a78f79c238, 0xe2ae6219335570f65bdf, 0x6397c3238b020ab412c7, 0xe1f8ae401cd9600fb717, 0xcb5f753a08e611675b93, 0x7f56452dc8eb4ddce224, 0xdd9b16b458cda4b1eed8, 0x5546386cbde8d0c39d54, 0x50bdc566e1884f69541d, 0x53f78d819122fec7f946, 0x7de5be5f5b232845b7c8, 0xf0e4d1122ec2d8947afc, 0xdf52f668b1bc3b33984a, 0x6d0f12639674998148dd, 0x443010d23cd9ae59bc13, 0xedac89e4ded3a9d6c501, 0x5f18f8dc9d90021fe463, 0xcdacdc6a5fc62a7faada, 0x6fbac4d112d960c08ed1, 0xfd4dcecd758fed6a6d3a, 0x6d9795c5ad8ab182655d, 0xc9a8732d457b28e952dd, 0x76738248fdba511535bc, 0x613f340e1673fd8f3bea, 0x46e03464e1563342759c, 0x6f43f7d379e0898dfcc1, 0xd69c77ff6790ee3b9804, 0xea585203951d6fbebefe, 0x70dd6b8d88f9f4a4d4f1, 0xfa3121716a2ddc32aa09, 0x43c440cc1c85428f7122, 0xd69485c35a7b5b0a4849, 0x54c4734016ab35e6abfd, 0xf23de92d817a9bbc4c66, 0xd41a244538c10f0d12bc, 0x41c6d95136de2171fdd1, 0xf90de080246d513ee754, 0xc70b8b1dcff296dcfa17, 0xd2d0cb3093cdcca1c58a, 0x6884fb9bd958e6363d5a, 0xf5bb133df6d254d5103a, 0x675b276ef3359196288f, 0x6dc0e281c5382a230c9d, 0xff6b69abad15339952c1, 0x51c6c1850dee7850b564, 0xe5bb1f9d7e2a397ac6aa, 0xe43cd5b0d8c8f74964df, 0x76185242d847007a3ba6, 0xc88abaf3c7af9e813aec, 0x74324497cc96f59df06e, 0x798b10ed2c97082f6717, 0xfe83c3d4f6fbd4e9d9df, 0x506335f787fe0c8195cd, 0xe6793c94dc1269a3909e, 0x7360f437eca373a82ba0, 0xfedf951568fba60e48b1, 0x44fd40f90fd677363fd8, 0xe5fa779d709c1615c2dd, 0xc89c41b58ed55fbece32, 0xdc5258c83efc824e0386, 0xc2bcce7fce3a3a9dba73, 0x6230b112a31eaa15ccf8, 0xd732914b9d836ed27cc8, 0xe2add7728778b472109d, 0xda8cbe3199f2d00ed9e3, 0x72cae7d131a6da8a20e8, 0x4d1aade729525a3719dc, 0xf17e25d60253021ed6a0, 0xd4946dd667b8ac2fffb3, 0xe0bbdae71aa06d0a80e6, 0x5ddc7270c5d3cded6804, 0xd085bcd3272805c34028, 0xf11d8cf8a9bc48983e5b, 0x4fbcc77d4b35cc37d528, 0xe727fd0278a7b2011431, 0xf0be346dc8dfdc01b90c, 0xe53ab2327838969797f9, 0xe7659603b6e30175fc51, 0xe8362c16d4345c7b2e03, 0xd1d8df8093bb3c26c6cc, 0xc7abde94cc99530cfdac, 0x494a86c4a34e4d69012d, 0xc14c4e69b55c3a9c46a3, 0x62dad35a937118d10d6e, 0x7971b9435369c1ce6e6f, 0x4eb85cdd78bfe43e4a1b, 0xe1cbe39fcd9cada778ed, 0x4ed383ff7301bdee65a4, 0xea57974e19ccb52ff529, 0x5351160dfdf8f4914525, 0x4e567731e96945ffbdd7, 0x4dafc6e4dcc9c4a9ce93, 0xc8e949c9eae05e3c46e0, 0xc3b1116b34743df10ee9, 0x65eb97583e468ea9fd88, 0xdcc10db5eb527ca156ec, 0xfb4b3e76a2da9659cc1a, 0xeb8b6fa6a5c9c33dac0b, 0x641c50af8c69d346cb4c, 0xffa7976c427ed219b01f, 0xf04eac82b300ab341db5, 0xc9f4fb1da8815d9bfeac, 0xd93a445f538f8faf9b34, 0x5147d3b35c3b8ebac723, 0x54ec2defc6bae186451a, 0x7f4c72646aab0dab230e, 0xd0b91fb9f50641008c19, 0xfff5979c1138d7bee358, 0x4f470fddaadb008bbe19, 0x7e2679d23479807d019e, 0x7f2650ecd1ba5cbb906c, 0xcf3e33bf3020d8e70626, 0xd7678981be3ef6c9c38d, 0x7440f037a45d9458708c, 0x58b10fd06d99b9cc6938, 0xf2c380135b9da1a57620, 0x5bca636e2fd989f654d3, 0xdf1650278e31ab453407, 0xdc1acb7288e804a3d042, 0xf9f018f30b62a5a05bbe, 0xe847178256868611f7fa, 0x7bdf9e979522c3421c1f, 0x761216d08d16aa409203, 0x72c525a7d71b2b9b4f35, 0xec9b74a6859a31f42b4f, 0xf795fa2ab253d57fe8e7, 0x5ab991411446ea57af57, 0xced61eb397c4c0f73428, 0x66b28c1da8bf7654b074, 0x44ed795afe1d13e136bc, 0x77b43d65abe1d6217424, 0xef6375ca77682c501f55, 0xf5205437c6ab9689a338, 0xd905f28b118cfaf1a5b4, 0xc1ee3fe0fc6673487d4a, 0x6750f82bb90b611b7d28, 0x5eea2f8475bbb46577f4, 0xe263f7fe3f57df16be6d, 0xf6954e2eabdfa26f9e5f, 0xf90e06417cb19278e4e9, 0xe5a002e125f164bd9b84, 0xce6a657b430dfea2ddad, 0xc7f5a0a3ee6db92df7ce, 0xff3009707141e5789aff, 0xc761a2b4178d8412d5d2, 0x5d6c10a5db5c75aca2ad]
 
+theorem chain_t2 : Grain.chain 254 P (Grain.init 254 2 8 56) T2.params.roundOrder statesT2 = true := by
+  decide +kernel
+
 theorem roundConstants_t2 : Grain.roundConstants 2 8 56 = some T2.params.roundOrder :=
-  Grain.roundConstants_of_chain 2 8 56 _ statesT2 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 2 8 56 _ statesT2 (by decide +kernel) chain_t2
+
+theorem chain_t3 : Grain.chain 254 P (Grain.init 254 3 8 56) T3.params.roundOrder statesT3 = true := by
+  decide +kernel
 
 theorem roundConstants_t3 : Grain.roundConstants 3 8 56 = some T3.params.roundOrder :=
-  Grain.roundConstants_of_chain 3 8 56 _ statesT3 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 3 8 56 _ statesT3 (by decide +kernel) chain_t3
+
+theorem chain_t4 : Grain.chain 254 P (Grain.init 254 4 8 56) T4.params.roundOrder statesT4 = true := by
+  decide +kernel
 
 theorem roundConstants_t4 : Grain.roundConstants 4 8 56 = some T4.params.roundOrder :=
-  Grain.roundConstants_of_chain 4 8 56 _ statesT4 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 4 8 56 _ statesT4 (by decide +kernel) chain_t4
+
+theorem chain_t8 : Grain.chain 254 P (Grain.init 254 8 8 57) T8.params.roundOrder statesT8 = true := by
+  decide +kernel
 
 theorem roundConstants_t8 : Grain.roundConstants 8 8 57 = some T8.params.roundOrder :=
-  Grain.roundConstants_of_chain 8 8 57 _ statesT8 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 8 8 57 _ statesT8 (by decide +kernel) chain_t8
+
+theorem chain_t12 : Grain.chain 254 P (Grain.init 254 12 8 57) T12.params.roundOrder statesT12 = true := by
+  decide +kernel
 
 theorem roundConstants_t12 : Grain.roundConstants 12 8 57 = some T12.params.roundOrder :=
-  Grain.roundConstants_of_chain 12 8 57 _ statesT12 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 12 8 57 _ statesT12 (by decide +kernel) chain_t12
+
+theorem chain_t16 : Grain.chain 254 P (Grain.init 254 16 8 57) T16.params.roundOrder statesT16 = true := by
+  decide +kernel
 
 theorem roundConstants_t16 : Grain.roundConstants 16 8 57 = some T16.params.roundOrder :=
-  Grain.roundConstants_of_chain 16 8 57 _ statesT16 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 16 8 57 _ statesT16 (by decide +kernel) chain_t16
+
+theorem chain_t20 : Grain.chain 254 P (Grain.init 254 20 8 57) T20.params.roundOrder statesT20 = true := by
+  decide +kernel
 
 theorem roundConstants_t20 : Grain.roundConstants 20 8 57 = some T20.params.roundOrder :=
-  Grain.roundConstants_of_chain 20 8 57 _ statesT20 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 20 8 57 _ statesT20 (by decide +kernel) chain_t20
+
+theorem chain_t24 : Grain.chain 254 P (Grain.init 254 24 8 57) T24.params.roundOrder statesT24 = true := by
+  decide +kernel
 
 theorem roundConstants_t24 : Grain.roundConstants 24 8 57 = some T24.params.roundOrder :=
-  Grain.roundConstants_of_chain 24 8 57 _ statesT24 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 24 8 57 _ statesT24 (by decide +kernel) chain_t24
+
+theorem chain_t28 : Grain.chain 254 P (Grain.init 254 28 8 59) T28.params.roundOrder statesT28 = true := by
+  decide +kernel
 
 theorem roundConstants_t28 : Grain.roundConstants 28 8 59 = some T28.params.roundOrder :=
-  Grain.roundConstants_of_chain 28 8 59 _ statesT28 (by decide +kernel) (by decide +kernel)
+  Grain.roundConstants_of_chain 28 8 59 _ statesT28 (by decide +kernel) chain_t28
 
 end Poseidon2.Spec.GrainCheck

@@ -16,8 +16,8 @@ and the S-box `x ↦ x ^ 5`:
 `M_E` is `circ(2, 1)` for `t = 2`, `circ(2, 1, 1)` for `t = 3`, `M4` for `t = 4` and
 `circ(2·M4, M4, ..., M4)` (blocks of four) for `t = 8, 12, ...`, with the paper's
 `M4 = [[5,7,1,3],[4,6,1,1],[1,3,5,7],[1,1,4,6]]`.
-`M_I` is `1 + diag(d)`: every row sums the state and adds `d_i · x_i`. The constants record
-holds `d` (the "diagonal minus one" of the reference implementations); for `t = 2` and `t = 3`
+`M_I` is `J + diag(d)` (J all ones): every row sums the state and adds `d_i · x_i`.
+The constants record holds `d` (the "diagonal minus one" of the reference implementations); for `t = 2` and `t = 3`
 it is `[1, 2]` and `[1, 1, 2]`, the paper's `[[2,1],[1,3]]` and `[[2,1,1],[1,2,1],[1,1,3]]`.
 
 The definition is written once, over an `Ops` record (zero, addition, adding and multiplying by
@@ -51,7 +51,7 @@ structure Params where
   rcExternal : List (List Nat)
   /-- one constant per partial round -/
   rcInternal : List Nat
-  /-- `M_I = 1 + diag(diagM1)` -/
+  /-- `M_I = J + diag(diagM1)` (J all ones) -/
   diagM1 : List Nat
 
 namespace Params
@@ -108,7 +108,7 @@ def external (xs : List α) : List α :=
   | [a, b, c, d] => m4 A a b c d
   | _ => let ys := m4Blocks A xs; addColSums A (colSums A ys) ys
 
-/-- The internal matrix `M_I = 1 + diag(d)`: `y_i = d_i · x_i + Σ x`. -/
+/-- The internal matrix `M_I = J + diag(d)` (J all ones): `y_i = d_i · x_i + Σ x`. -/
 def internal (d : List Nat) (xs : List α) : List α :=
   let s := sum A xs
   List.zipWith (fun x di => A.add (A.mulC x di) s) xs d
