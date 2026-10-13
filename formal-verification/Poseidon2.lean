@@ -33,3 +33,4 @@ import Poseidon2.Evm.Steps
 import Poseidon2.Evm.Sim
 import Poseidon2.Evm.Bytes
 import Poseidon2.Evm.Memory
+import Poseidon2.Evm.MemSim
