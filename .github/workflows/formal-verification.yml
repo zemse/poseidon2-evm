@@ -72,6 +72,59 @@ jobs:
           df -h /
           du -sh formal-verification/.lake ~/.elan
 
+  replay:
+    strategy:
+      fail-fast: true
+
+    # leanchecker (from the toolchain) replays the declarations of the .olean files through the
+    # kernel in its own process, so the audits above no longer trust the oleans: the whole import
+    # closure of the library (Lean, Mathlib, EVMLean, ours), then the committed proofs on top of it
+    name: Kernel replay (leanchecker)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Restore the build
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: formal-verification
+          use-mathlib-cache: true
+          auto-config: false
+          build: false
+
+      - name: Build
+        # nothing to do when the cache is this commit's; otherwise the oleans are rebuilt from
+        # the checked-out sources before they are replayed
+        working-directory: formal-verification
+        run: lake build Poseidon2 Poseidon2.Proofs.Audit
+
+      - name: Replay the library's import closure
+        # 11.0 GB at most (README, Continuous integration)
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh library
+          else
+            scripts/replay.sh library
+          fi
+
+      - name: Replay the committed proofs
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh committed
+          else
+            scripts/replay.sh committed
+          fi
+
   bytecode:
     strategy:
       fail-fast: true
@@ -148,4 +201,14 @@ jobs:
             /usr/bin/time -v scripts/proof.sh ${{ matrix.artifact }}
           else
             scripts/proof.sh ${{ matrix.artifact }}
+          fi
+
+      - name: Replay the proof in the kernel (leanchecker)
+        # its modules on top of their imports; the rest of the closure is the replay job's
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh ${{ matrix.artifact }}
+          else
+            scripts/replay.sh ${{ matrix.artifact }}
           fi
