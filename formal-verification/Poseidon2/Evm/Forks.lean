@@ -20,17 +20,21 @@ forks:
   charges (`Sim.lean`, `MemSim.lean`, `Control.lean`, `Final.lean`), is the static gas of all
   four forks on every accepted opcode the fork defines; `memCost_fork`: `memCost` is every fork's
   `calculate_memory_gas_cost`;
-* `osaka_scan`: no artifact other than the Huff Amsterdam ones can reach `0xe6` / `0xe7`.
+* `osaka_scan`: no artifact other than the Huff Amsterdam ones can reach `0xe6` / `0xe7` (on the
+  raw bytes; the proven form is `cancun` in each Osaka target's proof, `Cancun.lean`).
 
 So on these contracts the forks and the overlay differ in nothing the runs execute: a run of
 the overlay executes only `accepted` opcodes, which every fork runs as Cancun does (the
 execution-specs diffs of their functions show no change in semantics either; README, Forks),
-and the Osaka targets never reach DUPN / SWAPN, which Osaka lacks. That last step is argued, not
-proven: `scan` follows every instruction that falls through from `pc = 0` or from a `JUMPDEST`
+and the Osaka targets never reach DUPN / SWAPN, which Osaka lacks. Here that last step is argued:
+`scan` follows every instruction that falls through from `pc = 0` or from a `JUMPDEST`
 byte (every element of `D_J`), stopping at instructions that halt in Osaka and in the overlay
 (`STOP`, `JUMP`, `RETURN`, `REVERT`, `INVALID`, `SELFDESTRUCT`, bytes Osaka does not define), so
-every `pc` a run in either semantics reaches before its first DUPN / SWAPN is one it visits. The
-fork tables are transcribed, not derived: they are part of the trusted base.
+every `pc` a run in either semantics reaches before its first DUPN / SWAPN is one it visits. It is
+proven for the runs the theorems are about by `Cancun.lean` (`ovFree`, `xi_cancun`) and each
+Osaka target's `cancun` theorem (`Proofs/`): those runs are the same under EVMLean's own `Ξ`, so
+`scan` is a cross-check on the raw bytes. The fork tables are transcribed, not derived: they
+are part of the trusted base.
 -/
 
 namespace Poseidon2.Evm.Forks

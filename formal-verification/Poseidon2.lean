@@ -39,5 +39,6 @@ import Poseidon2.Evm.Control
 import Poseidon2.Evm.Run
 import Poseidon2.Checker.Valuation
 import Poseidon2.Evm.Final
+import Poseidon2.Evm.Cancun
 import Poseidon2.Evm.ForkData
 import Poseidon2.Evm.Forks

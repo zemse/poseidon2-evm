@@ -14,6 +14,8 @@ segments of at most 8000 instructions and 100 rounds of the spec; the checker st
 segment boundary is written out below (computed outside the kernel, checked by it). The
 gas of each case's run is `gas` ([43, 15320, 15320, 15320, 15320, 15320]); `correct` is partial correctness, `total`
 total correctness with that gas.
+`cancun`: the code never runs DUPN / SWAPN, so every call is the same under EVMLean's
+Cancun `Ξ` as under the EIP-8024 overlay, and `totalCancun` is `total` of the former.
 -/
 
 namespace Poseidon2.Proofs.Yul.OptimizerOff.T4
@@ -149,6 +151,28 @@ theorem enough (cd : List UInt8) (v : Nat)
       (Interface.yulHash Constants.T4.params cd v) :=
   (total cd v hcd hv σ σ₀ g A I hI).exact
     (le_trans (le_of_eq (show maxGas gas = 15320 by decide)) hg)
+
+/-- No DUPN / SWAPN where the run can get to: from `pc = 0` and from every jump destination,
+up to an instruction the run cannot fall through (`Evm.Sim.ovFree`). -/
+theorem ovFree : Evm.Sim.ovFree code = true := by
+  decide +kernel
+
+/-- Every call gets the same result from the overlay (`Evm.Eip8024.Ξ`) as from EVMLean's
+Cancun `Ethereum.EVM.Ξ` (`Theorems.lean`, `Sim.xi_cancun`). -/
+theorem cancun (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact cd v I) :
+    Evm.Eip8024.Ξ σ σ₀ g A I = Ethereum.EVM.Ξ σ σ₀ g A I :=
+  Theorems.yulHash_cancun Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact Constants.T4.params check ovFree cd v hcd hv σ σ₀ g A I hI
+
+/-- `total` of EVMLean's Cancun `Ξ`, without the overlay. -/
+theorem totalCancun (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact cd v I) :
+    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Ethereum.EVM.Ξ σ σ₀ g A I) (Interface.yulHash Constants.T4.params cd v) :=
+  cancun cd v hcd hv σ σ₀ g A I hI ▸ total cd v hcd hv σ σ₀ g A I hI
 
 #assert_standard_axioms_here
 

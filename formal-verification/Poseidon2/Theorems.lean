@@ -1,4 +1,4 @@
-import Poseidon2.Evm.Final
+import Poseidon2.Evm.Cancun
 
 /-!
 # Contract theorems from the checker
@@ -17,6 +17,10 @@ For each contract kind, two statements about every call of an accepted bytecode 
 Both come from one dispatch per kind (`huffPerm_of`, ...): the cases of the kind cover every
 call, and each case's outcome is the interface's for the calls in it. The cases' input words are
 calldata words and the capacity word, all below `2^256`, as `CheckerSound` asks.
+
+A third, `*_cancun`, comes from the same dispatch and `Sim.xi_cancun`: if the code also passes
+`Sim.ovFree` (no DUPN / SWAPN where the run can get to), every call gets the same result from
+`Eip8024.Ξ` as from EVMLean's Cancun `EVM.Ξ`, so the other two hold of `EVM.Ξ` verbatim.
 -/
 
 namespace Poseidon2.Theorems
@@ -470,5 +474,68 @@ theorem hashV2_total (a : Artifact) (c : Params) (gas : List Nat)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
     Total (hashV2Cases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) :=
   hashV2_of c cd v hcd h4 _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+
+/-! ## Without the overlay: EVMLean's Cancun `Ξ` -/
+
+/-- The result of a call by `Eip8024.Ξ` is EVMLean's `EVM.Ξ`'s. -/
+abbrev SameXi (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) : Prop :=
+  Eip8024.Ξ σ σ₀ g A I = EVM.Ξ σ σ₀ g A I
+
+/-- Accepted cases on a code that passes `ovFree` give the same result in both
+(`Sim.xi_cancun`). -/
+theorem cancun_gives (a : Artifact) (cases : List Case)
+    (hc : cases.all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    CasesGive cases cd v (fun _ => SameXi σ σ₀ g A I) :=
+  fun cs hcs _ hf => Sim.xi_cancun a.bytes (bytes_lt a) cs (List.all_eq_true.mp hc cs hcs) hov
+    cd v hcd hf σ σ₀ g A I hI
+
+theorem huffPerm_cancun (a : Artifact) (c : Params)
+    (hc : (huffPermCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (_hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  huffPerm_of c cd v (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
+theorem huffHash_cancun (a : Artifact) (c : Params)
+    (hc : (huffHashCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (_hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  huffHash_of c cd v hcd (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
+theorem yulPerm_cancun (a : Artifact) (c : Params) (sel : Nat)
+    (hsel0 : sel ≠ 0) (_hsel : sel < 2 ^ 32)
+    (hc : (yulPermCases c sel).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  yulPerm_of c sel hsel0 cd v hcd hv (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
+theorem yulHash_cancun (a : Artifact) (c : Params)
+    (hc : (yulHashCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  yulHash_of c cd v hcd hv (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
+theorem hashV2_cancun (a : Artifact) (c : Params)
+    (hc : (hashV2Cases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (_hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  hashV2_of c cd v hcd h4 (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
 
 end Poseidon2.Theorems

@@ -255,6 +255,25 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     p s!"  (total cd v hcd{extraArg} hv σ σ₀ g A I hI).exact"
     p s!"    (le_trans (le_of_eq (show maxGas gas = {maxGas gases} by decide)) hg)"
     p ""
+  -- an Osaka target (every artifact but the Huff Amsterdam ones) never runs DUPN / SWAPN, so its
+  -- statements hold of EVMLean's own `Ξ` (`Evm/Cancun.lean`)
+  unless thm.isEmpty || a.name.startsWith "huff/amsterdam/" do
+    p "/-- No DUPN / SWAPN where the run can get to: from `pc = 0` and from every jump destination,"
+    p "up to an instruction the run cannot fall through (`Evm.Sim.ovFree`). -/"
+    p "theorem ovFree : Evm.Sim.ovFree code = true := by\n  decide +kernel\n"
+    p "/-- Every call gets the same result from the overlay (`Evm.Eip8024.Ξ`) as from EVMLean's"
+    p "Cancun `Ethereum.EVM.Ξ` (`Theorems.lean`, `Sim.xi_cancun`). -/"
+    p s!"theorem cancun (cd : List UInt8) (v : Nat)"
+    for l in hyps "" do p l
+    p s!"    Evm.Eip8024.Ξ σ σ₀ g A I = Ethereum.EVM.Ξ σ σ₀ g A I :="
+    p s!"  Theorems.{thm}_cancun {art} {c} {args}check ovFree cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p ""
+    p "/-- `total` of EVMLean's Cancun `Ξ`, without the overlay. -/"
+    p s!"theorem totalCancun (cd : List UInt8) (v : Nat)"
+    for l in hyps "" do p l
+    p s!"    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Ethereum.EVM.Ξ σ σ₀ g A I) ({iface}) :="
+    p s!"  cancun cd v hcd{extraArg} hv σ σ₀ g A I hI ▸ total cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p ""
   let lines ← buf.get
   let cuts ← cuts.get
   let imports := ["Poseidon2.Checker.Check", "Poseidon2.Checker.Segments",
@@ -287,7 +306,10 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     s!"segments of at most {k} instructions and {sb} rounds of the spec; the checker state at each",
     "segment boundary is written out below (computed outside the kernel, checked by it). The",
     s!"gas of each case's run is `gas` ({gases}); `correct` is partial correctness, `total`",
-    "total correctness with that gas."]
+    "total correctness with that gas."] ++
+    (if a.name.startsWith "huff/amsterdam/" then [] else
+      ["`cancun`: the code never runs DUPN / SWAPN, so every call is the same under EVMLean's",
+        "Cancun `Ξ` as under the EIP-8024 overlay, and `totalCancun` is `total` of the former."])
   let main := (lines.extract mainStart lines.size).toList
   let path := s!"{root}/{modPath}.lean"
   let dir := s!"{root}/{modPath}"
