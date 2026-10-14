@@ -33,9 +33,13 @@ outside the ABI the contracts document, as read from the sources at this commit:
   of the `t` words at `4, 0x24, ..`. The libraries are `internal`, so they only exist as bytes
   inside a contract; these wrappers are the contracts the repository already compiles and tests.
 
-The split permutations of the Osaka target (`Part0`, ..) are not covered here: `Part0` has the
-`huffPerm` interface only together with the code of the parts after it, which the theorems will
-have to take as hypotheses.
+No artifact at this commit is split: every Osaka build fits one contract (at most 24,370 bytes).
+Should one be split (`Part0`, .., exported with `Kind.huffPart`), its parts have no interface
+here and no theorem.
+
+Every input is a 256-bit word read modulo `P`, so `w` and `w + P` (and `w + 2P`, .., below `2^256`)
+give the same output; a caller who needs distinct inputs to stay distinct must pass words below
+`P`. `Abi.lean` relates the t = 4 hash entries to `hashWords` on all ABI calldata.
 -/
 
 namespace Poseidon2.Spec.Interface
