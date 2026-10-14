@@ -29,7 +29,8 @@ concurrency:
 
 env:
   # one Lean thread, so Lake runs one Lean process at a time: every file then stays below
-  # 11.1 GB (GrainCheck.lean; the largest kernel check of an artifact is 8.0 GB), within the
+  # 11.7 GB (Spec/MinpolyCheck/T28.lean, then GrainCheck.lean at 11.1 GB; the largest kernel check
+  # of an artifact is 8.0 GB), within the
   # 16 GB of a GitHub-hosted runner (see formal-verification/README.md)
   LEAN_NUM_THREADS: 1
 
@@ -38,7 +39,7 @@ jobs:
     strategy:
       fail-fast: true
 
-    # spec, constants (GrainCheck, DiagCheck), checker, theorems, the audit, and the
+    # spec, constants (GrainCheck, DiagCheck, MinpolyCheck), checker, theorems, the audit, and the
     # committed kernel checks of the 17 small artifacts (Proofs/Audit.lean imports them)
     name: Lean build
     runs-on: ubuntu-latest

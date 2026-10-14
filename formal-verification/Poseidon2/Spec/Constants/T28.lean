@@ -10,14 +10,18 @@ script) at commit 93ee03367af2, dumped and transcribed by a script.
 The same generator reproduces the externally referenced tables for t = 2, 3, 4, 8, 12, 16
 value for value (checked when this file was written). `ROUNDS_F = 8`, `ROUNDS_P = 59`.
 
-The round constants are also derived independently: `GrainCheck.lean` proves they are the
-output of the Grain LFSR generation of the HorizenLabs script (`Grain.lean`) for this t, R_F
-and R_P. `DiagCheck.lean` proves the internal diagonal `diagM1` is the script's diagonal draw
-number 34 after them; that this draw is the first one passing the script's minimal-polynomial
-check, and the round numbers, have no independent check here. t = 28 also has no reference
-implementation of its linear layers (HorizenLabs and TaceoLabs stop at t = 24); they follow the
-script's generic `t % 4 == 0` matrix. A claim about t = 28 is a claim about the permutation with
-these constants.
+The constants are also derived inside Lean, independently of the generator: `GrainCheck.lean`
+proves the round constants are the output of the Grain LFSR generation of the HorizenLabs
+script (`Grain.lean`) for this t, R_F and R_P, and `MinpolyCheck.lean` (`selected_t28`) proves
+`diagM1` is the script's selection: `r - 1` for draw 34 after them, the first draw whose matrix
+passes the script's `check_minpoly_condition`. So, given R_F = 8 and R_P = 59, every value here
+is what the script outputs. Not checked: the round numbers (the script's security inequalities,
+recomputed by `scripts/rounds.mjs` in node only) and agreement with any other implementation
+(none found; no known-answer test from outside this repository).
+t = 28 is also outside the widths the Poseidon2 paper specifies (t = 2, 3 and multiples of 4 up
+to 24, https://eprint.iacr.org/2023/323, Section 6); its linear layers follow the script's
+generic `t % 4 == 0` matrix, which no other implementation was found to run at t = 28.
+A claim about t = 28 is a claim about the permutation with these constants.
 -/
 
 namespace Poseidon2.Spec.Constants.T28
