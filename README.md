@@ -32,6 +32,8 @@ Both contracts have same interface [IPoseidon2](./src/IPoseidon2.sol).
 | Yul            | 0xB2542195Ad96AcfBC962C48A97D7640A9F5386D2 |
 | Huff           | 0xB25421813D7d7B8001BB19d6b70642A277422eff |
 
+The deployed Huff contract returns a value that is not the Poseidon2 hash for calldata shorter than 4 bytes, which no `IPoseidon2` call sends (see [its README](deployed-artifacts/bn254-huff/v2/README.md#short-calldata)).
+
 _If you need help deploying the contract on new network, feel free to msg [@zemse](https://t.me/zemse)._
 
 ## Usage example
