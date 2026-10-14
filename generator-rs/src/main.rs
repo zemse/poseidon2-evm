@@ -2,7 +2,9 @@
 // and generator/yul/generate.ts, writing the same files relative to the
 // working directory (the repository root), and `verify`, which compiles and
 // runs the generated Huff (huff/verify.rs), and `lean-export`, which writes
-// the bytecode the formal verification checks (lean_export.rs).
+// the bytecode the formal verification checks (lean_export.rs), and
+// `eip8024-corpus`, which runs programs around DUPN / SWAPN / EXCHANGE in revm
+// for the Lean overlay to be compared with (eip8024.rs).
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -12,7 +14,7 @@ use poseidon2_gen::assert_known::assert_known;
 use poseidon2_gen::error::Result;
 use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, fork};
 use poseidon2_gen::huff::verify::verify;
-use poseidon2_gen::{bail, huff, lean_export, yul};
+use poseidon2_gen::{bail, eip8024, huff, lean_export, yul};
 
 #[derive(Parser)]
 #[command(
@@ -62,6 +64,14 @@ enum Command {
         /// naming the solc settings it was built with
         #[arg(long)]
         yul: Vec<String>,
+    },
+    /// Writes a corpus of programs around EIP-8024 (DUPN, SWAPN, EXCHANGE)
+    /// with what revm (Amsterdam) does with each, one per line, for
+    /// formal-verification/scripts/Eip8024Diff.lean to compare with
+    Eip8024Corpus {
+        /// file to write (default: standard output)
+        #[arg(long)]
+        out: Option<String>,
     },
 }
 
@@ -117,6 +127,14 @@ fn run(cli: Cli) -> Result<()> {
             hardforks,
             yul,
         } => lean_export::run(root, Path::new(&out), &hardforks, &yul),
+        Command::Eip8024Corpus { out } => {
+            let text = eip8024::lines().join("\n") + "\n";
+            match out {
+                Some(path) => std::fs::write(path, text)?,
+                None => print!("{text}"),
+            }
+            Ok(())
+        }
     }
 }
 

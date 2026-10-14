@@ -3,6 +3,7 @@
 //! and the Huff and Yul generators, with byte-identical output.
 
 pub mod assert_known;
+pub mod eip8024;
 pub mod error;
 pub mod fdlibm;
 pub mod field;
