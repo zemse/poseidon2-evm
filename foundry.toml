@@ -5,7 +5,9 @@ libs = ["lib"]
 gas_reports = ["Poseidon2", "Poseidon2Yul", "Poseidon2Huff"]
 ffi = true
 solc_version = "0.8.30"
-evm_version = "cancun"
+# the huff permutations use EIP-8024 DUPN / SWAPN, so the test EVM runs
+# Amsterdam (solc still compiles for osaka, the newest version it knows)
+evm_version = "amsterdam"
 optimizer = true
 optimizer_runs = 1000000
 

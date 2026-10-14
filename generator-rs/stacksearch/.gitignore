@@ -1,0 +1,6 @@
+target/
+__pycache__/
+*.json
+!results/programs.json
+!results/lane1-internal.json
+*.dsl.txt

@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -49,10 +49,21 @@ jobs:
           forge build --sizes
         id: build
 
+      - name: Check the yul libraries compile for consumers in every compiler mode
+        run: ./compat-check.sh
+        id: compat
+
       - name: Run Forge tests
         run: |
           forge test -vvv
         id: test
+
+      - name: Check the EIP-8024 gate (the huff output fails before Amsterdam)
+        run: |
+          if forge test --hardfork osaka --match-path test/Poseidon2T16.t.sol; then
+            echo "the EIP-8024 output ran on Osaka" && exit 1
+          fi
+        id: gate
 
       - name: Check gas snapshots
         run: |

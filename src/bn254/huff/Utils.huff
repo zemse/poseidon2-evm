@@ -295,7 +295,7 @@
 // Test Utilities
 // ============================================================================
 
-#include "../../lib/huffmate/src/utils/Errors.huff"
+#include "../../../lib/huffmate/src/utils/Errors.huff"
 
 // For clean stack [a, b, c, d]
 #define macro CONSOLELOG4() = takes (4) returns (4) {

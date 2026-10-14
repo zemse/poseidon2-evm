@@ -2,6 +2,7 @@
   "name": "poseidon2-evm",
   "version": "2.0.0",
   "description": "Solidity implementation of the Poseidon2 hash function for the EVM.",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/zemse/poseidon2-evm"
@@ -9,9 +10,14 @@
   "scripts": {
     "test": "forge test",
     "fmt": "prettier --write '**/*.{ts,js,json,md}' && forge fmt",
-    "generate:yul": "npx tsx generate-yul.ts && forge fmt",
-    "generate:huff": "npx tsx generate-huff.ts",
-    "generate:gas-report": "./gas-report.sh"
+    "generate:yul": "node generator/yul/generate.ts 2 3 4 8 12 && forge fmt",
+    "generate:huff": "node generator/huff/generate.ts 2 3 4 8 12 16 20 24 28 && forge fmt",
+    "generate:yul:rs": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- yul 2 3 4 8 12 && forge fmt",
+    "generate:huff:rs": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- huff 2 3 4 8 12 16 20 24 28 && forge fmt",
+    "verify:huff": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- verify 2 3 4 8 12 16 20 24 28",
+    "check:parity": "./generator-rs/parity.sh",
+    "generate:gas-report": "./gas-report.sh",
+    "check:compat": "./compat-check.sh"
   },
   "keywords": [
     "solidity",

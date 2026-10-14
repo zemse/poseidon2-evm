@@ -1,0 +1,58 @@
+{
+  "baseline_commit": "b7d7125",
+  "production_changes": false,
+  "incumbent": {
+    "artifact": "t4-internal-incumbent.txt",
+    "arguments": ["4", "s0,P,s1,s2,s3", "s0,P,s1,s2,s3", "1", "16"],
+    "gas": 166,
+    "historical_initial_heuristic": 157,
+    "corrected_initial_heuristic": 154,
+    "numeric_trials": 64
+  },
+  "searches": [
+    {
+      "name": "restricted-endpoint",
+      "arguments": ["4", "s0,P,s1,s2,s3", "O,O,O,O,P", "1", "16"],
+      "environment": { "UB": "166", "RSS_GIB": "8" },
+      "heuristic": "historical, pre-correction; inadmissible garbage/placement charges",
+      "reproduced_with_corrected_heuristic": false,
+      "seconds_limit": 300,
+      "elapsed_seconds": 282.1091195,
+      "sampled_peak_rss_bytes": 8811577344,
+      "returncode": -15,
+      "cost": null,
+      "stopped": "8 GiB process-group RSS guard",
+      "last_reported": { "expanded": 14000000, "states": 112516342, "f": 157 },
+      "exhausted": false
+    },
+    {
+      "name": "unordered-endpoint",
+      "arguments": ["4", "s0,P,s1,s2,s3", "s0,P,s1,s2,s3", "1", "16"],
+      "environment": { "UB": "166", "UNORDERED": "1", "RSS_GIB": "8" },
+      "heuristic": "historical, pre-correction; inadmissible garbage/placement charges",
+      "reproduced_with_corrected_heuristic": false,
+      "seconds_limit": 300,
+      "elapsed_seconds": 105.53246691700001,
+      "sampled_peak_rss_bytes": 8844787712,
+      "returncode": -15,
+      "cost": null,
+      "stopped": "8 GiB process-group RSS guard",
+      "last_reported": { "expanded": 6000000, "states": 51035987, "f": 157 },
+      "exhausted": false
+    }
+  ],
+  "finite_family": {
+    "probe": "../internal_layouts.py",
+    "kind": "opcode-model gas with independent numeric replay",
+    "layouts": 6,
+    "adapter_domain": "SWAP1..4 on five live prefix slots, no garbage access",
+    "round_gas": 166,
+    "best_two_rounds_with_boundaries": 332,
+    "best_two_rounds_visiting_alternate": 350,
+    "best_distinct_two_layout_cycle": 350,
+    "best_56_rounds_with_boundaries": 9296,
+    "best_56_rounds_visiting_alternate": 9314,
+    "improvement": 0,
+    "exhausted_within_this_family": true
+  }
+}

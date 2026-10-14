@@ -17,3 +17,8 @@ docs/
 node_modules/
 
 archive
+# Lean build output
+formal-verification/.lake/
+
+# Proofs written by scripts/proof.sh for the large artifacts (not committed)
+formal-verification/Poseidon2/Proofs/Generated/
