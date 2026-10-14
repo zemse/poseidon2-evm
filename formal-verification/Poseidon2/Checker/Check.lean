@@ -1,5 +1,6 @@
 import Poseidon2.Checker.SymExec
 import Poseidon2.Spec.Sponge
+import Poseidon2.Spec.Interface
 import Poseidon2.Bytecode.Artifact
 
 /-!
@@ -11,6 +12,7 @@ For an artifact and one case of the call (a set of `Facts` and the outcome
 * a permutation case with `permG linOps` run on the input atoms over the atom table the
   bytecode built: every returned word must have a raw bound below `P` and the form the spec
   gives, so spec and checker share one definition (`permG`, `hashG`);
+* a case of fixed words (`words`) the same way, the spec's forms being constants;
 * a revert case with an empty `REVERT`.
 
 `cases` lists the cases of every contract kind; together they cover every call with calldata
@@ -29,6 +31,8 @@ inductive Expect where
   | permHead (c : Params) (inputs : List Term)
   /-- return `hashG` of the input words -/
   | hash (c : Params) (inputs : List Term)
+  /-- return the words `ws` (read in the field), whatever the calldata -/
+  | words (ws : List Nat)
   /-- revert with empty data -/
   | revertEmpty
 
@@ -58,6 +62,7 @@ def specForms (fs : Facts) (e : Expect) (tb : Tab) : List Lin :=
   | .perm c ins => let (xs, tb) := inputForms fs ins tb; (permG linOps c xs tb).1
   | .permHead c ins => let (xs, tb) := inputForms fs ins tb; [(permG linOps c xs tb).1.headD linOps.zero]
   | .hash c ins => let (xs, tb) := inputForms fs ins tb; [(hashG linOps c xs tb).1]
+  | .words ws => ws.map Lin.const
   | .revertEmpty => []
 
 /-- Every returned word is canonical (below `P`) with the spec's form. -/
@@ -191,8 +196,12 @@ def hashCapCases (cv : Facts) (c : Params) : List Case :=
 def yulHashCases (c : Params) : List Case :=
   ⟨"call value", [(.cds, 0, cdsMax), (.cv, 1, W - 1)], .revertEmpty⟩ :: hashCapCases [(.cv, 0, 0)] c
 
-/-- `hashV2`: `hashCapCases` with any call value, calldata of 4 bytes or more only. -/
-def hashV2Cases (c : Params) : List Case := (hashCapCases [] c).drop 4
+/-- `hashV2`: below 4 bytes the fixed word `hashV2Short`, from 4 bytes on `hashCapCases` with any
+call value. -/
+def hashV2Cases (c : Params) : List Case :=
+  ([0, 1, 2, 3].map fun n =>
+    (⟨s!"size {n}", shortFacts n, .words [Interface.hashV2Short]⟩ : Case)) ++
+  (hashCapCases [] c).drop 4
 
 /-- `yulPerm` with selector `sel`: every reverting class, and the call. -/
 def yulPermCases (c : Params) (sel : Nat) : List Case :=

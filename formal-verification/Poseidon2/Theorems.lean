@@ -443,37 +443,52 @@ theorem yulHash_total (a : Artifact) (c : Params) (gas : List Nat)
     Total (yulHashCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (yulHash c cd v) :=
   yulHash_of c cd v hcd hv _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
 
-/-- The case of `hashV2` covers every call with 4 bytes of calldata or more. -/
+theorem hashV2Short_lt : Interface.hashV2Short < P := by decide
+
+/-- The cases of `hashV2` cover every call: the fixed word below 4 bytes of calldata, the
+permutation from 4 on. -/
 theorem hashV2_of (c : Params) (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
-    (h4 : 4 ≤ cd.length) (R : Outcome → Prop) (hR : CasesGive (hashV2Cases c) cd v R) :
+    (R : Outcome → Prop) (hR : CasesGive (hashV2Cases c) cd v R) :
     R (hashV2 c cd) := by
   have hl := eval_cds cd v hcd
-  have := hR ⟨"size >= 4", [(.cds, 4, cdsMax)] ++ [],
-      .permHead c (cdlWords 4 3 ++ [capTerm ([(.cds, 4, cdsMax)] ++ [])])⟩
-    (by simp [hashV2Cases, hashCapCases])
-    (capInputs_lt _ _ (by
-      rw [capTerm_long [] (Or.inr rfl), eval_capTerm_long cd v hcd]; exact yulCapacity_lt _))
-    (by simp only [List.append_nil, factsHold_cons, factsHold_nil, and_true, hl, cdsMax]; omega)
-  rw [capTerm_long [] (Or.inr rfl)] at this
-  simpa [hashV2, outcome, cdlWords_eval, eval_capTerm_long cd v hcd] using this
+  by_cases h4 : cd.length < 4
+  · have hz : ∀ off, 4 ≤ off → Term.eval ⟨cd, v⟩ (.cdl off) = 0 :=
+      fun off ho => eval_cdl_past cd v off (by omega)
+    have := hR ⟨s!"size {cd.length}", shortFacts cd.length, .words [Interface.hashV2Short]⟩
+      (by
+        simp only [hashV2Cases]
+        apply List.mem_append_left
+        exact List.mem_map.mpr ⟨cd.length, by simp only [List.mem_cons, List.not_mem_nil, or_false]; omega, rfl⟩)
+      (by simp [Expect.inputs])
+      (by
+        simp only [shortFacts, factsHold_cons, factsHold_nil, and_true, hl,
+          hz 4 (by omega), hz 0x24 (by omega), hz 0x44 (by omega)]
+        omega)
+    simpa [hashV2, h4, outcome, Nat.mod_eq_of_lt hashV2Short_lt] using this
+  · have := hR ⟨"size >= 4", [(.cds, 4, cdsMax)] ++ [],
+        .permHead c (cdlWords 4 3 ++ [capTerm ([(.cds, 4, cdsMax)] ++ [])])⟩
+      (by simp [hashV2Cases, hashCapCases])
+      (capInputs_lt _ _ (by
+        rw [capTerm_long [] (Or.inr rfl), eval_capTerm_long cd v hcd]; exact yulCapacity_lt _))
+      (by simp only [List.append_nil, factsHold_cons, factsHold_nil, and_true, hl, cdsMax]; omega)
+    rw [capTerm_long [] (Or.inr rfl)] at this
+    simpa [hashV2, h4, outcome, cdlWords_eval, eval_capTerm_long cd v hcd] using this
 
-/-- The deployed v2 Huff entry accepted by the checker computes `hashV2` from 4 bytes of
-calldata on. -/
+/-- The deployed v2 Huff entry accepted by the checker computes `hashV2`. -/
 theorem hashV2_correct (a : Artifact) (c : Params)
     (hc : (hashV2Cases c).all (checkCase (Code.ofBytes a.bytes)) = true)
-    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (hv : v < W)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
     Matches (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) :=
-  hashV2_of c cd v hcd h4 _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+  hashV2_of c cd v hcd _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
 
-/-- The deployed v2 Huff entry accepted with gas `gas` computes `hashV2` with that gas, from 4
-bytes of calldata on. -/
+/-- The deployed v2 Huff entry accepted with gas `gas` computes `hashV2` with that gas. -/
 theorem hashV2_total (a : Artifact) (c : Params) (gas : List Nat)
     (hc : CheckedGas (Code.ofBytes a.bytes) (hashV2Cases c) gas)
-    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (hv : v < W)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
     Total (hashV2Cases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) :=
-  hashV2_of c cd v hcd h4 _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+  hashV2_of c cd v hcd _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
 
 /-! ## Without the overlay: EVMLean's Cancun `Ξ` -/
 
@@ -532,10 +547,10 @@ theorem yulHash_cancun (a : Artifact) (c : Params)
 theorem hashV2_cancun (a : Artifact) (c : Params)
     (hc : (hashV2Cases c).all (checkCase (Code.ofBytes a.bytes)) = true)
     (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
-    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (_hv : v < W)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (_hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
     SameXi σ σ₀ g A I :=
-  hashV2_of c cd v hcd h4 (fun _ => SameXi σ σ₀ g A I)
+  hashV2_of c cd v hcd (fun _ => SameXi σ σ₀ g A I)
     (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
 
 end Poseidon2.Theorems

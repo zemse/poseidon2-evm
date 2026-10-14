@@ -218,16 +218,16 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
   -- `Soundness.checkerTotal`)
   let art := s!"Poseidon2.Bytecode.{mod}.artifact"
   let c := s!"Constants.T{a.t}.params"
-  let (iface, thm, extraHyp, extraArg, args) := match a.kind with
-    | .huffPerm => (s!"Interface.huffPerm {c} cd", "huffPerm", "", "", "")
-    | .huffHash => (s!"Interface.huffHash {c} cd", "huffHash", "", "", "")
-    | .yulHash => (s!"Interface.yulHash {c} cd v", "yulHash", "", "", "")
+  let (iface, thm, args) := match a.kind with
+    | .huffPerm => (s!"Interface.huffPerm {c} cd", "huffPerm", "")
+    | .huffHash => (s!"Interface.huffHash {c} cd", "huffHash", "")
+    | .yulHash => (s!"Interface.yulHash {c} cd v", "yulHash", "")
     | .yulPerm => (s!"Interface.yulPerm {c} (Interface.permuteSelector {a.t}) cd v",
-        "yulPerm", "", "", s!"(Interface.permuteSelector {a.t}) (by decide) (by decide) ")
-    | .hashV2 => (s!"Interface.hashV2 {c} cd", "hashV2", " (h4 : 4 ≤ cd.length)", " h4", "")
-    | .huffPart _ _ => ("", "", "", "", "")
+        "yulPerm", s!"(Interface.permuteSelector {a.t}) (by decide) (by decide) ")
+    | .hashV2 => (s!"Interface.hashV2 {c} cd", "hashV2", "")
+    | .huffPart _ _ => ("", "", "")
   let hyps := fun (hg : String) => [
-    s!"    (hcd : cd.length < 2 ^ 64){extraHyp} (hv : v < W) (σ σ₀ : Ethereum.AccountMap)",
+    s!"    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)",
     s!"    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)",
     s!"    (hI : Theorems.Runs {art} cd v I){hg} :"]
   unless thm.isEmpty do
@@ -236,7 +236,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     p s!"theorem correct (cd : List UInt8) (v : Nat)"
     for l in hyps "" do p l
     p s!"    Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) ({iface}) :="
-    p s!"  Theorems.{thm}_correct {art} {c} {args}check cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  Theorems.{thm}_correct {art} {c} {args}check cd v hcd hv σ σ₀ g A I hI"
     p ""
     p "/-- Total correctness: every call is in some case `j` of `cases`; given at least `gas[j]`"
     p "gas it ends exactly as the interface says with `gas[j]` used, given less it runs out of gas"
@@ -244,7 +244,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     p s!"theorem total (cd : List UInt8) (v : Nat)"
     for l in hyps "" do p l
     p s!"    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) ({iface}) :="
-    p s!"  Theorems.{thm}_total {art} {c} {args}gas checkG cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  Theorems.{thm}_total {art} {c} {args}gas checkG cd v hcd hv σ σ₀ g A I hI"
     p ""
     p s!"/-- With at least {maxGas gases} gas (the most of any case) every call ends exactly as the"
     p "interface says, using at most that much. -/"
@@ -252,7 +252,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     for l in hyps s!" (hg : {maxGas gases} ≤ g.toNat)" do p l
     p s!"    ∃ G, G ≤ {maxGas gases} ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)"
     p s!"      ({iface}) :="
-    p s!"  (total cd v hcd{extraArg} hv σ σ₀ g A I hI).exact"
+    p s!"  (total cd v hcd hv σ σ₀ g A I hI).exact"
     p s!"    (le_trans (le_of_eq (show maxGas gas = {maxGas gases} by decide)) hg)"
     p ""
   -- an Osaka target (every artifact but the Huff Amsterdam ones) never runs DUPN / SWAPN, so its
@@ -266,13 +266,13 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     p s!"theorem cancun (cd : List UInt8) (v : Nat)"
     for l in hyps "" do p l
     p s!"    Evm.Eip8024.Ξ σ σ₀ g A I = Ethereum.EVM.Ξ σ σ₀ g A I :="
-    p s!"  Theorems.{thm}_cancun {art} {c} {args}check ovFree cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  Theorems.{thm}_cancun {art} {c} {args}check ovFree cd v hcd hv σ σ₀ g A I hI"
     p ""
     p "/-- `total` of EVMLean's Cancun `Ξ`, without the overlay. -/"
     p s!"theorem totalCancun (cd : List UInt8) (v : Nat)"
     for l in hyps "" do p l
     p s!"    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Ethereum.EVM.Ξ σ σ₀ g A I) ({iface}) :="
-    p s!"  cancun cd v hcd{extraArg} hv σ σ₀ g A I hI ▸ total cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  cancun cd v hcd hv σ σ₀ g A I hI ▸ total cd v hcd hv σ σ₀ g A I hI"
     p ""
   let lines ← buf.get
   let cuts ← cuts.get

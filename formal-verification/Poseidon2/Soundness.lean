@@ -41,6 +41,7 @@ def outcome (e : Env) : Expect → Outcome
   | .perm c ins => .ret (encodeWords (permutationWords c (ins.map (·.eval e))))
   | .permHead c ins => .ret (encodeWords [(permutationWords c (ins.map (·.eval e))).headD 0])
   | .hash c ins => .ret (encodeWords [hashWords c (ins.map (·.eval e))])
+  | .words ws => .ret (encodeWords (ws.map (· % P)))
   | .revertEmpty => .revert []
 
 /-- An execution environment running `code` on calldata `cd` with call value `v`. -/
