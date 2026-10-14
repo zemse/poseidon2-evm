@@ -381,6 +381,7 @@ theorem xstep_swap (s : State) (x : Operation.ExOp)
 
 theorem parseInstr_e6 : parseInstr 0xe6 = some .INVALID := rfl
 theorem parseInstr_e7 : parseInstr 0xe7 = some .INVALID := rfl
+theorem parseInstr_e8 : parseInstr 0xe8 = some .INVALID := rfl
 
 /-- On an instruction EVMLean decodes as other than `INVALID`, the overlay is EVMLean. -/
 theorem xstep_overlay (vj : Array UInt256) (s : State) (op : Operation)
@@ -401,7 +402,11 @@ theorem xstep_overlay (vj : Array UInt256) (s : State) (op : Operation)
         · subst h7
           simp [decode, hb, parseInstr_e7, bind, Option.bind] at hdec
           exact absurd hdec.1.symm hop
-        · split <;> simp_all
+        · by_cases h8 : b = 0xe8
+          · subst h8
+            simp [decode, hb, parseInstr_e8, bind, Option.bind] at hdec
+            exact absurd hdec.1.symm hop
+          · split <;> simp_all
   unfold Eip8024.Xstep
   rw [hn]
 

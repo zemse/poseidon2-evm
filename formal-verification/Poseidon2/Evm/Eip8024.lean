@@ -1,27 +1,36 @@
 import Ethereum.Semantics
 
 /-!
-# EIP-8024 DUPN / SWAPN on top of EVMLean
+# EIP-8024 DUPN / SWAPN / EXCHANGE on top of EVMLean
 
-EVMLean (Cancun) decodes `0xe6` and `0xe7` as `INVALID`. This file adds EIP-8024
-(https://eips.ethereum.org/EIPS/eip-8024) without editing EVMLean: `Xstep` runs DUPN and
-SWAPN itself and hands every other instruction to EVMLean's `EVM.Xstep`; `X` and `Ξ` iterate it
-exactly as EVMLean's `EVM.X` and `EVM.Ξ` iterate theirs. EXCHANGE (`0xe8`) is not added; the
-contracts do not use it, and it stays `INVALID`.
+EVMLean (Cancun) decodes `0xe6`, `0xe7` and `0xe8` as `INVALID`. This file adds EIP-8024
+(https://eips.ethereum.org/EIPS/eip-8024) without editing EVMLean: `Xstep` runs DUPN, SWAPN and
+EXCHANGE itself and hands every other instruction to EVMLean's `EVM.Xstep`; `X` and `Ξ` iterate
+it exactly as EVMLean's `EVM.X` and `EVM.Ξ` iterate theirs. The contracts use DUPN and SWAPN
+only; EXCHANGE is here so that the overlay is the whole EIP (the checker never runs it).
 
-From the EIP:
-* `DUPN` (`0xe6`) and `SWAPN` (`0xe7`) take one immediate byte `x = code[pc + 1]` (`0` past
-  the end of the code) and `n = decode_single(x) = (x + 145) mod 256`, `17 ≤ n ≤ 235`;
-* `90 < x < 128` is an exceptional halt (so the immediate is never `JUMPDEST` or a `PUSH`);
+From the EIP (ethereum/EIPs `9d27a4f`, Last Call) and execution-specs `forks/amsterdam`
+(`1689800`, `vm/instructions/stack.py`, `vm/stack.py`):
+* the three opcodes take one immediate byte `x = code[pc + 1]` (`0` past the end of the code);
+* DUPN / SWAPN: `n = decode_single(x) = (x + 145) mod 256`, `17 ≤ n ≤ 235`; `90 < x < 128` is
+  an exceptional halt (so the immediate is never `JUMPDEST` or a `PUSH`);
+* EXCHANGE: `(n, m) = decode_pair(x)`, `1 ≤ n < m ≤ 30 - n`; `81 < x < 128` is an exceptional
+  halt;
 * `DUPN` pushes a copy of the `n`th stack item (1-based), `SWAPN` swaps the top with the
-  `n + 1`th item; both cost 3 gas (`G_verylow`) and advance `pc` by 2;
-* jump destination analysis does not change. EVMLean's `D_J` already steps over `0xe6` and
-  `0xe7` as one-byte `INVALID` instructions and then reads the immediate as an opcode, which
-  the immediate range keeps from being `JUMPDEST` or `PUSH`, so `D_J` is the EIP's.
+  `n + 1`th item, `EXCHANGE` swaps the `n + 1`th and the `m + 1`th; all cost 3 gas
+  (`G_verylow`) and advance `pc` by 2;
+* jump destination analysis does not change. EVMLean's `D_J` already steps over `0xe6` .. `0xe8`
+  as one-byte `INVALID` instructions and then reads the immediate as an opcode, which the
+  immediate ranges keep from being `JUMPDEST` or `PUSH`, so `D_J` is the EIP's.
+
+The EIP charges the gas first, then checks the immediate, then the stack; here an invalid
+immediate halts before the gas, and the stack checks come before the gas. Each is an exceptional
+halt that EVMLean's callers of `Ξ` treat alike (they match on `.error _`), so only the name of the
+exception can differ, and on a run the checker accepts none of them occurs.
 
 The encoding matches `src/bn254/huff/Eip8024.huff` (`DUP17` is `e6 80`, `DUP235` is `e6 5a`)
-and revm 43 (`decode_single`, `dupn`, `swapn` in `revm-interpreter`), which the repository's
-tests run.
+and revm 43 (`decode_single`, `decode_pair`, `dupn`, `swapn`, `exchange` in `revm-interpreter`),
+which the repository's tests run.
 -/
 
 namespace Poseidon2.Evm.Eip8024
@@ -32,30 +41,47 @@ open Ethereum
 def decodeSingle (x : Nat) : Option Nat :=
   if x ≤ 90 ∨ 128 ≤ x then some ((x + 145) % 256) else none
 
+/-- EIP-8024 `decode_pair`, `none` for the invalid range `81 < x < 128`. -/
+def decodePair (x : Nat) : Option (Nat × Nat) :=
+  if x ≤ 81 ∨ 128 ≤ x then
+    let k := x ^^^ 143
+    let q := k / 16
+    let r := k % 16
+    some (if q < r then (q + 1, r + 1) else (r + 1, 29 - q))
+  else none
+
 /-- The immediate byte: `code[pc + 1]`, `0` past the end. -/
 def immediate (code : ByteArray) (pc : Nat) : Nat :=
   ((code.get? (pc + 1)).getD 0).toNat
 
-/-- The two opcodes. -/
+/-- The three opcodes. -/
 inductive Op where
   | dupn (n : Nat)
   | swapn (n : Nat)
+  | exchange (n m : Nat)
   deriving DecidableEq, Repr
 
-/-- `none` when the byte at `pc` is not DUPN / SWAPN; `some none` for an invalid immediate. -/
+/-- `none` when the byte at `pc` is not DUPN / SWAPN / EXCHANGE; `some none` for an invalid
+immediate. -/
 def decode (code : ByteArray) (pc : Nat) : Option (Option Op) :=
   match code.get? pc with
   | some 0xe6 => some ((decodeSingle (immediate code pc)).map .dupn)
   | some 0xe7 => some ((decodeSingle (immediate code pc)).map .swapn)
+  | some 0xe8 => some ((decodePair (immediate code pc)).map fun (n, m) => .exchange n m)
   | _ => none
 
-/-- One DUPN / SWAPN: the stack checks, 3 gas, the stack change (EVMLean's `dup` / `swap`,
-which take any depth) and `pc + 2`. -/
+/-- The stack with its items at (0-based) positions `n` and `m` swapped. -/
+def exchangeList (n m : Nat) (l : List UInt256) : List UInt256 :=
+  (l.set n (l.getD m default)).set m (l.getD n default)
+
+/-- One DUPN / SWAPN / EXCHANGE: the stack checks, 3 gas, the stack change (EVMLean's `dup` /
+`swap`, which take any depth, and `exchangeList`) and `pc + 2`. -/
 def exec (op : Op) (s : State) : Except EVM.ExecutionException State :=
   let stk := s.machineState.stack
   let (need, grow) := match op with
     | .dupn n => (n, 1)
     | .swapn n => (n + 1, 0)
+    | .exchange _ m => (m + 1, 0)
   if stk.length < need then .error .StackUnderflow
   else if stk.length + grow > 1024 then .error .StackOverflow
   else if s.machineState.gasAvailable.toNat < GasConstants.Gverylow then .error .OutOfGass
@@ -66,9 +92,10 @@ def exec (op : Op) (s : State) : Except EVM.ExecutionException State :=
     let r := match op with
       | .dupn n => EVM.dup n s
       | .swapn n => EVM.swap n s
+      | .exchange n m => .ok (s.replaceStackAndIncrPC (exchangeList n m s.machineState.stack))
     r.map (·.incrPC)
 
-/-- EVMLean's `EVM.Xstep` with DUPN / SWAPN. -/
+/-- EVMLean's `EVM.Xstep` with DUPN / SWAPN / EXCHANGE. -/
 def Xstep (validJumps : Array UInt256) (s : State) :
     Except EVM.ExecutionException (State × Option (EVM.HaltCause × ByteArray)) :=
   match decode s.executionEnv.code s.machineState.pc.toNat with
@@ -166,6 +193,44 @@ theorem xstep_dispatch :
     (match Xstep #[] (testState ⟨#[0xe6, 0x5b]⟩ (stackUpTo 17)) with
      | .error .InvalidInstruction => true | _ => false) = true ∧
     decode ⟨#[0x60, 0x01]⟩ 0 = none := by
+  decide +kernel
+
+
+/-- `decode_pair` on the EIP's test cases: `e89d` is `EXCHANGE 2 3`, `e82f` is `EXCHANGE 1 19`,
+`e850` is `EXCHANGE 14 16`, `e851` is `EXCHANGE 14 15`, `e852` is invalid. -/
+theorem decodePair_eip :
+    decodePair 0x9d = some (2, 3) ∧ decodePair 0x2f = some (1, 19) ∧
+    decodePair 0x50 = some (14, 16) ∧ decodePair 0x51 = some (14, 15) ∧
+    decodePair 0x52 = none ∧ decodePair 0x7f = none ∧ decodePair 0x80 ≠ none := by
+  decide
+
+/-- Every valid immediate decodes to `1 ≤ n < m ≤ 30 - n`, as the EIP states. -/
+theorem decodePair_range :
+    (List.range 256).all (fun x => match decodePair x with
+      | some (n, m) => 1 ≤ n && n < m && n + m ≤ 30
+      | none => true) = true := by
+  decide +kernel
+
+/-- Words from numbers. -/
+def words (l : List Nat) : List UInt256 := l.map .ofNat
+
+/-- `EXCHANGE 1 2` (`e8 8e`) on `(words [2, 1, 0])` (top first) gives `[2, 0, 1]` (the EIP's
+`600060016002e88e`), uses 3 gas and moves `pc` from 0 to 2. -/
+theorem exchange12 :
+    (match exec (.exchange 1 2) (testState ⟨#[0xe8, 0x8e]⟩ (words [2, 1, 0])) with
+     | .ok s => s.machineState.stack == words [2, 0, 1] && s.machineState.pc == .ofNat 2 &&
+                s.machineState.gasAvailable.toNat == 97
+     | .error _ => false) = true := by
+  decide +kernel
+
+/-- `Xstep` dispatches `e8 8e` to EXCHANGE and halts on `e8 52`. -/
+theorem xstep_exchange :
+    (match Xstep #[] (testState ⟨#[0xe8, 0x8e]⟩ (words [2, 1, 0])) with
+     | .ok (s, none) => s.machineState.stack == words [2, 0, 1] | _ => false) = true ∧
+    (match Xstep #[] (testState ⟨#[0xe8, 0x52]⟩ (words [2, 1, 0])) with
+     | .error .InvalidInstruction => true | _ => false) = true ∧
+    (match exec (.exchange 1 2) (testState ⟨#[0xe8, 0x8e]⟩ (words [2, 1])) with
+     | .error .StackUnderflow => true | _ => false) = true := by
   decide +kernel
 
 end Poseidon2.Evm.Eip8024
