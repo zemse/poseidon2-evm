@@ -69,6 +69,12 @@ Both generators derive the Poseidon2 parameters for any supported state width t 
 
 Tests include correctness vectors, fuzz testing against the reference Solidity implementation, and overflow safety checks for the ADDMOD optimization.
 
+## Formal verification
+
+The runtime bytecode of the contracts is formally verified in this scope: Lean 4 theorems, checked by the Lean kernel, state that for any calldata and any call value each of 35 bytecodes returns exactly what a Lean specification of Poseidon2 over BN254 says, with an exact gas cost. The 35 are the Huff permutations and the t = 4 Huff hash for Amsterdam and Osaka, the Yul contracts as compiled by solc 0.8.30 at three optimizer settings (for t = 2, 3, 8, 12 the test wrappers `Poseidon2YulT<t>`, not a contract that inlines the library), and the two deployed contracts above. The EVM semantics is EVMLean's Cancun model, with an EIP-8024 overlay for the Amsterdam builds; that Osaka and Amsterdam behave the same on the opcodes used is read from execution-specs, not proven. Trusted are the Lean kernel, EVMLean, the Lean specification, the fork tables transcribed from execution-specs, Mathlib's prebuilt files and the round numbers; not huff-neo, solc or the generators. See [formal-verification/README.md](formal-verification/README.md) for the exact statements, the trusted base and the limits (no external reference exists for t = 20, 24, 28).
+
+Inputs are reduced `mod PRIME`, not rejected, so `x` and `x + PRIME` (and `x + 2 * PRIME`, ..., below `2^256`) give the same hash. If your application needs different inputs to give different hashes, check that each input is below `PRIME` before hashing.
+
 ## Security
 
 **Not yet audited.** These implementations have not undergone a formal third-party security audit. Review the code before using in production. Also see [SECURITY.md](./SECURITY.md).
