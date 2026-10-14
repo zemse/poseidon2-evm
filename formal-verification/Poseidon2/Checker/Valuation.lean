@@ -432,6 +432,10 @@ structure St.Inv (st : St) : Prop where
 theorem St.Inv.init : St.Inv St.init :=
   ⟨⟨by simp [St.init, Tab.empty], trivial⟩, by simp [St.init], by simp [St.init]⟩
 
+/-- The gas a state records plays no part in `St.Inv`. -/
+theorem St.Inv.charge {st : St} (g : Nat) (h : st.Inv) : ({ st with gas := g } : St).Inv :=
+  ⟨h.wf, h.stk, h.mem⟩
+
 private theorem ok_bind {ε α β : Type} {m : Except ε α} {f : α → Except ε β} {y : β}
     (h : m >>= f = .ok y) : ∃ x, m = .ok x ∧ f x = .ok y := by
   cases m with
@@ -731,9 +735,9 @@ theorem step1_inv {fs : Facts} {code : Code} {is is' : List (Nat × Ins)} {st st
   | (p, i) :: rest, h =>
     simp only [step1] at h
     split at h
-    · cases h; exact ctl_inv' (Or.inr ‹_›) hs
+    · cases h; exact (ctl_inv' (Or.inr ‹ctl _ _ _ _ _ = .fall _›) hs).charge _
     · split at h
-      · cases h; exact ctl_inv' (Or.inl ⟨_, ‹_›⟩) hs
+      · cases h; exact (ctl_inv' (Or.inl ⟨_, ‹ctl _ _ _ _ _ = .jump _ _›⟩) hs).charge _
       · cases h
     · cases h
 

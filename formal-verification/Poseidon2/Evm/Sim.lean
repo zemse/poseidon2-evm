@@ -45,7 +45,8 @@ def StkRel : List SV → List UInt256 → Prop :=
 /-- The EVM's step from `s`, as the checker's step to the stack `stk` describes it: out of gas,
 or `c` gas paid, `pc` moved by `n`, and a new stack that `stk` describes, nothing else changed. -/
 def Simulates (s : State) (c n : Nat) (stk : List SV) : Prop :=
-  Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
+  (s.machineState.gasAvailable.toNat < c ∧
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass) ∨
     ∃ t, StkRel e ρ stk t ∧ c ≤ s.machineState.gasAvailable.toNat ∧
       Eip8024.Xstep (D_J s.executionEnv.code 0) s = .ok ({s with
         machineState.stack := t
@@ -66,7 +67,7 @@ theorem sim_of (s : State) (c n : Nat) (stk : List SV) (t : List UInt256) (L : N
     (hL : L ≤ 1024) (hr : StkRel e ρ stk t) : Simulates e ρ s c n stk := by
   rw [Simulates, hx]
   by_cases hg : s.machineState.gasAvailable.toNat < c
-  · left; rw [if_pos hg]
+  · left; exact ⟨hg, by rw [if_pos hg]⟩
   · right
     rw [if_neg hg, if_neg (by omega)]
     exact ⟨t, hr, by omega, rfl⟩
@@ -157,8 +158,10 @@ theorem sim_push (fs : Facts) (code : Code) (s : State) (st st' : St) (op : Oper
 theorem sim_push0 (fs : Facts) (code : Code) (s : State) (st st' : St)
     (hdec : decode s.executionEnv.code s.machineState.pc = some (.PUSH0, none))
     (hrel : StkRel e ρ st.stk s.machineState.stack)
-    (h : step fs code (.push 0) st = .ok st') :
+    (h : step fs code (.op 0x5f) st = .ok st') :
     Simulates e ρ s GasConstants.Gbase 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
   obtain ⟨hl, rfl⟩ := push_ok h
   refine sim_of e ρ s _ _ _ (⟨0⟩ :: s.machineState.stack) (s.machineState.stack.length - 0 + 1)
     ?_ (by rw [← hrel.length]; omega) (List.Forall₂.cons (const_rel e ρ 0 ⟨0⟩ rfl) hrel)
@@ -244,7 +247,7 @@ theorem sim_of' (s : State) (c n : Nat) (stk : List SV) (t : List UInt256) (L : 
     (hL : L ≤ 1024) (hr : StkRel e ρ stk t) : Simulates e ρ s c n stk := by
   rw [Simulates, hx, if_neg (by omega)]
   by_cases hg : s.machineState.gasAvailable.toNat < c
-  · left; rw [if_pos hg]
+  · left; exact ⟨hg, by rw [if_pos hg]⟩
   · right; rw [if_neg hg]; exact ⟨t, hr, by omega, rfl⟩
 
 /-- DUPN (EIP-8024). -/

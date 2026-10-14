@@ -170,23 +170,24 @@ behind each instruction the checker decoded. -/
 
 theorem decodeOne_op {b : Nat} {tl : List Nat} {b' n : Nat} {r : Option (List Nat)}
     (h : decodeOne b tl = (.op b', n, r)) :
-    b' = b ∧ ¬ (0x60 ≤ b ∧ b ≤ 0x7f) ∧ b ≠ 0x5f ∧ b ≠ 0xe6 ∧ b ≠ 0xe7 ∧
-      n = 1 := by
+    b' = b ∧ ¬ (0x60 ≤ b ∧ b ≤ 0x7f) ∧ b ≠ 0xe6 ∧ b ≠ 0xe7 ∧ n = 1 := by
   unfold decodeOne at h
   split at h
   · split at h <;> simp at h
   · split at h
-    · simp at h
+    · simp only [Prod.mk.injEq, Ins.op.injEq] at h
+      obtain ⟨rfl, rfl, -⟩ := h
+      exact ⟨by omega, by omega, by omega, by omega, rfl⟩
     · split at h
       · split at h <;> (try split at h) <;> simp at h
       · simp only [Prod.mk.injEq, Ins.op.injEq] at h
         obtain ⟨rfl, rfl, -⟩ := h
-        refine ⟨rfl, by assumption, by assumption, ?_, ?_, rfl⟩ <;> omega
+        refine ⟨rfl, by assumption, ?_, ?_, rfl⟩ <;> omega
 
 theorem decodeOne_push {b : Nat} {tl : List Nat} {v n : Nat} {r : Option (List Nat)}
     (h : decodeOne b tl = (.push v, n, r)) :
-    (0x60 ≤ b ∧ b ≤ 0x7f ∧ (∃ rest, takeBytes (b - 0x5f) tl 0 = some (v, rest)) ∧
-      n = 1 + (b - 0x5f)) ∨ (b = 0x5f ∧ v = 0 ∧ n = 1) := by
+    0x60 ≤ b ∧ b ≤ 0x7f ∧ (∃ rest, takeBytes (b - 0x5f) tl 0 = some (v, rest)) ∧
+      n = 1 + (b - 0x5f) := by
   unfold decodeOne at h
   split at h
   · rename_i hb
@@ -194,12 +195,10 @@ theorem decodeOne_push {b : Nat} {tl : List Nat} {v n : Nat} {r : Option (List N
     · rename_i v' rest ht
       simp only [Prod.mk.injEq, Ins.push.injEq] at h
       obtain ⟨rfl, rfl, -⟩ := h
-      exact Or.inl ⟨hb.1, hb.2, ⟨rest, ht⟩, rfl⟩
+      exact ⟨hb.1, hb.2, ⟨rest, ht⟩, rfl⟩
     · simp at h
   · split at h
-    · simp only [Prod.mk.injEq, Ins.push.injEq] at h
-      obtain ⟨rfl, rfl, -⟩ := h
-      exact Or.inr ⟨by assumption, rfl, rfl⟩
+    · simp at h
     · split at h
       · split at h <;> (try split at h) <;> simp at h
       · simp at h
@@ -247,7 +246,8 @@ theorem decodeOne_swapn {b : Nat} {tl : List Nat} {m n : Nat} {r : Option (List 
 /-- The opcodes `step` accepts. -/
 def stepOps : List Nat :=
   [0x01, 0x02, 0x1b, 0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x1c, 0x15,
-   0x19, 0x06, 0x08, 0x09, 0x34, 0x35, 0x36, 0x3d, 0x37, 0x39, 0x50, 0x51, 0x52, 0x59, 0x5b]
+   0x19, 0x06, 0x08, 0x09, 0x34, 0x35, 0x36, 0x3d, 0x37, 0x39, 0x50, 0x51, 0x52, 0x59, 0x5b,
+   0x5f]
 
 theorem step_op_cases {fs : Facts} {code : Code} {b : Nat} {st st' : St}
     (h : step fs code (.op b) st = .ok st') :
@@ -284,16 +284,33 @@ theorem Frame.size {bs : List Nat} {s : State} (h : Frame e bs s) :
     s.executionEnv.calldata.size = e.cd.length := by
   rw [← h.cd, Array.length_toList, ByteArray.size_data]
 
-/-- A `Simulates` step of an instruction that keeps memory, with its cost at least 1. -/
+/-- A `SimulatesM` step of an instruction that keeps memory, at static gas `c`, is a step at the
+checker's gas `insGas`. -/
+theorem keepM {fs : Facts} {code : Code} {i : Ins} {s : State} {c n : Nat} {st st' : St}
+    (h : step fs code i st = .ok st') (hi : i ∉ [.op 0x37, .op 0x39, .op 0x51, .op 0x52])
+    (hs : SimulatesM e ρ s c n st') (hc : staticGas i st = c) (hc1 : 1 ≤ c) :
+    1 ≤ insGas i st st' ∧ SimulatesM e ρ s (insGas i st st') n st' := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at hi
+  have hk := step_mem fs code i st st' h hi.1 hi.2.1 hi.2.2.1 hi.2.2.2
+  have he : insGas i st st' = c := by rw [insGas, hk.2, hc]; simp
+  rw [he]; exact ⟨hc1, hs⟩
+
+/-- A `Simulates` step of an instruction that keeps memory, at the checker's gas. -/
 theorem lift1 {fs : Facts} {code : Code} {i : Ins} {s : State} {c n : Nat} {st st' : St}
     (h : step fs code i st = .ok st') (hi : i ∉ [.op 0x37, .op 0x39, .op 0x51, .op 0x52])
-    (hr : StRel e ρ st s.machineState) (hs : Simulates e ρ s c n st'.stk) (hc : 1 ≤ c) :
-    ∃ c, 1 ≤ c ∧ SimulatesM e ρ s c n st' := by
+    (hr : StRel e ρ st s.machineState) (hs : Simulates e ρ s c n st'.stk)
+    (hc : staticGas i st = c) (hc1 : 1 ≤ c) :
+    1 ≤ insGas i st st' ∧ SimulatesM e ρ s (insGas i st st') n st' := by
+  refine keepM e ρ h hi ?_ hc hc1
   simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at hi
-  exact ⟨c, hc, sim_lift e ρ fs code i s c n st st' h hi.1 hi.2.1 hi.2.2.1 hi.2.2.2 hr hs⟩
+  exact sim_lift e ρ fs code i s c n st st' h hi.1 hi.2.1 hi.2.2.1 hi.2.2.2 hr hs
+
+theorem insGas_pos {i : Ins} {st st' : St} (h : 1 ≤ staticGas i st) : 1 ≤ insGas i st st' := by
+  unfold insGas; omega
 
 /-- **One instruction of `step`**: wherever the checker's run decoded instruction `i` (of
-`n` bytes) from the code, a successful `step` is one EVM step costing at least 1 gas. -/
+`n` bytes) from the code, a successful `step` is one EVM step costing the checker's gas
+`insGas i st st'`, at least 1. -/
 theorem sim_step (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
     (hf : Facts.Hold e fs) (s : State) (st st' : St) (hF : Frame e bs s)
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
@@ -301,7 +318,7 @@ theorem sim_step (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
     {r : Option (List Nat)} (hd : bs.drop s.machineState.pc.toNat = b :: tl)
     (hpc : s.machineState.pc.toNat + 33 ≤ 33 * codeFuel) (ho : decodeOne b tl = (i, n, r))
     (h : step fs (Code.ofBytes bs) i st = .ok st') :
-    ∃ c, 1 ≤ c ∧ SimulatesM e ρ s c n st' := by
+    1 ≤ insGas i st st' ∧ SimulatesM e ρ s (insGas i st st') n st' := by
   have hrel := hr.stk
   have hD : ∀ op, parseInstr (UInt8.ofNat b) = some op → ¬ (0x60 ≤ b ∧ b ≤ 0x7f) →
       EVM.decode s.executionEnv.code s.machineState.pc = some (op, none) :=
@@ -309,105 +326,105 @@ theorem sim_step (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
   have h64 : s.machineState.pc.toNat + 33 < 2 ^ 64 := by unfold codeFuel at hpc; omega
   cases i with
   | push v =>
-    rcases decodeOne_push ho with ⟨hb1, hb2, ⟨rest, ht⟩, rfl⟩ | ⟨rfl, rfl, rfl⟩
-    · obtain ⟨op, arg, hdec, hop, harg⟩ := decode_push hall hd ⟨hb1, hb2⟩ ht h64
-      rw [← hF.code] at hdec
-      have := sim_push e ρ fs _ s st st' op arg (b - 0x5f) v hop hdec harg hrel h
-      rw [show 1 + (b - 0x5f) = b - 0x5f + 1 by omega]
-      exact lift1 e ρ h (by simp) hr this (by decide)
-    · exact lift1 e ρ h (by simp) hr
-        (sim_push0 e ρ fs _ s st st' (hD _ rfl (by decide)) hrel h) (by decide)
+    obtain ⟨hb1, hb2, ⟨rest, ht⟩, rfl⟩ := decodeOne_push ho
+    obtain ⟨op, arg, hdec, hop, harg⟩ := decode_push hall hd ⟨hb1, hb2⟩ ht h64
+    rw [← hF.code] at hdec
+    have := sim_push e ρ fs _ s st st' op arg (b - 0x5f) v hop hdec harg hrel h
+    rw [show 1 + (b - 0x5f) = b - 0x5f + 1 by omega]
+    exact lift1 e ρ h (by simp) hr this rfl (by decide)
   | dupn m =>
     obtain ⟨rfl, hm, rfl⟩ := decodeOne_dupn ho
     obtain ⟨hdec, hm17⟩ := decode_dupn hall hd hm
     rw [← hF.code] at hdec
     exact lift1 e ρ h (by simp) hr
-      (sim_dupn e ρ fs _ s st st' m (by omega) hdec hrel h) (by decide)
+      (sim_dupn e ρ fs _ s st st' m (by omega) hdec hrel h) rfl (by decide)
   | swapn m =>
     obtain ⟨rfl, hm, rfl⟩ := decodeOne_swapn ho
     obtain ⟨hdec, hm17⟩ := decode_swapn hall hd hm
     rw [← hF.code] at hdec
     exact lift1 e ρ h (by simp) hr
-      (sim_swapn e ρ fs _ s st st' m (by omega) hdec hrel hlen h) (by decide)
+      (sim_swapn e ρ fs _ s st st' m (by omega) hdec hrel hlen h) rfl (by decide)
   | bad b' => simp [Checker.step] at h
   | op b' =>
-    obtain ⟨rfl, hnp, -, -, -, rfl⟩ := decodeOne_op ho
+    obtain ⟨rfl, hnp, -, -, rfl⟩ := decodeOne_op ho
     rcases step_op_cases h with hb | hb | hb
     · obtain ⟨d, hp, hdn⟩ := dupOk_eq (parse_dup b' (head_lt hall hd) hb.1 hb.2)
       exact lift1 e ρ h (by
           have := hb
           simp only [List.mem_cons, List.not_mem_nil, Ins.op.injEq, or_false]; omega) hr
-        (sim_dup e ρ fs _ s st st' b' d hb hdn (hD _ hp hnp) hrel h) (by decide)
+        (sim_dup e ρ fs _ s st st' b' d hb hdn (hD _ hp hnp) hrel h)
+        (by simp only [staticGas]; rw [if_pos (by omega)]; rfl) (by decide)
     · obtain ⟨x, hp, hxn⟩ := swapOk_eq (parse_swap b' (head_lt hall hd) hb.1 hb.2)
       exact lift1 e ρ h (by
           have := hb
           simp only [List.mem_cons, List.not_mem_nil, Ins.op.injEq, or_false]; omega) hr
-        (sim_swap e ρ fs _ s st st' b' x hb hxn (hD _ hp hnp) hrel hlen h) (by decide)
+        (sim_swap e ρ fs _ s st st' b' x hb hxn (hD _ hp hnp) hrel hlen h)
+        (by simp only [staticGas]; rw [if_pos (by omega)]; rfl) (by decide)
     · simp only [stepOps, List.mem_cons, List.not_mem_nil, or_false] at hb
       rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        rfl | rfl
+        rfl | rfl | rfl
       · exact lift1 e ρ h (by decide) hr (sim_add e ρ fs _ s st st' hf (hD _ rfl hnp) hrel hv h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_mul e ρ fs _ s st st' hf (hD _ rfl hnp) hrel hv h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_shl e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_sub e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_div e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_lt e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_gt e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_slt e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_sgt e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_eq e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_and e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_or e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_xor e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_shr e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_iszero e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_not e ρ fs _ s st st' hf (hD _ rfl hnp) hrel h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_mod e ρ fs _ s st st' (hD _ rfl hnp) hrel hv h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_addmod e ρ fs _ s st st' (hD _ rfl hnp) hrel hv h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr (sim_mulmod e ρ fs _ s st st' (hD _ rfl hnp) hrel hv h)
-          (by decide)
+          rfl (by decide)
       · exact lift1 e ρ h (by decide) hr
-          (sim_callvalue e ρ fs _ s st st' hf hF.cv (hD _ rfl hnp) hrel h) (by decide)
-      · exact ⟨_, by unfold GasConstants.Gverylow; omega,
-          sim_calldataload e ρ fs _ s st st' hf hF.cd (hD _ rfl hnp) hr h⟩
+          (sim_callvalue e ρ fs _ s st st' hf hF.cv (hD _ rfl hnp) hrel h) rfl (by decide)
+      · exact keepM e ρ h (by decide)
+          (sim_calldataload e ρ fs _ s st st' hf hF.cd (hD _ rfl hnp) hr h) rfl (by decide)
       · exact lift1 e ρ h (by decide) hr
-          (sim_calldatasize e ρ fs _ s st st' hf (hF.size e) (hD _ rfl hnp) hrel h) (by decide)
+          (sim_calldatasize e ρ fs _ s st st' hf (hF.size e) (hD _ rfl hnp) hrel h) rfl (by decide)
       · exact lift1 e ρ h (by decide) hr
-          (sim_returndatasize e ρ fs _ s st st' hF.rd (hD _ rfl hnp) hrel h) (by decide)
-      · exact ⟨_, by unfold GasConstants.Gverylow; omega,
+          (sim_returndatasize e ρ fs _ s st st' hF.rd (hD _ rfl hnp) hrel h) rfl (by decide)
+      · exact ⟨insGas_pos (by show 1 ≤ 3 + _; omega),
           sim_calldatacopy e ρ fs _ s st st' hf hF.cd hF.cdl (hD _ rfl hnp) hr hlen h⟩
-      · exact ⟨_, by unfold GasConstants.Gverylow; omega,
+      · exact ⟨insGas_pos (by show 1 ≤ 3 + _; omega),
           sim_codecopy e ρ fs _ s st st' (by rw [hF.code]; exact bytes_codeBA hall)
             (hD _ rfl hnp) hr hlen h⟩
       · exact lift1 e ρ h (by decide) hr (sim_pop e ρ fs _ s st st' (hD _ rfl hnp) hrel hlen h)
+          rfl (by decide)
+      · exact ⟨insGas_pos (by show 1 ≤ 3; decide), sim_mload e ρ fs _ s st st' (hD _ rfl hnp) hr h⟩
+      · exact ⟨insGas_pos (by show 1 ≤ 3; decide), sim_mstore e ρ fs _ s st st' (hD _ rfl hnp) hr hlen h⟩
+      · exact keepM e ρ h (by decide) (sim_msize e ρ fs _ s st st' (hD _ rfl hnp) hr h) rfl
           (by decide)
-      · exact ⟨_, by unfold GasConstants.Gverylow; omega,
-          sim_mload e ρ fs _ s st st' (hD _ rfl hnp) hr h⟩
-      · exact ⟨_, by unfold GasConstants.Gverylow; omega,
-          sim_mstore e ρ fs _ s st st' (hD _ rfl hnp) hr hlen h⟩
-      · exact ⟨_, by unfold GasConstants.Gbase; omega,
-          sim_msize e ρ fs _ s st st' (hD _ rfl hnp) hr h⟩
       · exact lift1 e ρ h (by decide) hr
-          (sim_jumpdest e ρ fs _ s st st' (hD _ rfl hnp) hrel hlen h) (by decide)
+          (sim_jumpdest e ρ fs _ s st st' (hD _ rfl hnp) hrel hlen h) rfl (by decide)
+      · exact lift1 e ρ h (by decide) hr (sim_push0 e ρ fs _ s st st' (hD _ rfl hnp) hrel h)
+          rfl (by decide)
 
 theorem toNat_add_ofNat (a : UInt256) (n : Nat) :
     (a + UInt256.ofNat n).toNat = (a.toNat + n) % W := by
@@ -458,22 +475,36 @@ theorem ctl_inv {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st st' : St}
          exact ⟨by omega, by rw [this.2]; exact Tab.Ext.refl _⟩)
       | (cases h; exact hstep (by assumption))
 
+/-- `JUMP` and `JUMPI` keep the memory size. -/
+theorem ctl_keep_msize {fs : Facts} {code : Code} {pc b : Nat} {st st' : St}
+    (hb : b = 0x56 ∨ b = 0x57)
+    (h : (∃ t, ctl fs code pc (.op b) st = .jump t st') ∨ ctl fs code pc (.op b) st = .fall st') :
+    st'.msize = st.msize := by
+  rcases hb with rfl | rfl <;> rcases h with ⟨t, h⟩ | h <;>
+  · simp only [ctl] at h
+    repeat' (split at h)
+    all_goals first
+      | (cases h; done)
+      | (cases h; exact (pop1_keep ‹pop1 _ = _›).2)
+      | (cases h; exact (pop2_keep ‹pop2 _ = _›).2)
+
+/-- One instruction of the run: `ctl` falls through or jumps to `st1`, and the run continues
+from `st1` with the instruction's gas added. -/
 theorem step1_next {fs : Facts} {code : Code} {is is' : List (Nat × Ins)} {st st' : St}
     (h : step1 fs code is st = .next is' st') :
-    ∃ p i rest, is = (p, i) :: rest ∧
-      ((ctl fs code p i st = .fall st' ∧ is' = rest) ∨
-        ∃ t, ctl fs code p i st = .jump t st' ∧ findDest t code.dests = some is') := by
+    ∃ p i rest st1, is = (p, i) :: rest ∧ st' = { st1 with gas := st.gas + insGas i st st1 } ∧
+      ((ctl fs code p i st = .fall st1 ∧ is' = rest) ∨
+        ∃ t, ctl fs code p i st = .jump t st1 ∧ findDest t code.dests = some is') := by
   match is, h with
   | (p, i) :: rest, h =>
     simp only [step1] at h
-    refine ⟨p, i, rest, rfl, ?_⟩
     split at h
     · rename_i s1 hc
-      cases h; exact Or.inl ⟨hc, rfl⟩
+      cases h; exact ⟨p, i, _, s1, rfl, rfl, Or.inl ⟨hc, rfl⟩⟩
     · rename_i t s1 hc
       split at h
       · rename_i is1 hf
-        cases h; exact Or.inr ⟨t, hc, hf⟩
+        cases h; exact ⟨p, i, _, s1, rfl, rfl, Or.inr ⟨t, hc, hf⟩⟩
       · cases h
     · cases h
 
@@ -489,13 +520,31 @@ theorem runN_inv {fs : Facts} {code : Code} :
     simp only [runN] at h
     split at h
     · rename_i is1 st1 h1
-      obtain ⟨p, i, rest, -, hc⟩ := step1_next h1
+      obtain ⟨p, i, rest, st2, -, rfl, hc⟩ := step1_next h1
       have h2 := ctl_inv (by
         rcases hc with ⟨hc, -⟩ | ⟨t, hc, -⟩
         · exact Or.inr hc
         · exact Or.inl ⟨t, hc⟩) hl
-      have h3 := runN_inv k is1 is' st1 st' h h2.1
+      have h3 := runN_inv k is1 is' _ st' h h2.1
       exact ⟨h3.1, h2.2.trans h3.2⟩
+    · cases h
+
+/-- Along the run the gas used only grows. -/
+theorem runN_gas {fs : Facts} {code : Code} :
+    ∀ (k : Nat) (is is' : List (Nat × Ins)) (st st' : St),
+      runN fs code k is st = .next is' st' → st.gas ≤ st'.gas
+  | 0, _, _, _, _, h => by
+    simp only [runN, Out.next.injEq] at h
+    obtain ⟨-, rfl⟩ := h
+    exact le_refl _
+  | k + 1, is, is', st, st', h => by
+    simp only [runN] at h
+    split at h
+    · rename_i is1 st1 h1
+      obtain ⟨p, i, rest, st2, -, rfl, -⟩ := step1_next h1
+      have := runN_gas k is1 is' _ st' h
+      simp only at this
+      omega
     · cases h
 
 /-! ## The relation along the run -/
@@ -510,32 +559,49 @@ structure At (bs : List Nat) (is : List (Nat × Ins)) (st : St) (s : State) : Pr
   dec : Dec bs is
   pc : ∀ p i rest, is = (p, i) :: rest → s.machineState.pc.toNat = p
 
-/-- The EVM's step from `s` as one checker step to `is'`, `st'`: out of gas, or a step that pays
-at least 1 gas, keeps the execution environment and reaches a related state. -/
-def StepTo (bs : List Nat) (s : State) (is' : List (Nat × Ins)) (st' : St) : Prop :=
-  Eip8024.Xstep (D_J (codeBA bs) 0) s = .error .OutOfGass ∨
-    ∃ s' c, 1 ≤ c ∧ c ≤ s.machineState.gasAvailable.toNat ∧
+/-- The gas a checker state records plays no part in `StRel`. -/
+theorem StRel.charge {st : St} {μ : MachineState} (g : Nat) (h : StRel e ρ st μ) :
+    StRel e ρ { st with gas := g } μ :=
+  ⟨h.stk, h.mem, h.msize, h.gas⟩
+
+/-- The EVM's step from `s` as one checker step of gas `c` to `is'`, `st'`: out of gas, with less
+than `c` gas available, or a step that pays `c`, keeps the execution environment and reaches a
+related state. -/
+def StepTo (bs : List Nat) (s : State) (c : Nat) (is' : List (Nat × Ins)) (st' : St) : Prop :=
+  (s.machineState.gasAvailable.toNat < c ∧
+    Eip8024.Xstep (D_J (codeBA bs) 0) s = .error .OutOfGass) ∨
+    ∃ s', c ≤ s.machineState.gasAvailable.toNat ∧
       Eip8024.Xstep (D_J (codeBA bs) 0) s = .ok (s', none) ∧
       s'.machineState.gasAvailable.toNat = s.machineState.gasAvailable.toNat - c ∧
       s'.executionEnv = s.executionEnv ∧ At e ρ bs is' st' s'
 
 theorem stepTo_of_simAt {bs : List Nat} {s : State} {is' : List (Nat × Ins)} {st' : St}
-    {c : Nat} {pc : UInt256} (hF : Frame e bs s) (hs : SimAt e ρ s c pc st') (hc : 1 ≤ c)
+    {c : Nat} {pc : UInt256} (hF : Frame e bs s) (hs : SimAt e ρ s c pc st') (g : Nat)
     (hlen : st'.stk.length ≤ 1024) (hdec : Dec bs is')
-    (hpc : ∀ p i rest, is' = (p, i) :: rest → pc.toNat = p) : StepTo e ρ bs s is' st' := by
+    (hpc : ∀ p i rest, is' = (p, i) :: rest → pc.toNat = p) :
+    StepTo e ρ bs s c is' { st' with gas := g } := by
   have hcode : D_J s.executionEnv.code 0 = D_J (codeBA bs) 0 := by rw [hF.code]
-  rcases hs with h | ⟨t, m, aw, hcg, hx, hr⟩
-  · exact Or.inl (hcode ▸ h)
-  · refine Or.inr ⟨nextAt s c pc t m aw, c, hc, hcg, hcode ▸ hx, rfl, rfl, ?_⟩
-    exact ⟨⟨hF.code, hF.cd, hF.cdl, hF.cv, hF.rd⟩, hr, hlen, hdec, hpc⟩
+  rcases hs with ⟨hg, h⟩ | ⟨t, m, aw, hcg, hx, hr⟩
+  · exact Or.inl ⟨hg, hcode ▸ h⟩
+  · refine Or.inr ⟨nextAt s c pc t m aw, hcg, hcode ▸ hx, rfl, rfl, ?_⟩
+    exact ⟨⟨hF.code, hF.cd, hF.cdl, hF.cv, hF.rd⟩, hr.charge e ρ g, hlen, hdec, hpc⟩
+
+/-- The gas of `JUMP` or `JUMPI`: the static gas, no memory expansion. -/
+theorem insGas_jump {fs : Facts} {code : Code} {pc b : Nat} {st st' : St}
+    (hb : b = 0x56 ∨ b = 0x57)
+    (h : (∃ t, ctl fs code pc (.op b) st = .jump t st') ∨ ctl fs code pc (.op b) st = .fall st') :
+    insGas (.op b) st st' = staticGas (.op b) st := by
+  rw [insGas, ctl_keep_msize hb h, Nat.sub_self, Nat.add_zero]
 
 /-- **One instruction of the run**: a checker step from related states is an EVM step to
-related states, or the EVM runs out of gas. -/
+related states that costs what the checker added to its gas (at least 1), or the EVM runs out of
+gas with less than that available. -/
 theorem step1_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
     (hf : Facts.Hold e fs) (is is' : List (Nat × Ins)) (st st' : St) (s : State)
     (hA : At e ρ bs is st s) (h : step1 fs (Code.ofBytes bs) is st = .next is' st')
-    (hv : Tab.Valid e ρ st'.tab) : StepTo e ρ bs s is' st' := by
-  obtain ⟨p, i, rest, rfl, hc⟩ := step1_next h
+    (hv : Tab.Valid e ρ st'.tab) :
+    ∃ c, 1 ≤ c ∧ st'.gas = st.gas + c ∧ StepTo e ρ bs s c is' st' := by
+  obtain ⟨p, i, rest, st1, rfl, rfl, hc⟩ := step1_next h
   obtain ⟨b, tl, n, r, hd, ho, hpc, hrest, hnext⟩ := hA.dec.cons
   have hp := hA.pc p i rest rfl
   rw [← hp] at hd hpc
@@ -547,16 +613,18 @@ theorem step1_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
   have hD : ∀ op, parseInstr (UInt8.ofNat b) = some op → ¬ (0x60 ≤ b ∧ b ≤ 0x7f) →
       EVM.decode s.executionEnv.code s.machineState.pc = some (op, none) :=
     fun op hp hb => hA.frame.code ▸ decode_op hall hd hb hp
+  refine ⟨insGas i st st1, ?_, rfl, ?_⟩
+  rotate_left
   rcases hc with ⟨hc, rfl⟩ | ⟨t, hc, hfd⟩
   · -- falls through to `pc + n`
-    have hsim : ∃ c, 1 ≤ c ∧ SimulatesM e ρ s c n st' := by
+    have hsim : 1 ≤ insGas i st st1 ∧ SimulatesM e ρ s (insGas i st st1) n st1 := by
       rcases ctl_fall hc with rfl | hs
-      · obtain ⟨rfl, hnp, -, -, -, rfl⟩ := decodeOne_op ho
-        exact ⟨_, by decide,
-          sim_jumpi_fall e ρ fs _ s st st' p (hD _ rfl hnp) hA.rel hA.len hc⟩
-      · exact sim_step e ρ bs hall fs hf s st st' hA.frame hA.rel hA.len hv hd hpc ho hs
-    obtain ⟨c, hc1, hs⟩ := hsim
-    refine stepTo_of_simAt e ρ hA.frame (SimulatesM.at e ρ hs) hc1 hinv.1 hrest ?_
+      · obtain ⟨rfl, hnp, -, -, rfl⟩ := decodeOne_op ho
+        rw [insGas_jump (Or.inr rfl) (Or.inr hc)]
+        exact ⟨by show 1 ≤ 10; decide,
+          sim_jumpi_fall e ρ fs _ s st st1 p (hD _ rfl hnp) hA.rel hA.len hc⟩
+      · exact sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd hpc ho hs
+    refine stepTo_of_simAt e ρ hA.frame (SimulatesM.at e ρ hsim.2) _ hinv.1 hrest ?_
     intro p' i' rest' he
     have := (decodeOne_rest b tl).1
     rw [ho] at this; dsimp only at this
@@ -572,15 +640,27 @@ theorem step1_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
       simp only [List.cons.injEq, Prod.mk.injEq] at he
       rw [← he.1.1, toNat_ofNat, Nat.mod_eq_of_lt htW]
     rcases ctl_jump hc with rfl | rfl
-    · obtain ⟨rfl, hnp, -, -, -, -⟩ := decodeOne_op ho
+    · obtain ⟨rfl, hnp, -, -, -⟩ := decodeOne_op ho
+      rw [insGas_jump (Or.inl rfl) (Or.inl ⟨t, hc⟩)]
       exact stepTo_of_simAt e ρ hA.frame
-        (sim_jump e ρ bs hall fs s st st' p t hA.frame.code (hD _ rfl hnp) hA.rel hA.len hc hj)
-        (by decide) hinv.1 hdec1 hpc'
-    · obtain ⟨rfl, hnp, -, -, -, -⟩ := decodeOne_op ho
+        (sim_jump e ρ bs hall fs s st st1 p t hA.frame.code (hD _ rfl hnp) hA.rel hA.len hc hj)
+        _ hinv.1 hdec1 hpc'
+    · obtain ⟨rfl, hnp, -, -, -⟩ := decodeOne_op ho
+      rw [insGas_jump (Or.inr rfl) (Or.inl ⟨t, hc⟩)]
       exact stepTo_of_simAt e ρ hA.frame
-        (sim_jumpi_jump e ρ bs hall fs s st st' p t hA.frame.code (hD _ rfl hnp) hA.rel hA.len
+        (sim_jumpi_jump e ρ bs hall fs s st st1 p t hA.frame.code (hD _ rfl hnp) hA.rel hA.len
           hc hj)
-        (by decide) hinv.1 hdec1 hpc'
+        _ hinv.1 hdec1 hpc'
+  · -- the gas is at least 1
+    rcases hc with ⟨hc, -⟩ | ⟨t, hc, -⟩
+    · rcases ctl_fall hc with rfl | hs
+      · rw [insGas_jump (Or.inr rfl) (Or.inr hc)]; show 1 ≤ 10; decide
+      · obtain ⟨b, tl, n, r, hd, ho, hpc, -, -⟩ := hA.dec.cons
+        rw [← hp] at hd hpc
+        exact (sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd hpc ho hs).1
+    · rcases ctl_jump hc with rfl | rfl
+      · rw [insGas_jump (Or.inl rfl) (Or.inl ⟨t, hc⟩)]; show 1 ≤ 8; decide
+      · rw [insGas_jump (Or.inr rfl) (Or.inl ⟨t, hc⟩)]; show 1 ≤ 10; decide
 
 /-! ## Iterating `X` with gas -/
 
@@ -596,38 +676,45 @@ theorem X_next (vj : Array UInt256) (f : Nat) (s s' : State)
   rw [← he]
 
 /-- **The run**: from related states, as long as the checker's run continues (`runN` of `k`
-instructions), the EVM either runs out of gas or `X` reaches a state related to where the
-checker stands, with more fuel than gas left. Every step pays at least 1 gas, so `X`'s fuel
-(`Ξ` gives gas + 1) never runs out first. -/
+instructions), the EVM either runs out of gas, having had less than the checker's gas for those
+instructions (`st'.gas - st.gas`), or `X` reaches a state related to where the checker stands,
+having paid exactly that gas, with more fuel than gas left. Every step pays at least 1 gas, so
+`X`'s fuel (`Ξ` gives gas + 1) never runs out first. -/
 theorem runN_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
     (hf : Facts.Hold e fs) :
     ∀ (k : Nat) (is is' : List (Nat × Ins)) (st st' : St) (s : State) (f : Nat),
       runN fs (Code.ofBytes bs) k is st = .next is' st' → Tab.Valid e ρ st'.tab →
       At e ρ bs is st s → s.machineState.gasAvailable.toNat < f →
-      Eip8024.X f (D_J (codeBA bs) 0) s = .error .OutOfGass ∨
+      (s.machineState.gasAvailable.toNat + st.gas < st'.gas ∧
+        Eip8024.X f (D_J (codeBA bs) 0) s = .error .OutOfGass) ∨
         ∃ s' f', Eip8024.X f (D_J (codeBA bs) 0) s = Eip8024.X f' (D_J (codeBA bs) 0) s' ∧
-          At e ρ bs is' st' s' ∧ s'.machineState.gasAvailable.toNat < f'
+          At e ρ bs is' st' s' ∧ s'.machineState.gasAvailable.toNat < f' ∧
+          s'.machineState.gasAvailable.toNat + st'.gas = s.machineState.gasAvailable.toNat + st.gas
   | 0, is, is', st, st', s, f, h, _, hA, hg => by
     simp only [runN, Out.next.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact Or.inr ⟨s, f, rfl, hA, hg⟩
+    exact Or.inr ⟨s, f, rfl, hA, hg, rfl⟩
   | k + 1, is, is', st, st', s, f, h, hv, hA, hg => by
     simp only [runN] at h
     split at h
     · rename_i is1 st1 h1
       have hv1 : Tab.Valid e ρ st1.tab :=
         hv.of_ext (runN_inv k is1 is' st1 st' h (by
-          obtain ⟨p, i, rest, -, hc⟩ := step1_next h1
-          exact (ctl_inv (by
+          obtain ⟨p, i, rest, st2, -, rfl, hc⟩ := step1_next h1
+          exact (ctl_inv (st' := st2) (by
             rcases hc with ⟨hc, -⟩ | ⟨t, hc, -⟩
             · exact Or.inr hc
             · exact Or.inl ⟨t, hc⟩) hA.len).1)).2
+      have hmono := runN_gas k is1 is' st1 st' h
       obtain ⟨f0, rfl⟩ : ∃ f0, f = f0 + 1 := ⟨f - 1, by omega⟩
-      rcases step1_sim e ρ bs hall fs hf is is1 st st1 s hA h1 hv1 with
-        hx | ⟨s1, c, hc1, hcg, hx, hgas, henv, hA1⟩
-      · exact Or.inl (X_oog _ f0 s hx)
+      obtain ⟨c, hc1, hgas, hstep⟩ := step1_sim e ρ bs hall fs hf is is1 st st1 s hA h1 hv1
+      rcases hstep with ⟨hlt, hx⟩ | ⟨s1, hcg, hx, hg1, henv, hA1⟩
+      · exact Or.inl ⟨by omega, X_oog _ f0 s hx⟩
       · rw [X_next _ f0 s s1 hx henv]
-        exact runN_sim bs hall fs hf k is1 is' st1 st' s1 f0 h hv hA1 (by omega)
+        rcases runN_sim bs hall fs hf k is1 is' st1 st' s1 f0 h hv hA1 (by omega) with
+          ⟨hlt, hx'⟩ | ⟨s', f', hx', hA', hg', heq⟩
+        · exact Or.inl ⟨by omega, hx'⟩
+        · exact Or.inr ⟨s', f', hx', hA', hg', by omega⟩
     · cases h
 
 /-! ## From the check to the last instruction -/
@@ -663,8 +750,8 @@ theorem ins_head (bs : List Nat) {p : Nat} {i : Ins} {rest : List (Nat × Ins)}
 
 /-- A run ending in `RETURN` or `REVERT` (the only ends a check accepts). -/
 def IsFinal : Res → Prop
-  | .ret _ _ => True
-  | .revert _ => True
+  | .ret _ _ _ => True
+  | .revert _ _ => True
   | _ => False
 
 theorem final_of_resultOk {fs : Facts} {ex : Expect} {r : Res} (h : resultOk fs ex r = true) :
@@ -700,7 +787,7 @@ theorem run_final (fs : Facts) (code : Code) :
 
 /-- `ctl` returns words only at `RETURN`. -/
 theorem ctl_ret {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {ws : List SV}
-    {tb : Tab} (h : ctl fs code pc i st = .stop (.ret ws tb)) : i = .op 0xf3 := by
+    {tb : Tab} {g : Nat} (h : ctl fs code pc i st = .stop (.ret ws tb g)) : i = .op 0xf3 := by
   unfold ctl at h
   dsimp only at h
   split at h
@@ -709,8 +796,8 @@ theorem ctl_ret {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {ws : 
     | (repeat' (split at h)) <;> cases h
 
 /-- `ctl` reverts only at `REVERT`. -/
-theorem ctl_revert {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {n : Nat}
-    (h : ctl fs code pc i st = .stop (.revert n)) : i = .op 0xfd := by
+theorem ctl_revert {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {n g : Nat}
+    (h : ctl fs code pc i st = .stop (.revert n g)) : i = .op 0xfd := by
   unfold ctl at h
   dsimp only at h
   split at h
@@ -721,8 +808,9 @@ theorem ctl_revert {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {n 
 /-- **The run up to the last instruction.** If the checker accepts a case, its run reaches a
 `RETURN` or `REVERT` at `p` in state `st'` after `k` instructions, and for every valuation valid
 on the atom table there, the EVM's run of the call (`X` from `fresh`, as `Eip8024.Ξ` starts it)
-runs out of gas or reaches a state `s` related to the checker's at that instruction (`At`),
-with more fuel than gas. What is left is the last instruction (`ctl` at `p`). -/
+runs out of gas, the call's gas `g` being below the checker's gas up to there (`st'.gas`), or
+reaches a state `s` related to the checker's at that instruction (`At`), having paid exactly
+`st'.gas`, with more fuel than gas. What is left is the last instruction (`ctl` at `p`). -/
 theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Case)
     (hc : checkCase (Code.ofBytes bs) cs = true) (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hfs : Facts.Hold ⟨cd, v⟩ cs.facts) (σ σ₀ : AccountMap)
@@ -734,19 +822,21 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
       ctl cs.facts (Code.ofBytes bs) p i st' = .stop (runCase (Code.ofBytes bs) cs) ∧
       (i = .op 0xf3 ∨ i = .op 0xfd) ∧
       ∀ ρ, Tab.Valid ⟨cd, v⟩ ρ st'.tab →
-        Eip8024.X (g.toNat + 1) (D_J I.code 0) (fresh σ σ₀ g A I) = .error .OutOfGass ∨
+        (g.toNat < st'.gas ∧
+          Eip8024.X (g.toNat + 1) (D_J I.code 0) (fresh σ σ₀ g A I) = .error .OutOfGass) ∨
         ∃ s f, Eip8024.X (g.toNat + 1) (D_J I.code 0) (fresh σ σ₀ g A I) =
             Eip8024.X f (D_J I.code 0) s ∧
           At ⟨cd, v⟩ ρ bs ((p, i) :: rest) st' s ∧
-          s.machineState.gasAvailable.toNat < f := by
+          s.machineState.gasAvailable.toNat < f ∧
+          s.machineState.gasAvailable.toNat + st'.gas = g.toNat := by
   have hfin := final_of_resultOk hc
   obtain ⟨k, p, i, rest, st', hk, hctl⟩ := run_final cs.facts (Code.ofBytes bs) fuel _ _ hfin
   refine ⟨k, p, i, rest, st', hk, hctl, ?_, fun ρ hv => ?_⟩
   · unfold runCase at hfin
     revert hctl hfin
     cases run cs.facts (Code.ofBytes bs) fuel (Code.ofBytes bs).ins St.init with
-    | ret ws tb => intro _ hctl; exact Or.inl (ctl_ret hctl)
-    | revert n => intro _ hctl; exact Or.inr (ctl_revert hctl)
+    | ret ws tb _ => intro _ hctl; exact Or.inl (ctl_ret hctl)
+    | revert n _ => intro _ hctl; exact Or.inr (ctl_revert hctl)
     | stop => intro h; simp [IsFinal] at h
     | fail _ _ => intro h; simp [IsFinal] at h
   · obtain ⟨hcode, hcdl, hcv⟩ := henv
@@ -762,8 +852,13 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
         len := by simp [St.init]
         dec := Dec.ins bs
         pc := fun p i rest h => by rw [ins_head bs h]; rfl }
+    have hg0 : (fresh σ σ₀ g A I).machineState.gasAvailable.toNat = g.toNat := rfl
     rw [show D_J I.code 0 = D_J (codeBA bs) 0 by rw [hcode]]
-    exact runN_sim _ ρ bs hall cs.facts hfs k _ _ St.init st' _ (g.toNat + 1) hk hv hA
-      (by show g.toNat < g.toNat + 1; omega)
+    rcases runN_sim _ ρ bs hall cs.facts hfs k _ _ St.init st' _ (g.toNat + 1) hk hv hA
+      (by rw [hg0]; omega) with ⟨hlt, hx⟩ | ⟨s, f, hx, hA', hf, heq⟩
+    · rw [hg0] at hlt
+      exact Or.inl ⟨by simpa [St.init] using hlt, hx⟩
+    · rw [hg0] at heq
+      exact Or.inr ⟨s, f, hx, hA', hf, by simpa [St.init] using heq⟩
 
 end Poseidon2.Evm.Sim

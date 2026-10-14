@@ -40,7 +40,8 @@ def nextAt (s : State) (c : Nat) (pc : UInt256) (t : List UInt256) (m : ByteArra
 gas, or `c` paid, only the stack, memory and active words changed, `st'` describes the new
 machine state. -/
 def SimAt (s : State) (c : Nat) (pc : UInt256) (st' : St) : Prop :=
-  Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
+  (s.machineState.gasAvailable.toNat < c ∧
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass) ∨
     ∃ t m aw, c ≤ s.machineState.gasAvailable.toNat ∧
       Eip8024.Xstep (D_J s.executionEnv.code 0) s = .ok (nextAt s c pc t m aw, none) ∧
       StRel e ρ st' (nextAt s c pc t m aw).machineState
@@ -90,7 +91,7 @@ theorem sim_jump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts) 
       rw [Sim.SimAt, xstep_overlay _ s _ _ hdec (by simp), step_jump s hdec, ht]
       dsimp only
       by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Gmid
-      · left; rw [if_pos hg]
+      · left; exact ⟨hg, by rw [if_pos hg]⟩
       · right
         have hc : (D_J s.executionEnv.code 0).contains a = true := by
           rw [hcode, hag]; exact mem_D_J hall hj
@@ -140,7 +141,7 @@ theorem sim_jumpi_jump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : F
           rw [Sim.SimAt, xstep_overlay _ s _ _ hdec (by simp), step_jumpi s hdec, ht1, ht]
           dsimp only
           by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Ghigh
-          · left; rw [if_pos hg]
+          · left; exact ⟨hg, by rw [if_pos hg]⟩
           · right
             have hc : (D_J s.executionEnv.code 0).contains a = true := by
               rw [hcode, hag]; exact mem_D_J hall hj
@@ -185,7 +186,7 @@ theorem sim_jumpi_fall (fs : Facts) (code : Code) (s : State) (st st' : St) (pc 
           rw [SimulatesM, xstep_overlay _ s _ _ hdec (by simp), step_jumpi s hdec, ht1, ht]
           dsimp only
           by_cases hg : s.machineState.gasAvailable.toNat < GasConstants.Ghigh
-          · left; rw [if_pos hg]
+          · left; exact ⟨hg, by rw [if_pos hg]⟩
           · right
             have hl := hrt.length
             rw [if_neg hg, if_neg (by simp [hb0]), if_neg (by simp at hlen ⊢; omega)]

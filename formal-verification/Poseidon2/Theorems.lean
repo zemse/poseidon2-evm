@@ -3,12 +3,20 @@ import Poseidon2.Evm.Final
 /-!
 # Contract theorems from the checker
 
-For each contract kind: if the checker accepts a bytecode on every case of the kind (a kernel
-computation, `Proofs/`), then every call of the bytecode by the EVM (EVMLean with EIP-8024)
-with calldata shorter than `2^64` bytes either runs out of gas or ends as
-`Spec/Interface.lean` says. Each theorem instantiates `checkerSound` (`Evm/Final.lean`); the
-cases' input words are calldata words and the capacity word, all below `2^256`, as
-`CheckerSound` asks.
+For each contract kind, two statements about every call of an accepted bytecode by the EVM
+(EVMLean with EIP-8024) with calldata shorter than `2^64` bytes:
+
+* `*_correct` (partial correctness, any gas): if the checker accepts the bytecode on every case of
+  the kind (a kernel computation, `Proofs/`), the call either runs out of gas or ends as
+  `Spec/Interface.lean` says. From `checkerSound`.
+* `*_total` (total correctness): if the checker accepts every case `j` of the kind with gas
+  `gas[j]` (`CheckedGas`), the call falls in some case `j`, and given at least `gas[j]` gas it
+  ends exactly as `Spec/Interface.lean` says with `gas[j]` used, while given less it runs out of
+  gas (`Total`). From `checkerTotal`.
+
+Both come from one dispatch per kind (`huffPerm_of`, ...): the cases of the kind cover every
+call, and each case's outcome is the interface's for the calls in it. The cases' input words are
+calldata words and the capacity word, all below `2^256`, as `CheckerSound` asks.
 -/
 
 namespace Poseidon2.Theorems
@@ -73,54 +81,124 @@ theorem runs_exists (a : Artifact) (cd : List UInt8) (v : Nat) : ∃ I, Runs a c
   ⟨{ (default : ExecutionEnv) with
       code := a.code, calldata := ⟨cd.toArray⟩, weiValue := .ofNat v }, rfl, by simp, rfl⟩
 
+
+/-! ## What a list of cases gives -/
+
+/-- Every case of `cases` that a call meets (its facts, and input words below `2^256`) gives its
+outcome under `R`. The dispatch lemmas below turn this into `R` of the interface's outcome. -/
+def CasesGive (cases : List Case) (cd : List UInt8) (v : Nat) (R : Outcome → Prop) : Prop :=
+  ∀ cs ∈ cases, (∀ t ∈ cs.expect.inputs, t.eval ⟨cd, v⟩ < W) → FactsHold ⟨cd, v⟩ cs.facts →
+    R (outcome ⟨cd, v⟩ cs.expect)
+
+/-- Accepted cases give the partial-correctness outcome (`checkerSound`). -/
+theorem sound_gives (a : Artifact) (cases : List Case)
+    (hc : cases.all (checkCase (Code.ofBytes a.bytes)) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    CasesGive cases cd v (Matches (Eip8024.Ξ σ σ₀ g A I)) :=
+  fun cs hcs hin hf => checkerSound a.bytes cs (bytes_lt a) (List.all_eq_true.mp hc cs hcs)
+    cd v hcd hv hf hin σ σ₀ g A I hI
+
+/-- **Total correctness of a call** with gas `g` and result `r`, for the outcome `o`: the call
+meets the facts of some case `j`, with at least `gas[j]` gas `r` is exactly `o` with `gas[j]`
+used (`Exact`), and with less `r` is out of gas. -/
+def Total (cases : List Case) (gas : List Nat) (e : Env) (g : Nat)
+    (r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate)))
+    (o : Outcome) : Prop :=
+  ∃ j, j < cases.length ∧ FactsHold e (cases.getD j default).facts ∧
+    (gas.getD j 0 ≤ g → Exact (g - gas.getD j 0) r o) ∧
+    (g < gas.getD j 0 → r = .error .OutOfGass)
+
+/-- Cases accepted with their gas give total correctness (`checkerTotal`). -/
+theorem total_gives (a : Artifact) (cases : List Case) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) cases gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    CasesGive cases cd v (Total cases gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I)) := by
+  intro cs hcs hin hf
+  obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hcs
+  have hd : cases.getD j default = cases[j] := by
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hj, Option.getD_some]
+  have := checkerTotal a.bytes _ _ (bytes_lt a) (hd ▸ hc.2 j hj) cd v hcd hv hf hin σ σ₀ g A I hI
+  exact ⟨j, hj, hd ▸ hf, this.1, this.2⟩
+
+/-- With at least the most gas of any case, total correctness is an exact outcome. -/
+theorem Total.exact {cases : List Case} {gas : List Nat} {e : Env} {g : Nat}
+    {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
+    {o : Outcome} (h : Total cases gas e g r o) (hg : maxGas gas ≤ g) :
+    ∃ G, G ≤ maxGas gas ∧ Exact (g - G) r o := by
+  obtain ⟨j, -, -, h1, -⟩ := h
+  exact ⟨gas.getD j 0, le_maxGas gas j, h1 (le_trans (le_maxGas gas j) hg)⟩
+
+/-! ## Huff permutation entries -/
+
+/-- The case of `huffPerm` covers every call. -/
+theorem huffPerm_of (c : Params) (cd : List UInt8) (v : Nat) (R : Outcome → Prop)
+    (h : CasesGive (huffPermCases c) cd v R) : R (huffPerm c cd) := by
+  have := h ⟨"any calldata", [], .perm c (cdlWords 0 c.t)⟩ (by simp [huffPermCases])
+    (cdlWords_lt _ _ _) (by simp [FactsHold])
+  simpa [outcome, huffPerm, cdlWords_eval] using this
+
 /-- A Huff permutation entry accepted by the checker computes `huffPerm`. -/
 theorem huffPerm_correct (a : Artifact) (c : Params)
     (hc : (huffPermCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (huffPerm c cd) := by
-  have h1 : checkCase (Code.ofBytes a.bytes) ⟨"any calldata", [], .perm c (cdlWords 0 c.t)⟩ = true := by
-    simpa [huffPermCases] using hc
-  have := checkerSound a.bytes _ (bytes_lt a) h1 cd v hcd hv (by simp [FactsHold])
-    (cdlWords_lt _ _ _) σ σ₀ g A I hI
-  simpa [outcome, huffPerm, cdlWords_eval] using this
+    Matches (Eip8024.Ξ σ σ₀ g A I) (huffPerm c cd) :=
+  huffPerm_of c cd v _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- A Huff permutation entry accepted with gas `gas` computes `huffPerm` with that gas. -/
+theorem huffPerm_total (a : Artifact) (c : Params) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (huffPermCases c) gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Total (huffPermCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (huffPerm c cd) :=
+  huffPerm_of c cd v _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
 
 theorem eval_cds (cd : List UInt8) (v : Nat) (h : cd.length < 2 ^ 64) :
     Term.eval ⟨cd, v⟩ .cds = cd.length := by
   simp only [Term.eval]
   exact Nat.mod_eq_of_lt (Nat.lt_trans h (by decide))
 
+/-! ## The t = 4 Huff hash entry -/
+
+/-- The three cases of `huffHash` cover every call. -/
+theorem huffHash_of (c : Params) (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
+    (R : Outcome → Prop) (h : CasesGive (huffHashCases c) cd v R) : R (huffHash c cd) := by
+  have hl := eval_cds cd v hcd
+  rcases Nat.lt_trichotomy cd.length 0x44 with hlt | heq | hgt
+  · have := h ⟨"hash_1 (size < 0x44)", [(.cds, 0, 0x43)], .hash c (cdlWords 4 1)⟩
+      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
+      (by simp [FactsHold, hl]; omega)
+    simpa [outcome, huffHash, huffArity, hlt, cdlWords_eval] using this
+  · have := h ⟨"hash_2 (size = 0x44)", [(.cds, 0x44, 0x44)], .hash c (cdlWords 4 2)⟩
+      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
+      (by simp [FactsHold, hl, heq])
+    simpa [outcome, huffHash, huffArity, heq, cdlWords_eval] using this
+  · have := h ⟨"hash_3 (size > 0x44)", [(.cds, 0x45, cdsMax)], .hash c (cdlWords 4 3)⟩
+      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
+      (by simp [FactsHold, hl, cdsMax]; omega)
+    have h1' : ¬ cd.length < 0x44 := by omega
+    have h2' : cd.length ≠ 0x44 := by omega
+    simpa [outcome, huffHash, huffArity, h1', h2', cdlWords_eval] using this
+
 /-- The t = 4 Huff hash entry accepted by the checker computes `huffHash`. -/
 theorem huffHash_correct (a : Artifact) (c : Params)
     (hc : (huffHashCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (huffHash c cd) := by
-  simp only [huffHashCases, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true] at hc
-  obtain ⟨h1, h2, h3⟩ := hc
-  have hl := eval_cds cd v hcd
-  rcases Nat.lt_trichotomy cd.length 0x44 with hlt | heq | hgt
-  · have := checkerSound a.bytes _ (bytes_lt a) h1 cd v hcd hv
-      (by simp [FactsHold, hl]; omega) (cdlWords_lt _ _ _) σ σ₀ g A I hI
-    simpa [outcome, huffHash, huffArity, hlt, cdlWords_eval] using this
-  · have := checkerSound a.bytes _ (bytes_lt a) h2 cd v hcd hv
-      (by simp [FactsHold, hl, heq]) (cdlWords_lt _ _ _) σ σ₀ g A I hI
-    simpa [outcome, huffHash, huffArity, heq, cdlWords_eval] using this
-  · have := checkerSound a.bytes _ (bytes_lt a) h3 cd v hcd hv
-      (by simp [FactsHold, hl, cdsMax]; omega) (cdlWords_lt _ _ _) σ σ₀ g A I hI
-    have h1' : ¬ cd.length < 0x44 := by omega
-    have h2' : cd.length ≠ 0x44 := by omega
-    simpa [outcome, huffHash, huffArity, h1', h2', cdlWords_eval] using this
+    Matches (Eip8024.Ξ σ σ₀ g A I) (huffHash c cd) :=
+  huffHash_of c cd v hcd _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
 
-/-- A case in an accepted list gives its outcome. -/
-theorem of_mem (a : Artifact) (cases : List Case) (cs : Case)
-    (hcs : cs ∈ cases) (hc : cases.all (checkCase (Code.ofBytes a.bytes)) = true)
+/-- The t = 4 Huff hash entry accepted with gas `gas` computes `huffHash` with that gas. -/
+theorem huffHash_total (a : Artifact) (c : Params) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (huffHashCases c) gas)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
-    (hin : ∀ t ∈ cs.expect.inputs, t.eval ⟨cd, v⟩ < W) (hf : FactsHold ⟨cd, v⟩ cs.facts)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (outcome ⟨cd, v⟩ cs.expect) :=
-  checkerSound a.bytes cs (bytes_lt a) (List.all_eq_true.mp hc cs hcs) cd v hcd hv hf hin
-    σ σ₀ g A I hI
+    Total (huffHashCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (huffHash c cd) :=
+  huffHash_of c cd v hcd _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+
+/-! ## The `Poseidon2YulT<t>` wrappers -/
 
 /-- The input words of the `yulPerm` cases: none, or calldata words. -/
 theorem yulPermCases_inputs (c : Params) (sel : Nat) (e : Env) :
@@ -151,20 +229,16 @@ theorem factsHold_cons (e : Env) (t : Term) (lo hi : Nat) (fs : Facts) :
     FactsHold e ((t, lo, hi) :: fs) ↔ (lo ≤ t.eval e ∧ t.eval e ≤ hi) ∧ FactsHold e fs := by
   simp [FactsHold]
 
-/-- A `Poseidon2YulT<t>` wrapper accepted by the checker computes `yulPerm`. -/
-theorem yulPerm_correct (a : Artifact) (c : Params) (sel : Nat)
-    (hsel0 : sel ≠ 0) (hsel : sel < 2 ^ 32)
-    (hc : (yulPermCases c sel).all (checkCase (Code.ofBytes a.bytes)) = true)
-    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
-    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (yulPerm c sel cd v) := by
+/-- The cases of `yulPerm` cover every call. -/
+theorem yulPerm_of (c : Params) (sel : Nat) (hsel0 : sel ≠ 0) (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (R : Outcome → Prop)
+    (h : CasesGive (yulPermCases c sel) cd v R) : R (yulPerm c sel cd v) := by
   have hl := eval_cds cd v hcd
   have hcv := eval_cv cd v hv
   have hx := eval_sel cd v
   have hxl := sel_lt cd
   have hW : (2 : Nat) ^ 64 - 1 < W := by decide
-  have go := fun cs hcs hf =>
-    of_mem a _ cs hcs hc cd v hcd hv (yulPermCases_inputs c sel _ cs hcs) hf σ σ₀ g A I hI
+  have go := fun cs hcs hf => h cs hcs (yulPermCases_inputs c sel _ cs hcs) hf
   simp only [yulPermCases, hsel0, if_false, List.cons_append, List.nil_append, List.mem_cons,
     List.not_mem_nil, or_false] at go
   unfold yulPerm
@@ -213,6 +287,26 @@ theorem yulPerm_correct (a : Artifact) (c : Params) (sel : Nat)
       · have := go _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
           (by simp only [factsHold_cons, factsHold_nil, and_true, hl, hcv, hx, cdsMax]; omega)
         simpa [outcome] using this
+
+/-- A `Poseidon2YulT<t>` wrapper accepted by the checker computes `yulPerm`. -/
+theorem yulPerm_correct (a : Artifact) (c : Params) (sel : Nat)
+    (hsel0 : sel ≠ 0) (hsel : sel < 2 ^ 32)
+    (hc : (yulPermCases c sel).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Matches (Eip8024.Ξ σ σ₀ g A I) (yulPerm c sel cd v) :=
+  yulPerm_of c sel hsel0 cd v hcd hv _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- A `Poseidon2YulT<t>` wrapper accepted with gas `gas` computes `yulPerm` with that gas. -/
+theorem yulPerm_total (a : Artifact) (c : Params) (sel : Nat)
+    (hsel0 : sel ≠ 0) (hsel : sel < 2 ^ 32) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (yulPermCases c sel) gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Total (yulPermCases c sel) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (yulPerm c sel cd v) :=
+  yulPerm_of c sel hsel0 cd v hcd hv _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+
+/-! ## `Poseidon2Yul_BN254` and the deployed v2 contracts -/
 
 theorem calldataWord_past (cd : List UInt8) (off : Nat) (h : cd.length ≤ off) :
     calldataWord cd off = 0 := by
@@ -263,18 +357,14 @@ theorem capInputs_lt (e : Env) (cap : Term) (hcap : cap.eval e < W) :
 
 /-- The cases of `hashCapCases`: every call with calldata shorter than `2^64` bytes that
 satisfies the call value facts `cvf` gets the permutation of three words and the capacity. -/
-theorem hashCap_correct (a : Artifact) (c : Params) (cases : List Case)
+theorem hashCap_of (c : Params) (cases : List Case)
     (cvf : Facts) (hcvf : cvf = [(.cv, 0, 0)] ∨ cvf = []) (hsub : ∀ cs ∈ hashCapCases cvf c, cs ∈ cases)
-    (hc : cases.all (checkCase (Code.ofBytes a.bytes)) = true)
-    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
-    (hf : FactsHold ⟨cd, v⟩ cvf)
-    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I)
-      (.ret (encodeWords [(permutationWords c (calldataWords cd 4 3 ++
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hf : FactsHold ⟨cd, v⟩ cvf)
+    (R : Outcome → Prop) (hR : CasesGive cases cd v R) :
+    R (.ret (encodeWords [(permutationWords c (calldataWords cd 4 3 ++
         [yulCapacity cd.length])).headD 0])) := by
   have hl := eval_cds cd v hcd
-  have go := fun cs hcs hin hf =>
-    of_mem a cases cs (hsub cs hcs) hc cd v hcd hv hin hf σ σ₀ g A I hI
+  have go := fun cs hcs hin hf => hR cs (hsub cs hcs) hin hf
   have hfa : ∀ fs : Facts, FactsHold ⟨cd, v⟩ fs → FactsHold ⟨cd, v⟩ (fs ++ cvf) := by
     intro fs h f hf'
     rcases List.mem_append.mp hf' with h1 | h1
@@ -305,24 +395,63 @@ theorem hashCap_correct (a : Artifact) (c : Params) (cases : List Case)
     rw [capTerm_long cvf hcvf] at this
     simpa [outcome, cdlWords_eval, eval_capTerm_long cd v hcd] using this
 
-/-- `Poseidon2Yul_BN254` accepted by the checker computes `yulHash`. -/
-theorem yulHash_correct (a : Artifact) (c : Params)
-    (hc : (yulHashCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+theorem hashCap_correct (a : Artifact) (c : Params) (cases : List Case)
+    (cvf : Facts) (hcvf : cvf = [(.cv, 0, 0)] ∨ cvf = []) (hsub : ∀ cs ∈ hashCapCases cvf c, cs ∈ cases)
+    (hc : cases.all (checkCase (Code.ofBytes a.bytes)) = true)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (hf : FactsHold ⟨cd, v⟩ cvf)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (yulHash c cd v) := by
+    Matches (Eip8024.Ξ σ σ₀ g A I)
+      (.ret (encodeWords [(permutationWords c (calldataWords cd 4 3 ++
+        [yulCapacity cd.length])).headD 0])) :=
+  hashCap_of c cases cvf hcvf hsub cd v hcd hf _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- The cases of `yulHash` cover every call. -/
+theorem yulHash_of (c : Params) (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
+    (hv : v < W) (R : Outcome → Prop) (hR : CasesGive (yulHashCases c) cd v R) :
+    R (yulHash c cd v) := by
   have hl := eval_cds cd v hcd
   have hcv := eval_cv cd v hv
   unfold yulHash
   by_cases hv0 : v = 0
   · rw [if_neg (not_not.mpr hv0)]
-    exact hashCap_correct a c _ [(.cv, 0, 0)] (Or.inl rfl)
-      (fun cs hcs => List.mem_cons_of_mem _ hcs) hc cd v hcd hv
-      (by simp only [factsHold_cons, factsHold_nil, and_true, hcv]; omega) σ σ₀ g A I hI
+    exact hashCap_of c _ [(.cv, 0, 0)] (Or.inl rfl)
+      (fun cs hcs => List.mem_cons_of_mem _ hcs) cd v hcd
+      (by simp only [factsHold_cons, factsHold_nil, and_true, hcv]; omega) R hR
   · rw [if_pos hv0]
-    have := of_mem a _ _ (List.mem_cons_self) hc cd v hcd hv (by simp [Expect.inputs])
-      (by simp only [factsHold_cons, factsHold_nil, and_true, hl, hcv, cdsMax]; omega) σ σ₀ g A I hI
+    have := hR _ List.mem_cons_self (by simp [Expect.inputs])
+      (by simp only [factsHold_cons, factsHold_nil, and_true, hl, hcv, cdsMax]; omega)
     simpa [outcome] using this
+
+/-- `Poseidon2Yul_BN254` accepted by the checker computes `yulHash`. -/
+theorem yulHash_correct (a : Artifact) (c : Params)
+    (hc : (yulHashCases c).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Matches (Eip8024.Ξ σ σ₀ g A I) (yulHash c cd v) :=
+  yulHash_of c cd v hcd hv _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- `Poseidon2Yul_BN254` accepted with gas `gas` computes `yulHash` with that gas. -/
+theorem yulHash_total (a : Artifact) (c : Params) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (yulHashCases c) gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Total (yulHashCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (yulHash c cd v) :=
+  yulHash_of c cd v hcd hv _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- The case of `hashV2` covers every call with 4 bytes of calldata or more. -/
+theorem hashV2_of (c : Params) (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
+    (h4 : 4 ≤ cd.length) (R : Outcome → Prop) (hR : CasesGive (hashV2Cases c) cd v R) :
+    R (hashV2 c cd) := by
+  have hl := eval_cds cd v hcd
+  have := hR ⟨"size >= 4", [(.cds, 4, cdsMax)] ++ [],
+      .permHead c (cdlWords 4 3 ++ [capTerm ([(.cds, 4, cdsMax)] ++ [])])⟩
+    (by simp [hashV2Cases, hashCapCases])
+    (capInputs_lt _ _ (by
+      rw [capTerm_long [] (Or.inr rfl), eval_capTerm_long cd v hcd]; exact yulCapacity_lt _))
+    (by simp only [List.append_nil, factsHold_cons, factsHold_nil, and_true, hl, cdsMax]; omega)
+  rw [capTerm_long [] (Or.inr rfl)] at this
+  simpa [hashV2, outcome, cdlWords_eval, eval_capTerm_long cd v hcd] using this
 
 /-- The deployed v2 Huff entry accepted by the checker computes `hashV2` from 4 bytes of
 calldata on. -/
@@ -330,16 +459,16 @@ theorem hashV2_correct (a : Artifact) (c : Params)
     (hc : (hashV2Cases c).all (checkCase (Code.ofBytes a.bytes)) = true)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
-    Matches (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) := by
-  have hl := eval_cds cd v hcd
-  have := of_mem a _ ⟨"size >= 4", [(.cds, 4, cdsMax)] ++ [],
-      .permHead c (cdlWords 4 3 ++ [capTerm ([(.cds, 4, cdsMax)] ++ [])])⟩
-    (by simp [hashV2Cases, hashCapCases]) hc cd v hcd hv
-    (capInputs_lt _ _ (by
-      rw [capTerm_long [] (Or.inr rfl), eval_capTerm_long cd v hcd]; exact yulCapacity_lt _))
-    (by simp only [List.append_nil, factsHold_cons, factsHold_nil, and_true, hl, cdsMax]; omega)
-    σ σ₀ g A I hI
-  rw [capTerm_long [] (Or.inr rfl)] at this
-  simpa [hashV2, outcome, cdlWords_eval, eval_capTerm_long cd v hcd] using this
+    Matches (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) :=
+  hashV2_of c cd v hcd h4 _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- The deployed v2 Huff entry accepted with gas `gas` computes `hashV2` with that gas, from 4
+bytes of calldata on. -/
+theorem hashV2_total (a : Artifact) (c : Params) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (hashV2Cases c) gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (h4 : 4 ≤ cd.length) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Total (hashV2Cases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (hashV2 c cd) :=
+  hashV2_of c cd v hcd h4 _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
 
 end Poseidon2.Theorems

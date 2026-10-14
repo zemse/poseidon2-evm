@@ -356,7 +356,8 @@ def next (s : State) (c n : Nat) (t : List UInt256) (m : ByteArray) (aw : UInt25
 paid, `pc` moved by `n`, only the stack, memory and active words changed, and `st'` describes
 the new machine state. -/
 def SimulatesM (s : State) (c n : Nat) (st' : St) : Prop :=
-  Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass ∨
+  (s.machineState.gasAvailable.toNat < c ∧
+    Eip8024.Xstep (D_J s.executionEnv.code 0) s = .error .OutOfGass) ∨
     ∃ t m aw, c ≤ s.machineState.gasAvailable.toNat ∧
       Eip8024.Xstep (D_J s.executionEnv.code 0) s = .ok (next s c n t m aw, none) ∧
       StRel e ρ st' (next s c n t m aw).machineState
@@ -437,5 +438,17 @@ theorem gas_bound (aw : UInt256) (g a l c : Nat) (h : Cₘ aw + g < W) (ha : a <
     · exact le_refl _
     · exact le_max_left _ _
   omega
+
+/-- EVMLean's memory expansion for an access `[a, a + l)` is the growth of the checker's
+`memCost` from the memory size before to the size after. -/
+theorem memCost_M (aw : UInt256) (g a l : Nat) (h : Cₘ aw + g < W) (ha : a < W) (hl : l < W) :
+    Cₘ (UInt256.ofNat (MachineState.M aw.toNat a l)) - Cₘ aw =
+      memCost (touch (aw.toNat * 32) a l) - memCost (aw.toNat * 32) := by
+  rw [Cm_eq, Cm_eq, toNat_M aw g a l h ha hl, ← M_touch]
+  unfold memCost
+  simp only [Nat.mul_div_cancel _ (by decide : 0 < 32)]
+
+theorem SimulatesM.cost {s : State} {c c' n : Nat} {st' : St} (h : SimulatesM e ρ s c n st')
+    (hc : c = c') : SimulatesM e ρ s c' n st' := hc ▸ h
 
 end Poseidon2.Evm.Sim

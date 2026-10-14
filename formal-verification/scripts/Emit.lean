@@ -3,9 +3,10 @@
 -- SEG instructions, with the checker state at each boundary written out as a literal, and the
 -- spec side of a permutation case (`SpecSegments.lean`) in segments of SPEC rounds. `#eval` only
 -- computes those states; the kernel re-checks each segment from its literal start state when the
--- written file builds. With more than PER kernel checks the declarations are cut into
--- <OUT>/<Artifact>/Part<i>.lean, each importing the one before, so no Lean process holds more
--- than PER of them. scripts/proof.sh runs this with the settings of each artifact.
+-- written file builds. Each case is also checked to use the gas `gas` lists for it. With more
+-- than PER kernel checks the declarations are cut into <OUT>/<Artifact>/Part<i>.lean, each
+-- importing the one before, so no Lean process holds more than PER of them. scripts/proof.sh
+-- runs this with the settings of each artifact.
 -- Run from formal-verification/ after `lake build`:
 --   OUT=Poseidon2/Proofs/Generated ART=huff/amsterdam/t28 SEG=1000 SPEC=10 PER=3 \
 --     lake env lean --tstack=1000000 scripts/Emit.lean
@@ -102,8 +103,10 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
   p "theorem code_wf : code.WF := Code.ofBytes_wf _"
   p ""
   let cases := casesOf a c
+  let gases := cases.map fun cs => (runCase code cs).gas
   for (cs, j) in cases.zip (List.range cases.length) do
     let segs := segments cs.facts code k code.ins St.init #[]
+    let G := (runCase code cs).gas
     p s!"/-! ### Case {j}: {cs.name} ({segs.size} boundaries) -/"
     p ""
     let mut prevPc := "(some 0)"
@@ -124,7 +127,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
     let specSegs := match cs.expect with
       | .perm c ins =>
         match run cs.facts code rest (code.at lastP) lastSt with
-        | .ret ws tb =>
+        | .ret ws tb _ =>
           let (ys, t0) := inputForms cs.facts ins tb
           let chunks := roundChunks sb (rounds c)
           if chunks.length ≤ 1 then none else some (c, ws, tb, ys, t0, chunks)
@@ -132,7 +135,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
       | _ => none
     match specSegs with
     | none =>
-      p s!"theorem end{j} : resultOk {F} (cases.getD {j} default).expect"
+      p s!"theorem end{j} : resultOkGas {F} (cases.getD {j} default).expect {G}"
       p s!"    ({runE}) = true := by\n  decide +kernel\n"
       heavy
     | some (c, ws, tb, ys, t0, chunks) =>
@@ -144,7 +147,7 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
       p s!"def r{j} : List SV :=\n  {renderAny ws}\n"
       if tb == lastSt.tab && 0 < segs.size then p s!"def tf{j} : Tab := {prevS}.tab\n"
       else p s!"def tf{j} : Tab :=\n  {renderAny tb}\n"
-      p s!"theorem fin{j} : {runE} = .ret r{j} tf{j} := by\n  decide +kernel\n"
+      p s!"theorem fin{j} : {runE} = .ret r{j} tf{j} {G} := by\n  decide +kernel\n"
       heavy
       p s!"theorem exp{j} : (cases.getD {j} default).expect = .perm {cE} ({insE}) := rfl\n"
       p s!"def y{j} : List Lin :=\n  {renderAny ys}\n"
@@ -183,48 +186,74 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
       for i in List.range (chunks.length - 1) do
         p s!"  rw [rounds_seg _ _ _ _ _ _ _ _ sp{j}_{i}]"
       p s!"  exact sp{j}_{chunks.length - 1}\n"
-      p s!"theorem end{j} : resultOk {F} (cases.getD {j} default).expect"
+      p s!"theorem end{j} : resultOkGas {F} (cases.getD {j} default).expect {G}"
       p s!"    ({runE}) = true := by"
       p s!"  rw [fin{j}, exp{j}]"
-      p s!"  exact resultOk_perm spec{j} out{j}\n"
-    p s!"theorem case{j} : checkCase code (cases.getD {j} default) = true := by"
+      p s!"  exact resultOkGas_perm spec{j} out{j}\n"
+    p s!"theorem case{j} : checkCaseGas code (cases.getD {j} default) {G} = true := by"
     let sum := (List.replicate segs.size (toString k)).foldr (fun x acc => s!"{x} + ({acc})") (toString rest)
     p s!"  have e : fuel = {sum} := by decide"
-    p s!"  unfold checkCase runCase"
+    p s!"  unfold checkCaseGas runCase"
     p s!"  rw [e, ← Code.at_zero]"
     for i in List.range segs.size do
       p s!"  rw [seg_run _ _ code_wf _ _ _ _ _ _ seg{j}_{i}]"
     p s!"  exact end{j}\n"
   let mainStart := (← buf.get).size
-  p s!"theorem check : cases.all (checkCase code) = true :="
-  p s!"  all_of_getD _ cases fun j hj => by"
+  p "/-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least"
+  p "`gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/"
+  p s!"def gas : List Nat := {gases}"
+  p ""
+  p s!"theorem checkG : CheckedGas code cases gas :="
+  p s!"  ⟨by decide, fun j hj => by"
   p s!"    have hl : cases.length = {cases.length} := by decide"
   p s!"    rw [hl] at hj"
   p s!"    match j, hj with"
   for j in List.range cases.length do
     p s!"    | {j}, _ => exact case{j}"
-  p s!"    | n + {cases.length}, h => exact absurd h (by omega)"
+  p s!"    | n + {cases.length}, h => exact absurd h (by omega)⟩"
   p ""
-  -- the contract-level statement, from the checker's soundness (`Soundness.checkerSound`)
+  p s!"theorem check : cases.all (checkCase code) = true := checkG.check"
+  p ""
+  -- the contract-level statements, from the checker's soundness (`Soundness.checkerSound`,
+  -- `Soundness.checkerTotal`)
   let art := s!"Poseidon2.Bytecode.{mod}.artifact"
   let c := s!"Constants.T{a.t}.params"
   let (iface, thm, extraHyp, extraArg, args) := match a.kind with
-    | .huffPerm => (s!"Interface.huffPerm {c} cd", "huffPerm_correct", "", "", "")
-    | .huffHash => (s!"Interface.huffHash {c} cd", "huffHash_correct", "", "", "")
-    | .yulHash => (s!"Interface.yulHash {c} cd v", "yulHash_correct", "", "", "")
+    | .huffPerm => (s!"Interface.huffPerm {c} cd", "huffPerm", "", "", "")
+    | .huffHash => (s!"Interface.huffHash {c} cd", "huffHash", "", "", "")
+    | .yulHash => (s!"Interface.yulHash {c} cd v", "yulHash", "", "", "")
     | .yulPerm => (s!"Interface.yulPerm {c} (Interface.permuteSelector {a.t}) cd v",
-        "yulPerm_correct", "", "", s!"(Interface.permuteSelector {a.t}) (by decide) (by decide) ")
-    | .hashV2 => (s!"Interface.hashV2 {c} cd", "hashV2_correct", " (h4 : 4 ≤ cd.length)", " h4", "")
+        "yulPerm", "", "", s!"(Interface.permuteSelector {a.t}) (by decide) (by decide) ")
+    | .hashV2 => (s!"Interface.hashV2 {c} cd", "hashV2", " (h4 : 4 ≤ cd.length)", " h4", "")
     | .huffPart _ _ => ("", "", "", "", "")
+  let hyps := fun (hg : String) => [
+    s!"    (hcd : cd.length < 2 ^ 64){extraHyp} (hv : v < W) (σ σ₀ : Ethereum.AccountMap)",
+    s!"    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)",
+    s!"    (hI : Theorems.Runs {art} cd v I){hg} :"]
   unless thm.isEmpty do
     p "/-- The contract statement: every call of the bytecode by the EVM (`Evm.Eip8024.Ξ`) either"
     p "runs out of gas or ends as the interface says (`Theorems.lean`, `Soundness.checkerSound`). -/"
     p s!"theorem correct (cd : List UInt8) (v : Nat)"
-    p s!"    (hcd : cd.length < 2 ^ 64){extraHyp} (hv : v < W) (σ σ₀ : Ethereum.AccountMap)"
-    p s!"    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)"
-    p s!"    (hI : Theorems.Runs {art} cd v I) :"
+    for l in hyps "" do p l
     p s!"    Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) ({iface}) :="
-    p s!"  Theorems.{thm} {art} {c} {args}check cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p s!"  Theorems.{thm}_correct {art} {c} {args}check cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p ""
+    p "/-- Total correctness: every call is in some case `j` of `cases`; given at least `gas[j]`"
+    p "gas it ends exactly as the interface says with `gas[j]` used, given less it runs out of gas"
+    p "(`Theorems.Total`, `Soundness.checkerTotal`). -/"
+    p s!"theorem total (cd : List UInt8) (v : Nat)"
+    for l in hyps "" do p l
+    p s!"    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) ({iface}) :="
+    p s!"  Theorems.{thm}_total {art} {c} {args}gas checkG cd v hcd{extraArg} hv σ σ₀ g A I hI"
+    p ""
+    p s!"/-- With at least {maxGas gases} gas (the most of any case) every call ends exactly as the"
+    p "interface says, using at most that much. -/"
+    p s!"theorem enough (cd : List UInt8) (v : Nat)"
+    for l in hyps s!" (hg : {maxGas gases} ≤ g.toNat)" do p l
+    p s!"    ∃ G, G ≤ {maxGas gases} ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)"
+    p s!"      ({iface}) :="
+    p s!"  (total cd v hcd{extraArg} hv σ σ₀ g A I hI).exact"
+    p s!"    (le_trans (le_of_eq (show maxGas gas = {maxGas gases} by decide)) hg)"
     p ""
   let lines ← buf.get
   let cuts ← cuts.get
@@ -255,7 +284,9 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
   let doc := [
     s!"The checker accepts `{a.name}` on every case of its interface, by kernel evaluation in",
     s!"segments of at most {k} instructions and {sb} rounds of the spec; the checker state at each",
-    "segment boundary is written out below (computed outside the kernel, checked by it)."]
+    "segment boundary is written out below (computed outside the kernel, checked by it). The",
+    s!"gas of each case's run is `gas` ({gases}); `correct` is partial correctness, `total`",
+    "total correctness with that gas."]
   let main := (lines.extract mainStart lines.size).toList
   let path := s!"{root}/{modPath}.lean"
   let dir := s!"{root}/{modPath}"

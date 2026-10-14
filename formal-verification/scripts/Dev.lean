@@ -40,8 +40,8 @@ def casesOf (a : Artifact) : List Case :=
   | .huffPart _ _ => []
 
 def describe : Res → String
-  | .ret ws tb => s!"return {ws.length} words, {tb.next} atoms"
-  | .revert n => s!"revert {n} bytes"
+  | .ret ws tb g => s!"return {ws.length} words, {tb.next} atoms, gas {g}"
+  | .revert n g => s!"revert {n} bytes, gas {g}"
   | .stop => "stop"
   | .fail pc msg => s!"FAIL at pc {pc}: {msg}"
 

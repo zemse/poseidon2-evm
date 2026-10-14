@@ -10,7 +10,9 @@ import Poseidon2.Spec.Constants.T2
 /-!
 The checker accepts `huff/amsterdam/t2` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
-segment boundary is written out below (computed outside the kernel, checked by it).
+segment boundary is written out below (computed outside the kernel, checked by it). The
+gas of each case's run is `gas` ([5912]); `correct` is partial correctness, `total`
+total correctness with that gas.
 -/
 
 namespace Poseidon2.Proofs.Huff.Amsterdam.T2
@@ -28,23 +30,29 @@ theorem code_wf : code.WF := Code.ofBytes_wf _
 
 /-! ### Case 0: any calldata (0 boundaries) -/
 
-theorem end0 : resultOk (cases.getD 0 default).facts (cases.getD 0 default).expect
+theorem end0 : resultOkGas (cases.getD 0 default).facts (cases.getD 0 default).expect 5912
     (run (cases.getD 0 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case0 : checkCase code (cases.getD 0 default) = true := by
+theorem case0 : checkCaseGas code (cases.getD 0 default) 5912 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end0
 
-theorem check : cases.all (checkCase code) = true :=
-  all_of_getD _ cases fun j hj => by
+/-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
+`gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
+def gas : List Nat := [5912]
+
+theorem checkG : CheckedGas code cases gas :=
+  ⟨by decide, fun j hj => by
     have hl : cases.length = 1 := by decide
     rw [hl] at hj
     match j, hj with
     | 0, _ => exact case0
-    | n + 1, h => exact absurd h (by omega)
+    | n + 1, h => exact absurd h (by omega)⟩
+
+theorem check : cases.all (checkCase code) = true := checkG.check
 
 /-- The contract statement: every call of the bytecode by the EVM (`Evm.Eip8024.Ξ`) either
 runs out of gas or ends as the interface says (`Theorems.lean`, `Soundness.checkerSound`). -/
@@ -54,6 +62,27 @@ theorem correct (cd : List UInt8) (v : Nat)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Amsterdam.T2.artifact cd v I) :
     Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffPerm Constants.T2.params cd) :=
   Theorems.huffPerm_correct Poseidon2.Bytecode.Huff.Amsterdam.T2.artifact Constants.T2.params check cd v hcd hv σ σ₀ g A I hI
+
+/-- Total correctness: every call is in some case `j` of `cases`; given at least `gas[j]`
+gas it ends exactly as the interface says with `gas[j]` used, given less it runs out of gas
+(`Theorems.Total`, `Soundness.checkerTotal`). -/
+theorem total (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Amsterdam.T2.artifact cd v I) :
+    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffPerm Constants.T2.params cd) :=
+  Theorems.huffPerm_total Poseidon2.Bytecode.Huff.Amsterdam.T2.artifact Constants.T2.params gas checkG cd v hcd hv σ σ₀ g A I hI
+
+/-- With at least 5912 gas (the most of any case) every call ends exactly as the
+interface says, using at most that much. -/
+theorem enough (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Amsterdam.T2.artifact cd v I) (hg : 5912 ≤ g.toNat) :
+    ∃ G, G ≤ 5912 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
+      (Interface.huffPerm Constants.T2.params cd) :=
+  (total cd v hcd hv σ σ₀ g A I hI).exact
+    (le_trans (le_of_eq (show maxGas gas = 5912 by decide)) hg)
 
 #assert_standard_axioms_here
 

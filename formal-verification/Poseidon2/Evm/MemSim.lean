@@ -45,9 +45,9 @@ theorem simM_mem (s : State) (m c n : Nat) (st' : St) (t : List UInt256) (mem : 
     SimulatesM e ρ s (m + c) n st' := by
   rw [SimulatesM, hx]
   by_cases h1 : s.machineState.gasAvailable.toNat < m
-  · left; rw [if_pos h1]
+  · left; exact ⟨by omega, by rw [if_pos h1]⟩
   by_cases h2 : (s.machineState.gasAvailable.subNat m).toNat < c
-  · left; rw [if_neg h1, if_pos h2]
+  · left; refine ⟨?_, by rw [if_neg h1, if_pos h2]⟩; rw [toNat_subNat] at h2; omega
   right
   rw [toNat_subNat] at h2
   refine ⟨t, mem, aw, by omega, ?_, hr (by omega) (by omega)⟩
@@ -62,7 +62,7 @@ theorem StRel.mem_eq {st st1 : St} {μ : MachineState} (h : StRel e ρ st μ)
 theorem sim_mload (fs : Facts) (code : Code) (s : State) (st st' : St)
     (hdec : decode s.executionEnv.code s.machineState.pc = some (.MLOAD, none))
     (hr : StRel e ρ st s.machineState) (h : step fs code (.op 0x51) st = .ok st') :
-    SimulatesM e ρ s (memoryExpansionCost s .MLOAD + GasConstants.Gverylow) 1 st' := by
+    SimulatesM e ρ s (insGas (.op 0x51) st st') 1 st' := by
   unfold Checker.step at h; dsimp only at h
   rw [if_neg (by decide), if_neg (by decide)] at h
   obtain ⟨⟨x, st1⟩, hp, h⟩ := bind_ok h
@@ -81,13 +81,14 @@ theorem sim_mload (fs : Facts) (code : Code) (s : State) (st st' : St)
       Cₘ (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat w.toNat 32)) -
         Cₘ s.machineState.activeWords := by
     unfold memoryExpansionCost memoryExpansionCost.μᵢ'; rw [ht]; rfl
-  refine simM_mem e ρ s _ _ 1 _
+  refine SimulatesM.cost e ρ
+    (simM_mem e ρ s (memoryExpansionCost s .MLOAD) GasConstants.Gverylow 1 _
     ((if w.toNat ≥ s.machineState.memory.size then (⟨0⟩ : UInt256)
       else UInt256.ofNat
         (fromByteArrayBigEndian (s.machineState.memory.readWithPadding w.toNat 32)))
       :: t) s.machineState.memory
     (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat w.toNat 32))
-    ((w :: t).length - 1 + 1) ?_ (by simp; omega) ?_
+    ((w :: t).length - 1 + 1) ?_ (by simp; omega) ?_) ?_
   · rw [xstep_overlay _ s _ _ hdec (by simp), step_mload s hdec]
     simp only [ht]
     rfl
@@ -104,6 +105,11 @@ theorem sim_mload (fs : Facts) (code : Code) (s : State) (st st' : St)
         GasConstants.Gverylow hr.gas (toNat_lt w) (by decide)
         (by rw [← hmc]; exact hg1)
       rw [hmc]; omega
+  · have hms : st1.msize = st.msize := by rw [hst1]
+    have hs3 : staticGas (.op 0x51) st = GasConstants.Gverylow := rfl
+    show _ = staticGas (.op 0x51) st + (memCost (touch st1.msize a 32) - memCost st.msize)
+    rw [hs3, hmc, memCost_M _ _ _ _ hr.gas (toNat_lt w) (by decide), hr.msize, hwa, hms]
+    omega
 
 /-- The memory after EVMLean's write is `fill` of the old one. -/
 theorem memRel_write (mem : List (Nat × SV)) (D S : ByteArray) (sa d n : Nat) (G : Nat → Nat)
@@ -116,7 +122,7 @@ theorem sim_mstore (fs : Facts) (code : Code) (s : State) (st st' : St)
     (hdec : decode s.executionEnv.code s.machineState.pc = some (.MSTORE, none))
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
     (h : step fs code (.op 0x52) st = .ok st') :
-    SimulatesM e ρ s (memoryExpansionCost s .MSTORE + GasConstants.Gverylow) 1 st' := by
+    SimulatesM e ρ s (insGas (.op 0x52) st st') 1 st' := by
   unfold Checker.step at h; dsimp only at h
   rw [if_neg (by decide), if_neg (by decide)] at h
   obtain ⟨⟨x, v, st1⟩, hp, h⟩ := bind_ok h
@@ -141,9 +147,11 @@ theorem sim_mstore (fs : Facts) (code : Code) (s : State) (st st' : St)
       rw [← size_toByteArray b, ← toList_map, beVal_toByteArray]
     rw [this]; exact hb
   obtain ⟨hm', hz', hk', -⟩ := mstore_fill e ρ st1 st' _ hm1 a v _ hv h
-  refine simM_mem e ρ s _ _ 1 _ t (b.toByteArray.write 0 s.machineState.memory w.toNat 32)
+  refine SimulatesM.cost e ρ
+    (simM_mem e ρ s (memoryExpansionCost s .MSTORE) GasConstants.Gverylow 1 _ t
+    (b.toByteArray.write 0 s.machineState.memory w.toNat 32)
     (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat w.toNat 32))
-    ((w :: b :: t).length - 2 + 0) ?_ (by simp at hlen ⊢; omega) ?_
+    ((w :: b :: t).length - 2 + 0) ?_ (by simp at hlen ⊢; omega) ?_) ?_
   · rw [xstep_overlay _ s _ _ hdec (by simp), step_mstore s hdec]
     simp only [ht1]
     rfl
@@ -156,6 +164,11 @@ theorem sim_mstore (fs : Facts) (code : Code) (s : State) (st st' : St)
       have := gas_bound s.machineState.activeWords s.machineState.gasAvailable.toNat w.toNat 32
         GasConstants.Gverylow hr.gas (toNat_lt w) (by decide) (by rw [← hmc]; exact hg1)
       rw [hmc]; omega
+  · have hms : st1.msize = st.msize := by rw [hst1]
+    have hs3 : staticGas (.op 0x52) st = GasConstants.Gverylow := rfl
+    rw [insGas, hs3, hz', hms, hmc, memCost_M _ _ _ _ hr.gas (toNat_lt w) (by decide), hr.msize,
+      hwa]
+    omega
 
 /-- `MSIZE`. -/
 theorem sim_msize (fs : Facts) (code : Code) (s : State) (st st' : St)
@@ -243,9 +256,14 @@ theorem simM_copy (s : State) (op : Operation) (S : ByteArray) (st st' : St)
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
     (hstk : StkRel e ρ st'.stk t) (G : Nat → Nat) (hG : ∀ j, G j = byteAt S (b.toNat + j))
     (hmem : MemRel e ρ st'.mem (fill (byteAt s.machineState.memory) a.toNat c.toNat G))
-    (hms : st'.msize = touch st.msize a.toNat c.toNat) :
-    SimulatesM e ρ s (memoryExpansionCost s op +
-      (GasConstants.Gverylow + GasConstants.Gcopy * ((c.toNat + 31) / 32))) 1 st' := by
+    (hms : st'.msize = touch st.msize a.toNat c.toNat) (i : Ins)
+    (hst : staticGas i st = GasConstants.Gverylow + GasConstants.Gcopy * ((c.toNat + 31) / 32)) :
+    SimulatesM e ρ s (insGas i st st') 1 st' := by
+  have hcost : memoryExpansionCost s op +
+      (GasConstants.Gverylow + GasConstants.Gcopy * ((c.toNat + 31) / 32)) = insGas i st st' := by
+    rw [insGas, hst, hmc, memCost_M _ _ _ _ hr.gas (toNat_lt a) (toNat_lt c), hr.msize, ← hms]
+    omega
+  rw [← hcost]
   have hl := hr.stk.length
   rw [ht] at hl
   refine simM_mem e ρ s _ _ 1 _ t _ _ ((a :: b :: c :: t).length - 3 + 0) hx
@@ -268,9 +286,7 @@ theorem sim_calldatacopy (fs : Facts) (code : Code) (s : State) (st st' : St)
     (hdec : decode s.executionEnv.code s.machineState.pc = some (.CALLDATACOPY, none))
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
     (h : step fs code (.op 0x37) st = .ok st') :
-    SimulatesM e ρ s (memoryExpansionCost s .CALLDATACOPY +
-      (GasConstants.Gverylow + GasConstants.Gcopy * ((s.machineState.stack[2]!.toNat + 31) / 32)))
-      1 st' := by
+    SimulatesM e ρ s (insGas (.op 0x37) st st') 1 st' := by
   unfold Checker.step at h; dsimp only at h
   rw [if_neg (by decide), if_neg (by decide)] at h
   obtain ⟨⟨x, y, z, st1⟩, hp, h⟩ := bind_ok h
@@ -290,8 +306,6 @@ theorem sim_calldatacopy (fs : Facts) (code : Code) (s : State) (st st' : St)
       Cₘ (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat a.toNat c.toNat)) -
         Cₘ s.machineState.activeWords := by
     unfold memoryExpansionCost memoryExpansionCost.μᵢ'; rw [ht1]; rfl
-  have hc2 : s.machineState.stack[2]! = c := by rw [ht1]; rfl
-  rw [hc2]
   have key := simM_copy e ρ s .CALLDATACOPY s.executionEnv.calldata st st' a b c t ht1
     (by rw [xstep_overlay _ s _ _ hdec (by simp), step_calldatacopy s hdec]; simp only [ht1]; rfl)
     hmc hr hlen
@@ -310,7 +324,8 @@ theorem sim_calldatacopy (fs : Facts) (code : Code) (s : State) (st st' : St)
       rw [show y = SV.word ⟨.cds, lo, hi⟩ from heq] at hb
       rw [hb.2]; show e.cd.length % W = _; exact Nat.mod_eq_of_lt hcdl
     refine key (hk' ▸ hrt) _ ?_
-      (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1])
+      (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1]) _
+      (by rw [hcn]; simp [staticGas, hs, exactOf_ok hn, GasConstants.Gverylow, GasConstants.Gcopy])
     intro j
     rw [byteAt_of_le _ _ (by rw [hsz, hbv]; omega)]
   · obtain ⟨src, hsr, h⟩ := bind_ok h
@@ -318,7 +333,8 @@ theorem sim_calldatacopy (fs : Facts) (code : Code) (s : State) (st st' : St)
     obtain ⟨hm', hz', hk', -⟩ := cdCopy_rel e ρ fs hf _ _ _ st1 st' _ hm1 h
     rw [h32'] at hm' hz'
     refine key (hk' ▸ hrt) _ ?_
-      (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1])
+      (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1]) _
+      (by rw [hcn]; simp [staticGas, hs, exactOf_ok hn, GasConstants.Gverylow, GasConstants.Gcopy])
     intro j
     rw [byteAt_cd _ e.cd hcd, hbs]
     rfl
@@ -329,9 +345,7 @@ theorem sim_codecopy (fs : Facts) (code : Code) (s : State) (st st' : St)
     (hdec : decode s.executionEnv.code s.machineState.pc = some (.CODECOPY, none))
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
     (h : step fs code (.op 0x39) st = .ok st') :
-    SimulatesM e ρ s (memoryExpansionCost s .CODECOPY +
-      (GasConstants.Gverylow + GasConstants.Gcopy * ((s.machineState.stack[2]!.toNat + 31) / 32)))
-      1 st' := by
+    SimulatesM e ρ s (insGas (.op 0x39) st st') 1 st' := by
   unfold Checker.step at h; dsimp only at h
   rw [if_neg (by decide), if_neg (by decide)] at h
   obtain ⟨⟨x, y, z, st1⟩, hp, h⟩ := bind_ok h
@@ -353,8 +367,6 @@ theorem sim_codecopy (fs : Facts) (code : Code) (s : State) (st st' : St)
       Cₘ (UInt256.ofNat (MachineState.M s.machineState.activeWords.toNat a.toNat c.toNat)) -
         Cₘ s.machineState.activeWords := by
     unfold memoryExpansionCost memoryExpansionCost.μᵢ'; rw [ht1]; rfl
-  have hc2 : s.machineState.stack[2]! = c := by rw [ht1]; rfl
-  rw [hc2]
   have key := simM_copy e ρ s .CODECOPY s.executionEnv.code st st' a b c t ht1
     (by rw [xstep_overlay _ s _ _ hdec (by simp), step_codecopy s hdec]; simp only [ht1]; rfl)
     hmc hr hlen
@@ -371,7 +383,8 @@ theorem sim_codecopy (fs : Facts) (code : Code) (s : State) (st st' : St)
   obtain ⟨hm', hz', hk', -⟩ := codeCopy_go_rel e ρ _ _ _ st1 st' _ hb256 hm1 h
   rw [h32'] at hm' hz'
   refine key (hk' ▸ hrt) _ ?_
-    (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1])
+    (by rw [had, hcn]; exact hm') (by rw [had, hcn, hz', hst1]) _
+    (by rw [hcn]; simp [staticGas, hs, exactOf_ok hn, GasConstants.Gverylow, GasConstants.Gcopy])
   intro j
   unfold codeBytes byteAt
   rw [hbs, List.getD_eq_getElem?_getD, List.getElem?_drop, hcode, List.getElem?_map,

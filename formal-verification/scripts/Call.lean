@@ -2,7 +2,8 @@
 -- (`Evm.Eip8024.Ξ`, EVMLean with EIP-8024), with `#eval` (compiled code, not the kernel, so
 -- nothing here is a proof). It shows that the theorems' hypotheses are met by real calls and
 -- that their conclusion is not met only by running out of gas: with enough gas each call
--- returns (or reverts) exactly as `Spec/Interface.lean` says, and with 100 gas it runs out.
+-- returns (or reverts) exactly as `Spec/Interface.lean` says, and with 100 gas it runs out; with
+-- exactly the gas it used it still returns (0 gas left), with one less it runs out.
 -- Run from formal-verification/ after `lake build`:
 --   lake env lean scripts/Call.lean
 -- Optional filter: ONLY=<substring of the artifact name>.
@@ -70,6 +71,14 @@ def describe :
   | .error .OutOfFuel, _ => "out of fuel"
   | .error _, _ => "OTHER ERROR"
 
+/-- The gas left after a call that returned or reverted. -/
+def gasLeft :
+    Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate)) →
+    Option Nat
+  | .ok (.success r _) => some r.2.1.toNat
+  | .ok (.revert g _) => some g.toNat
+  | .error _ => none
+
 #eval show IO Unit from do
   let only := (← IO.getEnv "ONLY").getD ""
   for a in all do
@@ -81,3 +90,12 @@ def describe :
       let big := Eip8024.Ξ default default (.ofNat 30000000) default I
       let small := Eip8024.Ξ default default (.ofNat 100) default I
       IO.println s!"{a.name}: gas 3e7: {describe big out}; gas 100: {describe small out}"
+      -- the gas the call used, and the call again with exactly that gas and with one less
+      match gasLeft big with
+      | none => pure ()
+      | some left =>
+        let used := 30000000 - left
+        let exact := Eip8024.Ξ default default (.ofNat used) default I
+        let less := Eip8024.Ξ default default (.ofNat (used - 1)) default I
+        IO.println s!"  used {used}; gas {used}: {describe exact out}; gas {used - 1}: \
+          {describe less out}"

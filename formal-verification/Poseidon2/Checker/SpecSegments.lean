@@ -94,13 +94,23 @@ end
 /-- A permutation case that returned `ws` over the table `tb` passes if the spec's rounds, run on
 the input forms over `tb`, end in forms `ys` that the returned words match. -/
 theorem resultOk_perm {fs : Facts} {c : Params} {ins : List Term} {ws : List SV} {tb : Tab}
-    {ys : List Lin} {st : Tab}
+    {ys : List Lin} {st : Tab} {g : Nat}
     (h : roundsRun linOps c.diagM1 (rounds c) (external linOps (inputForms fs ins tb).1)
       (inputForms fs ins tb).2 = (ys, st))
     (ho : outputsMatch ws ys = true) :
-    resultOk fs (.perm c ins) (.ret ws tb) = true := by
+    resultOk fs (.perm c ins) (.ret ws tb g) = true := by
   simp only [resultOk, specForms]
   rw [permG_eq_roundsRun, h]
   exact ho
+
+/-- `resultOk_perm` with the gas of the run. -/
+theorem resultOkGas_perm {fs : Facts} {c : Params} {ins : List Term} {ws : List SV} {tb : Tab}
+    {ys : List Lin} {st : Tab} {g : Nat}
+    (h : roundsRun linOps c.diagM1 (rounds c) (external linOps (inputForms fs ins tb).1)
+      (inputForms fs ins tb).2 = (ys, st))
+    (ho : outputsMatch ws ys = true) :
+    resultOkGas fs (.perm c ins) g (.ret ws tb g) = true := by
+  simp only [resultOkGas, beq_self_eq_true, Bool.true_and]
+  exact resultOk_perm h ho
 
 end Poseidon2.Checker

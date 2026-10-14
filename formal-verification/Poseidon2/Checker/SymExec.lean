@@ -69,7 +69,7 @@ def decodeOne (b : Nat) (bs : List Nat) : Ins × Nat × Option (List Nat) :=
     match takeBytes (b - 0x5f) bs 0 with
     | some (v, rest) => (.push v, 1 + (b - 0x5f), some rest)
     | none => (.bad b, 1, none)
-  else if b = 0x5f then (.push 0, 1, some bs)
+  else if b = 0x5f then (.op 0x5f, 1, some bs)
   else if b = 0xe6 ∨ b = 0xe7 then
     match decodeSingle (bs.headD 0) with
     | some n => (if b = 0xe6 then .dupn n else .swapn n, 2, some bs.tail)
@@ -146,9 +146,11 @@ structure St where
   /-- active memory in bytes, a multiple of 32 -/
   msize : Nat
   tab : Tab
+  /-- the gas the run has used so far, memory expansion included -/
+  gas : Nat
   deriving Repr, Inhabited, DecidableEq
 
-def St.init : St := ⟨[], [], 0, Tab.empty⟩
+def St.init : St := ⟨[], [], 0, Tab.empty, 0⟩
 
 abbrev M := Except String
 
@@ -431,18 +433,55 @@ def step (fs : Facts) (code : Code) (i : Ins) (s : St) : M St :=
       mstore s a v
     | 0x59 => push s (SV.const s.msize)
     | 0x5b => .ok s
+    | 0x5f => push s (SV.const 0)
     | _ => .error s!"unsupported opcode {b}"
+
+/-! ## Gas
+
+The gas of an instruction as EVMLean charges it (Cancun): the opcode's static gas, plus for
+`CALLDATACOPY` / `CODECOPY` 3 per word copied, plus the memory expansion, which is the growth
+of `memCost` from the memory size before the instruction to the size after it. -/
+
+/-- EVMLean's `Cₘ` of `m / 32` active words (`m` a multiple of 32). -/
+def memCost (m : Nat) : Nat := 3 * (m / 32) + m / 32 * (m / 32) / 512
+
+/-- The static gas of instruction `i` run from state `s` (the copies read their size from the
+stack). -/
+def staticGas (i : Ins) (s : St) : Nat :=
+  match i with
+  | .push _ | .dupn _ | .swapn _ => 3
+  | .bad _ => 0
+  | .op b =>
+    if 0x80 ≤ b ∧ b ≤ 0x9f then 3 else
+    match b with
+    | 0x02 | 0x04 | 0x06 => 5
+    | 0x08 | 0x09 | 0x56 => 8
+    | 0x57 => 10
+    | 0x5b => 1
+    | 0x34 | 0x36 | 0x3d | 0x50 | 0x59 | 0x5f => 2
+    | 0x37 | 0x39 => 3 + 3 * ((((s.stk[2]?).bind SV.exact).getD 0 + 31) / 32)
+    | 0x00 | 0xf3 | 0xfd => 0
+    | _ => 3
+
+/-- The gas of instruction `i` from state `s` to state `s'`. -/
+def insGas (i : Ins) (s s' : St) : Nat := staticGas i s + (memCost s'.msize - memCost s.msize)
 
 /-- How a run ends. -/
 inductive Res where
-  /-- `RETURN` of these words -/
-  | ret (ws : List SV) (tab : Tab)
-  /-- `REVERT` of this many bytes -/
-  | revert (size : Nat)
+  /-- `RETURN` of these words, with the gas of the whole run -/
+  | ret (ws : List SV) (tab : Tab) (gas : Nat)
+  /-- `REVERT` of this many bytes, with the gas of the run (exact for size 0, no expansion) -/
+  | revert (size : Nat) (gas : Nat)
   /-- `STOP` or the end of the code -/
   | stop
   | fail (pc : Nat) (msg : String)
   deriving Repr, Inhabited, DecidableEq
+
+/-- The gas of a run that returned or reverted. -/
+def Res.gas : Res → Nat
+  | .ret _ _ g => g
+  | .revert _ g => g
+  | _ => 0
 
 /-- After one instruction: the instructions to run next and the state, or the end. -/
 inductive Out where
@@ -485,7 +524,7 @@ def ctl (fs : Facts) (code : Code) (pc : Nat) (i : Ins) (s : St) : Ctl :=
       | some o, some n =>
         if n % 32 ≠ 0 then .stop (.fail pc "RETURN size not a multiple of 32") else
         match readWords s.mem (n / 32) o with
-        | .ok ws => .stop (.ret ws s.tab)
+        | .ok ws => .stop (.ret ws s.tab (s.gas + (memCost (touch s.msize o n) - memCost s.msize)))
         | .error e => .stop (.fail pc e)
       | _, _ => .stop (.fail pc "symbolic RETURN range")
     | .error e => .stop (.fail pc e)
@@ -493,7 +532,7 @@ def ctl (fs : Facts) (code : Code) (pc : Nat) (i : Ins) (s : St) : Ctl :=
     match pop2 s with
     | .ok (_, sz, _) =>
       match sz.exact with
-      | some n => .stop (.revert n)
+      | some n => .stop (.revert n s.gas)
       | none => .stop (.fail pc "symbolic REVERT size")
     | .error e => .stop (.fail pc e)
   | i =>
@@ -506,10 +545,10 @@ def step1 (fs : Facts) (code : Code) : List (Nat × Ins) → St → Out
   | [], _ => .done .stop
   | (pc, i) :: rest, s =>
     match ctl fs code pc i s with
-    | .fall s => .next rest s
-    | .jump t s =>
+    | .fall s' => .next rest { s' with gas := s.gas + insGas i s s' }
+    | .jump t s' =>
       match findDest t code.dests with
-      | some is => .next is s
+      | some is => .next is { s' with gas := s.gas + insGas i s s' }
       | none => .done (.fail pc s!"invalid jump destination {t}")
     | .stop r => .done r
 /-- Runs from the instruction list `is` (fuel: the instruction budget). -/

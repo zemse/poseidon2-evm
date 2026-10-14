@@ -10,7 +10,9 @@ import Poseidon2.Spec.Constants.T2
 /-!
 The checker accepts `yul/runs200/t2` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
-segment boundary is written out below (computed outside the kernel, checked by it).
+segment boundary is written out below (computed outside the kernel, checked by it). The
+gas of each case's run is `gas` ([68, 43, 101, 43, 101, 43, 43, 157, 9019]); `correct` is partial correctness, `total`
+total correctness with that gas.
 -/
 
 namespace Poseidon2.Proofs.Yul.Runs200.T2
@@ -28,114 +30,118 @@ theorem code_wf : code.WF := Code.ofBytes_wf _
 
 /-! ### Case 0: size < 4, no value (0 boundaries) -/
 
-theorem end0 : resultOk (cases.getD 0 default).facts (cases.getD 0 default).expect
+theorem end0 : resultOkGas (cases.getD 0 default).facts (cases.getD 0 default).expect 68
     (run (cases.getD 0 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case0 : checkCase code (cases.getD 0 default) = true := by
+theorem case0 : checkCaseGas code (cases.getD 0 default) 68 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end0
 
 /-! ### Case 1: size < 4, value (0 boundaries) -/
 
-theorem end1 : resultOk (cases.getD 1 default).facts (cases.getD 1 default).expect
+theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 43
     (run (cases.getD 1 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case1 : checkCase code (cases.getD 1 default) = true := by
+theorem case1 : checkCaseGas code (cases.getD 1 default) 43 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end1
 
 /-! ### Case 2: selector below, no value (0 boundaries) -/
 
-theorem end2 : resultOk (cases.getD 2 default).facts (cases.getD 2 default).expect
+theorem end2 : resultOkGas (cases.getD 2 default).facts (cases.getD 2 default).expect 101
     (run (cases.getD 2 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case2 : checkCase code (cases.getD 2 default) = true := by
+theorem case2 : checkCaseGas code (cases.getD 2 default) 101 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end2
 
 /-! ### Case 3: selector below, value (0 boundaries) -/
 
-theorem end3 : resultOk (cases.getD 3 default).facts (cases.getD 3 default).expect
+theorem end3 : resultOkGas (cases.getD 3 default).facts (cases.getD 3 default).expect 43
     (run (cases.getD 3 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case3 : checkCase code (cases.getD 3 default) = true := by
+theorem case3 : checkCaseGas code (cases.getD 3 default) 43 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end3
 
 /-! ### Case 4: selector above, no value (0 boundaries) -/
 
-theorem end4 : resultOk (cases.getD 4 default).facts (cases.getD 4 default).expect
+theorem end4 : resultOkGas (cases.getD 4 default).facts (cases.getD 4 default).expect 101
     (run (cases.getD 4 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case4 : checkCase code (cases.getD 4 default) = true := by
+theorem case4 : checkCaseGas code (cases.getD 4 default) 101 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end4
 
 /-! ### Case 5: selector above, value (0 boundaries) -/
 
-theorem end5 : resultOk (cases.getD 5 default).facts (cases.getD 5 default).expect
+theorem end5 : resultOkGas (cases.getD 5 default).facts (cases.getD 5 default).expect 43
     (run (cases.getD 5 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case5 : checkCase code (cases.getD 5 default) = true := by
+theorem case5 : checkCaseGas code (cases.getD 5 default) 43 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end5
 
 /-! ### Case 6: call value (0 boundaries) -/
 
-theorem end6 : resultOk (cases.getD 6 default).facts (cases.getD 6 default).expect
+theorem end6 : resultOkGas (cases.getD 6 default).facts (cases.getD 6 default).expect 43
     (run (cases.getD 6 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case6 : checkCase code (cases.getD 6 default) = true := by
+theorem case6 : checkCaseGas code (cases.getD 6 default) 43 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end6
 
 /-! ### Case 7: short arguments (0 boundaries) -/
 
-theorem end7 : resultOk (cases.getD 7 default).facts (cases.getD 7 default).expect
+theorem end7 : resultOkGas (cases.getD 7 default).facts (cases.getD 7 default).expect 157
     (run (cases.getD 7 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case7 : checkCase code (cases.getD 7 default) = true := by
+theorem case7 : checkCaseGas code (cases.getD 7 default) 157 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end7
 
 /-! ### Case 8: call (0 boundaries) -/
 
-theorem end8 : resultOk (cases.getD 8 default).facts (cases.getD 8 default).expect
+theorem end8 : resultOkGas (cases.getD 8 default).facts (cases.getD 8 default).expect 9019
     (run (cases.getD 8 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case8 : checkCase code (cases.getD 8 default) = true := by
+theorem case8 : checkCaseGas code (cases.getD 8 default) 9019 = true := by
   have e : fuel = 1000000 := by decide
-  unfold checkCase runCase
+  unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end8
 
-theorem check : cases.all (checkCase code) = true :=
-  all_of_getD _ cases fun j hj => by
+/-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
+`gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
+def gas : List Nat := [68, 43, 101, 43, 101, 43, 43, 157, 9019]
+
+theorem checkG : CheckedGas code cases gas :=
+  ⟨by decide, fun j hj => by
     have hl : cases.length = 9 := by decide
     rw [hl] at hj
     match j, hj with
@@ -148,7 +154,9 @@ theorem check : cases.all (checkCase code) = true :=
     | 6, _ => exact case6
     | 7, _ => exact case7
     | 8, _ => exact case8
-    | n + 9, h => exact absurd h (by omega)
+    | n + 9, h => exact absurd h (by omega)⟩
+
+theorem check : cases.all (checkCase code) = true := checkG.check
 
 /-- The contract statement: every call of the bytecode by the EVM (`Evm.Eip8024.Ξ`) either
 runs out of gas or ends as the interface says (`Theorems.lean`, `Soundness.checkerSound`). -/
@@ -158,6 +166,27 @@ theorem correct (cd : List UInt8) (v : Nat)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs200.T2.artifact cd v I) :
     Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.yulPerm Constants.T2.params (Interface.permuteSelector 2) cd v) :=
   Theorems.yulPerm_correct Poseidon2.Bytecode.Yul.Runs200.T2.artifact Constants.T2.params (Interface.permuteSelector 2) (by decide) (by decide) check cd v hcd hv σ σ₀ g A I hI
+
+/-- Total correctness: every call is in some case `j` of `cases`; given at least `gas[j]`
+gas it ends exactly as the interface says with `gas[j]` used, given less it runs out of gas
+(`Theorems.Total`, `Soundness.checkerTotal`). -/
+theorem total (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs200.T2.artifact cd v I) :
+    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.yulPerm Constants.T2.params (Interface.permuteSelector 2) cd v) :=
+  Theorems.yulPerm_total Poseidon2.Bytecode.Yul.Runs200.T2.artifact Constants.T2.params (Interface.permuteSelector 2) (by decide) (by decide) gas checkG cd v hcd hv σ σ₀ g A I hI
+
+/-- With at least 9019 gas (the most of any case) every call ends exactly as the
+interface says, using at most that much. -/
+theorem enough (cd : List UInt8) (v : Nat)
+    (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
+    (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs200.T2.artifact cd v I) (hg : 9019 ≤ g.toNat) :
+    ∃ G, G ≤ 9019 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
+      (Interface.yulPerm Constants.T2.params (Interface.permuteSelector 2) cd v) :=
+  (total cd v hcd hv σ σ₀ g A I hI).exact
+    (le_trans (le_of_eq (show maxGas gas = 9019 by decide)) hg)
 
 #assert_standard_axioms_here
 

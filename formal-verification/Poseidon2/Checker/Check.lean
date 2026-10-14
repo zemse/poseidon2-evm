@@ -79,16 +79,72 @@ def runCase (code : Code) (cs : Case) : Res :=
 
 /-- Whether the run ends as the case expects. -/
 def resultOk (fs : Facts) (e : Expect) : Res → Bool
-  | .ret ws tb =>
+  | .ret ws tb _ =>
     match e with
     | .revertEmpty => false
     | e => outputsMatch ws (specForms fs e tb)
-  | .revert n => match e with
+  | .revert n _ => match e with
     | .revertEmpty => n == 0
     | _ => false
   | _ => false
 
 def checkCase (code : Code) (cs : Case) : Bool := resultOk cs.facts cs.expect (runCase code cs)
+
+/-- Whether the run ends as the case expects, having used `G` gas. -/
+def resultOkGas (fs : Facts) (e : Expect) (G : Nat) : Res → Bool
+  | .ret ws tb g => g == G && resultOk fs e (.ret ws tb g)
+  | .revert n g => g == G && resultOk fs e (.revert n g)
+  | _ => false
+
+/-- The case is accepted and its run uses `G` gas. -/
+def checkCaseGas (code : Code) (cs : Case) (G : Nat) : Bool :=
+  resultOkGas cs.facts cs.expect G (runCase code cs)
+
+theorem resultOkGas_eq {fs : Facts} {e : Expect} {G : Nat} {r : Res}
+    (h : resultOkGas fs e G r = true) : resultOk fs e r = true ∧ r.gas = G := by
+  cases r with
+  | ret ws tb g =>
+    simp only [resultOkGas, Bool.and_eq_true, beq_iff_eq] at h
+    exact ⟨h.2, h.1⟩
+  | revert n g =>
+    simp only [resultOkGas, Bool.and_eq_true, beq_iff_eq] at h
+    exact ⟨h.2, h.1⟩
+  | stop => simp [resultOkGas] at h
+  | fail _ _ => simp [resultOkGas] at h
+
+theorem checkCaseGas_eq {code : Code} {cs : Case} {G : Nat} (h : checkCaseGas code cs G = true) :
+    checkCase code cs = true ∧ (runCase code cs).gas = G :=
+  resultOkGas_eq h
+
+/-- Every case of `cases` is accepted, the one at index `j` using `gas[j]` gas. -/
+def CheckedGas (code : Code) (cases : List Case) (gas : List Nat) : Prop :=
+  gas.length = cases.length ∧
+    ∀ j, j < cases.length → checkCaseGas code (cases.getD j default) (gas.getD j 0) = true
+
+/-- The most gas of a list. -/
+def maxGas (gas : List Nat) : Nat := gas.foldr max 0
+
+theorem le_maxGas : ∀ (gas : List Nat) (j : Nat), gas.getD j 0 ≤ maxGas gas
+  | [], _ => by simp [maxGas]
+  | g :: gas, 0 => by simp [maxGas]
+  | g :: gas, j + 1 => by
+    have := le_maxGas gas j
+    simp only [maxGas, List.foldr_cons, List.getD_cons_succ] at this ⊢
+    omega
+
+theorem CheckedGas.mem {code : Code} {cases : List Case} {gas : List Nat}
+    (h : CheckedGas code cases gas) {cs : Case} (hcs : cs ∈ cases) :
+    ∃ G, G ≤ maxGas gas ∧ checkCaseGas code cs G = true := by
+  obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hcs
+  refine ⟨gas.getD j 0, le_maxGas gas j, ?_⟩
+  have := h.2 j hj
+  rwa [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hj, Option.getD_some] at this
+
+theorem CheckedGas.check {code : Code} {cases : List Case} {gas : List Nat}
+    (h : CheckedGas code cases gas) : cases.all (checkCase code) = true :=
+  List.all_eq_true.mpr fun _ hcs => by
+    obtain ⟨_, -, hg⟩ := h.mem hcs
+    exact (checkCaseGas_eq hg).1
 
 /-! ## The cases of each contract kind -/
 
