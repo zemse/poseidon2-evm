@@ -18,6 +18,7 @@ import Poseidon2.Spec.DiagCheck
 import Poseidon2.Spec.MinpolyCheck
 import Poseidon2.Evm.Eip8024
 import Poseidon2.Bytecode.All
+import Poseidon2.Bytecode.Keccak
 import Poseidon2.Checker.Forms
 import Poseidon2.Checker.Bounds
 import Poseidon2.Checker.SymExec
