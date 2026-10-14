@@ -45,8 +45,10 @@ elab_rules : command
   -- the modules under `skip`, which another audit covers
   let here := env.header.mainModule
   let files ← modulesIn dir.getString pre
+  let mut audited := 0
   for m in files do
     if skip.any (·.isPrefixOf m) then continue
+    audited := audited + 1
     unless m == here || mods.contains m do
       throwError "{m} is not imported by the audit, so it is neither built nor checked"
   -- constants defined in our modules, of every kind
@@ -68,7 +70,7 @@ elab_rules : command
       unless b.isEmpty do
         throwError "{privateToUserName name} depends on non-standard axioms {b.toList}"
     throwError "non-standard axioms {bad.toList} reached"
-  logInfo m!"{ours.size} constants of {files.size} {pre} modules use only standard axioms"
+  logInfo m!"{ours.size} constants of {audited} {pre} modules use only standard axioms"
 
 /-- `#assert_standard_axioms_here` does the same for every constant the current file declares,
 for files that no audit imports (the generated proofs that are not committed). -/

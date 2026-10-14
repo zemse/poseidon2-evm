@@ -16,7 +16,7 @@ inductive Kind where
   | huffPerm
   /-- `huffHash` -/
   | huffHash
-  /-- part `i` of `n` of a split Huff permutation (Osaka) -/
+  /-- part `i` of `n` of a split Huff permutation (Osaka); no artifact at this commit -/
   | huffPart (i n : Nat)
   /-- `yulHash` -/
   | yulHash

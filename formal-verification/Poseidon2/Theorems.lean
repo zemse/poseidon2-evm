@@ -294,7 +294,7 @@ theorem yulPerm_of (c : Params) (sel : Nat) (hsel0 : sel ≠ 0) (cd : List UInt8
 
 /-- A `Poseidon2YulT<t>` wrapper accepted by the checker computes `yulPerm`. -/
 theorem yulPerm_correct (a : Artifact) (c : Params) (sel : Nat)
-    (hsel0 : sel ≠ 0) (hsel : sel < 2 ^ 32)
+    (hsel0 : sel ≠ 0) (_hsel : sel < 2 ^ 32)
     (hc : (yulPermCases c sel).all (checkCase (Code.ofBytes a.bytes)) = true)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
@@ -303,7 +303,7 @@ theorem yulPerm_correct (a : Artifact) (c : Params) (sel : Nat)
 
 /-- A `Poseidon2YulT<t>` wrapper accepted with gas `gas` computes `yulPerm` with that gas. -/
 theorem yulPerm_total (a : Artifact) (c : Params) (sel : Nat)
-    (hsel0 : sel ≠ 0) (hsel : sel < 2 ^ 32) (gas : List Nat)
+    (hsel0 : sel ≠ 0) (_hsel : sel < 2 ^ 32) (gas : List Nat)
     (hc : CheckedGas (Code.ofBytes a.bytes) (yulPermCases c sel) gas)
     (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :

@@ -290,7 +290,7 @@ with gas `g`, the call runs out of gas if `g` is below the gas `G` of the checke
 otherwise ends exactly as the case expects, with `g - G` gas left. -/
 theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = true)
     (hc : checkCase (Code.ofBytes bs) cs = true) (cd : List UInt8) (v : Nat)
-    (hcd : cd.length < 2 ^ 64) (hv : v < W) (hfs : FactsHold ⟨cd, v⟩ cs.facts)
+    (hcd : cd.length < 2 ^ 64) (hfs : FactsHold ⟨cd, v⟩ cs.facts)
     (hin : ∀ t ∈ cs.expect.inputs, t.eval ⟨cd, v⟩ < W)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
     (henv : env ⟨(bs.map UInt8.ofNat).toArray⟩ cd v I) :
@@ -354,8 +354,8 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
 /-- **The checker is sound** (`CheckerSound`, `Soundness.lean`): an accepted case is what the
 EVM does, for every call that satisfies the case's facts, with any gas. -/
 theorem checkerSound : CheckerSound := by
-  intro bs cs hall hc cd v hcd hv hfs hin σ σ₀ g A I henv
-  rcases checker_core bs cs hall hc cd v hcd hv hfs hin σ σ₀ g A I henv with ⟨-, h⟩ | ⟨-, h⟩
+  intro bs cs hall hc cd v hcd _hv hfs hin σ σ₀ g A I henv
+  rcases checker_core bs cs hall hc cd v hcd hfs hin σ σ₀ g A I henv with ⟨-, h⟩ | ⟨-, h⟩
   · rw [h]; trivial
   · exact h.matches
 
@@ -363,9 +363,9 @@ theorem checkerSound : CheckerSound := by
 what the EVM does for every call given at least `G` gas, using exactly `G`, and every call given
 less runs out of gas. -/
 theorem checkerTotal : CheckerTotal := by
-  intro bs cs G hall hc cd v hcd hv hfs hin σ σ₀ g A I henv
+  intro bs cs G hall hc cd v hcd _hv hfs hin σ σ₀ g A I henv
   obtain ⟨hc', rfl⟩ := checkCaseGas_eq hc
-  rcases checker_core bs cs hall hc' cd v hcd hv hfs hin σ σ₀ g A I henv with
+  rcases checker_core bs cs hall hc' cd v hcd hfs hin σ σ₀ g A I henv with
     ⟨hlt, h⟩ | ⟨hle, h⟩
   · exact ⟨fun hle => absurd hle (by omega), fun _ => h⟩
   · exact ⟨fun _ => h, fun hlt => absurd hle (by omega)⟩
