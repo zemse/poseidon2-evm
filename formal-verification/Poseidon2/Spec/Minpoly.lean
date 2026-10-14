@@ -1,4 +1,7 @@
-import Mathlib
+import Mathlib.Data.List.GetD
+import Mathlib.FieldTheory.Finite.Extension
+import Mathlib.Tactic.NoncommRing
+import Mathlib.Tactic.Ring
 import Poseidon2.Spec.Prime
 import Poseidon2.Spec.Diagonal
 
@@ -548,6 +551,8 @@ theorem natDegree_minpoly_of_cert (fl : List Nat) (bs : List Bool)
     (i : Nat) (hi1 : 1 ≤ i) (hi2 : i ≤ 2 * fl.length) :
     (minpoly (ZMod P) (AdjoinRoot.root (toPoly (fl ++ [1])) ^ i)).natDegree = fl.length := by
   haveI := Fact.mk hirr
+  -- named: with these imports, instance search tries `LieAlgebra.toModule` first and fails
+  letI : Module (ZMod P) (AdjoinRoot (toPoly (fl ++ [1]))) := Algebra.toModule
   let pb := AdjoinRoot.powerBasis hirr.ne_zero
   haveI : Module.Finite (ZMod P) (AdjoinRoot (toPoly (fl ++ [1]))) := pb.finite
   haveI : CharP (AdjoinRoot (toPoly (fl ++ [1]))) P :=
@@ -770,6 +775,7 @@ theorem minpolyCondition_of_cert (t : Nat) (r fl : List Nat) (bs : List Bool)
     MinpolyCondition t (partialMatrix t r) := by
   have hirr := irreducible_of_cert fl bs hs bez hc hb
   haveI := Fact.mk hirr
+  letI : Module (ZMod P) (AdjoinRoot (toPoly (fl ++ [1]))) := Algebra.toModule
   have ht : 2 ≤ t := hfl ▸ hc.1
   haveI : Nonempty (Fin t) := ⟨⟨0, by omega⟩⟩
   have hF := aeval_of_matOk t r fl hm

@@ -1,3 +1,4 @@
+import Poseidon2.Deps
 import Poseidon2.Spec.Permutation
 import Poseidon2.Spec.Sponge
 import Poseidon2.Spec.Constants.T2

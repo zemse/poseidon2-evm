@@ -29,9 +29,9 @@ concurrency:
 
 env:
   # one Lean thread, so Lake runs one Lean process at a time: every file then stays below
-  # 11.7 GB (Spec/MinpolyCheck/T28.lean, then GrainCheck.lean at 11.1 GB; the largest kernel check
-  # of an artifact is 8.0 GB), within the
-  # 16 GB of a GitHub-hosted runner (see formal-verification/README.md)
+  # 11.1 GB (GrainCheck.lean; the largest kernel check of an artifact is 8.0 GB, the largest
+  # replay piece 10.7 GB), within the 16 GB of a GitHub-hosted runner (see
+  # formal-verification/README.md)
   LEAN_NUM_THREADS: 1
 
 jobs:
@@ -78,8 +78,8 @@ jobs:
       fail-fast: true
 
     # leanchecker (from the toolchain) replays the declarations of the .olean files through the
-    # kernel in its own process, so the audits above no longer trust the oleans: the whole import
-    # closure of the library (Lean, Mathlib, EVMLean, ours), then the committed proofs on top of it
+    # kernel in its own process, so the audits above no longer trust the oleans: the import closure
+    # of the library (Lean, Mathlib, EVMLean, ours) in pieces, then the committed proofs
     name: Kernel replay (leanchecker)
     needs: build
     runs-on: ubuntu-latest
@@ -107,14 +107,45 @@ jobs:
         working-directory: formal-verification
         run: lake build Poseidon2 Poseidon2.Proofs.Audit
 
-      - name: Replay the library's import closure
-        # 11.0 GB at most (README, Continuous integration)
+      - name: Check the pieces below cover the import closure
+        working-directory: formal-verification
+        run: scripts/replay.sh coverage
+
+      # the library's import closure in four pieces, each its own process (README, Kernel replay)
+      - name: Replay Lean, Mathlib and EVMLean (Poseidon2.Deps, --fresh)
         working-directory: formal-verification
         run: |
           if [ -x /usr/bin/time ]; then
-            /usr/bin/time -v scripts/replay.sh library
+            /usr/bin/time -v scripts/replay.sh deps
           else
-            scripts/replay.sh library
+            scripts/replay.sh deps
+          fi
+
+      - name: Replay the spec
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh spec
+          else
+            scripts/replay.sh spec
+          fi
+
+      - name: Replay the minimal polynomial checks
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh minpoly
+          else
+            scripts/replay.sh minpoly
+          fi
+
+      - name: Replay the EVM model, checker, bytecode and theorems
+        working-directory: formal-verification
+        run: |
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v scripts/replay.sh core
+          else
+            scripts/replay.sh core
           fi
 
       - name: Replay the committed proofs
@@ -208,6 +239,7 @@ jobs:
         # its modules on top of their imports; the rest of the closure is the replay job's
         working-directory: formal-verification
         run: |
+          scripts/replay.sh coverage ${{ matrix.artifact }}
           if [ -x /usr/bin/time ]; then
             /usr/bin/time -v scripts/replay.sh ${{ matrix.artifact }}
           else

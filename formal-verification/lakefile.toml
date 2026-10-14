@@ -16,9 +16,9 @@ rev = "v4.29.0"
 name = "Poseidon2"
 roots = ["Poseidon2", "Poseidon2.Audit"]
 # every module except Poseidon2/Proofs/ (its own library below)
-globs = ["Poseidon2", "Poseidon2.Audit", "Poseidon2.AxiomCheck", "Poseidon2.Soundness",
-  "Poseidon2.Theorems", "Poseidon2.Spec.+", "Poseidon2.Evm.+", "Poseidon2.Checker.+",
-  "Poseidon2.Bytecode.+"]
+globs = ["Poseidon2", "Poseidon2.Audit", "Poseidon2.AxiomCheck", "Poseidon2.Deps",
+  "Poseidon2.Soundness", "Poseidon2.Theorems", "Poseidon2.Spec.+", "Poseidon2.Evm.+",
+  "Poseidon2.Checker.+", "Poseidon2.Bytecode.+"]
 
 # The kernel checks of the exported bytecode (Poseidon2/Proofs/, written by
 # scripts/Emit.lean through scripts/proof.sh): the 17 small artifacts are
