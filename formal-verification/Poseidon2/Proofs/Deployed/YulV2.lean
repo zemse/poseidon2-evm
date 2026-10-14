@@ -2,6 +2,7 @@
 import Poseidon2.Checker.Check
 import Poseidon2.Checker.Segments
 import Poseidon2.Checker.SpecSegments
+import Poseidon2.Spec.Interface
 import Poseidon2.AxiomCheck
 import Poseidon2.Theorems
 import Poseidon2.Bytecode.Deployed.YulV2

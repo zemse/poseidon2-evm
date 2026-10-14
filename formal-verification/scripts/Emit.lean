@@ -258,7 +258,8 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
   let lines ← buf.get
   let cuts ← cuts.get
   let imports := ["Poseidon2.Checker.Check", "Poseidon2.Checker.Segments",
-    "Poseidon2.Checker.SpecSegments", "Poseidon2.AxiomCheck", "Poseidon2.Theorems",
+    "Poseidon2.Checker.SpecSegments", "Poseidon2.Spec.Interface", "Poseidon2.AxiomCheck",
+    "Poseidon2.Theorems",
     s!"Poseidon2.Bytecode.{mod}", s!"Poseidon2.Spec.Constants.T{a.t}"]
   let writeFile := fun (path : String) (imps : List String) (doc : List String)
       (body : List String) => do
