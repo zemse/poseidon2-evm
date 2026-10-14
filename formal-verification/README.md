@@ -2,20 +2,21 @@
 
 The goal of this directory is a kernel-checked proof that the generated runtime bytecode of the contracts (Huff t = 2, 3, 4, 8, 12, 16, 20, 24, 28; Yul t = 2, 3, 4, 8, 12 under legacy solc) returns the Poseidon2 output over BN254 for every input. The proofs are about the raw runtime bytes, so huff-neo, solc and the generators stay outside the trusted base.
 
-**Status: the contract theorems are proven without hypotheses about the checker, but this is not yet a "formally verified" claim** (see "Not yet claimed" below). What is proven, kernel-checked and free of `sorry`, axioms of ours and `native_decide`:
+**Status: the contract theorems, partial and total correctness, are proven without hypotheses about the checker, but this is not yet a "formally verified" claim** (see "Not yet claimed" below). What is proven, kernel-checked and free of `sorry`, axioms of ours and `native_decide`:
 
 - the Poseidon2 specification, its constants (round constants and internal diagonals derived from the Grain LFSR of the HorizenLabs script), 73 known-answer tests against other implementations, and the calldata interface of every contract;
 - that a symbolic checker accepts every exported bytecode on every calldata class of its interface (all 35: the 17 small ones committed in `Poseidon2/Proofs/`, the 18 large ones written by `scripts/proof.sh` and checked in CI, see below);
 - that the checker's symbolic run of the spec evaluates to the spec (`Checker/Bridge.lean`), that its word terms and intervals (`Checker/BoundsSound.lean`) and its field values (`Checker/FieldSound.lean`) describe what the EVM operations compute, and that checking a run in segments loses nothing (`Checker/Segments.lean`);
-- that every instruction the checker's `step` accepts is one EVM step (`Evm/Sim.lean`, `Evm/MemSim.lean`, against EVMLean's `Xstep` with the EIP-8024 overlay): the EVM runs out of gas, or pays the opcode's gas (and the memory expansion EVMLean charges), moves `pc` by the instruction's length, changes nothing but the stack, the memory and the active words, and the checker's new state describes the EVM's (`StRel`: the stack, the word memory against the byte memory, `msize` against the active words, and the gas bound `Cₘ(activeWords) + gas < 2^256`, which every step keeps and which keeps the memory size from wrapping). Covered: `PUSH0` .. `PUSH32`, `DUP1` .. `DUP16` and `SWAP1` .. `SWAP16` (one lemma each), DUPN, SWAPN, `POP`, `JUMPDEST`, `ADD`, `MUL`, `SUB`, `DIV`, `MOD`, `ADDMOD`, `MULMOD`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `SHL`, `SHR`, `CALLVALUE`, `CALLDATASIZE`, `RETURNDATASIZE`, each in every form the checker accepts (exact words with any modulus, field values, `P`), which keep the memory (`Evm/Memory.lean`: `step_mem`, `sim_lift`); and `MLOAD`, `MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY` (from an offset or from `CALLDATASIZE`), `CODECOPY`, in the forms the checker accepts (exact addresses and offsets, whole words);
+- that every instruction the checker's `step` accepts is one EVM step (`Evm/Sim.lean`, `Evm/MemSim.lean`, against EVMLean's `Xstep` with the EIP-8024 overlay): the EVM runs out of gas, which it does only with less gas than the step costs, or pays exactly the gas the checker computes for the instruction (`insGas`: the opcode's static gas, 3 per word copied, and the growth of `memCost`, the memory expansion EVMLean charges), moves `pc` by the instruction's length, changes nothing but the stack, the memory and the active words, and the checker's new state describes the EVM's (`StRel`: the stack, the word memory against the byte memory, `msize` against the active words, and the gas bound `Cₘ(activeWords) + gas < 2^256`, which every step keeps and which keeps the memory size from wrapping). Covered: `PUSH0` .. `PUSH32`, `DUP1` .. `DUP16` and `SWAP1` .. `SWAP16` (one lemma each), DUPN, SWAPN, `POP`, `JUMPDEST`, `ADD`, `MUL`, `SUB`, `DIV`, `MOD`, `ADDMOD`, `MULMOD`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `ISZERO`, `AND`, `OR`, `XOR`, `NOT`, `SHL`, `SHR`, `CALLVALUE`, `CALLDATASIZE`, `RETURNDATASIZE`, each in every form the checker accepts (exact words with any modulus, field values, `P`), which keep the memory (`Evm/Memory.lean`: `step_mem`, `sim_lift`); and `MLOAD`, `MSTORE`, `MSIZE`, `CALLDATALOAD`, `CALLDATACOPY` (from an offset or from `CALLDATASIZE`), `CODECOPY`, in the forms the checker accepts (exact addresses and offsets, whole words);
 - that EVMLean's byte arrays behave as functions of the index (`Evm/Bytes.lean`): `ByteArray.write` changes exactly the bytes it writes, `readWithPadding` and `readBytes` read zeros past the end, and 32 big-endian bytes are the spec's `wordBytes` of their value (for the returned words);
 - that the checker's decoder agrees with EVMLean's at every `pc` its run reaches (`Evm/Decode.lean`): those `pc`s stay below `33 · 2^20` and advance by the instruction's length (`Dec`), EVMLean decodes there the opcode the checker saw, the `PUSH` value it pushed (the checker rejects a `PUSH` cut by the end of the code, so EVMLean's unpadded reading of one never matters), DUPN / SWAPN with `17 ≤ n`, and every jump destination the checker finds is in EVMLean's `D_J` (unchanged by EIP-8024);
 - that `JUMP` and `JUMPI` (both ways) are EVM steps that set `pc` (`Evm/Control.lean`; `STOP` halts with empty output);
-- that the checker's whole run is the EVM's (`Evm/Run.lean`): every instruction the run accepts is one EVM step costing at least 1 gas, the stack stays at most 1024 items and the atom table only grows along the run, and, iterating `Eip8024.X` with the fuel `Ξ` gives (gas + 1), for every case the checker accepts the EVM's run of the call runs out of gas or reaches a state related to the checker's at its final `RETURN` or `REVERT` (`reaches_final`). The segmented kernel checks of `Proofs/` prove `checkCase`, which is what `reaches_final` takes (`seg_run` composes the segments), so they need nothing more;
-- that the last instruction is the EVM's (`Evm/Final.lean`): the checker's `RETURN` is the EVM halting with output `encodeWords` of the values its returned words describe, or running out of gas on the memory expansion (`final_return`); its empty `REVERT` is the EVM reverting with empty output, or running out of gas (`final_revert`);
+- that the checker's whole run is the EVM's (`Evm/Run.lean`): every instruction the run accepts is one EVM step costing the gas the checker adds to its state (`St.gas`, at least 1), the stack stays at most 1024 items and the atom table only grows along the run, and, iterating `Eip8024.X` with the fuel `Ξ` gives (gas + 1), for every case the checker accepts the EVM's run of the call runs out of gas, the call's gas being below the checker's gas up to there, or reaches a state related to the checker's at its final `RETURN` or `REVERT` having paid exactly that gas (`reaches_final`). The segmented kernel checks of `Proofs/` prove `checkCaseGas` (`checkCase` and the gas of the run), whose first half is what `reaches_final` takes (`seg_run` composes the segments), so they need nothing more;
+- that the last instruction is the EVM's (`Evm/Final.lean`): the checker's `RETURN` is the EVM halting with output `encodeWords` of the values its returned words describe, having paid the memory expansion the checker adds to the run's gas, or running out of gas with less than that (`final_return`); its empty `REVERT` is the EVM reverting with empty output, which costs nothing (`final_revert`);
 - that a valuation of the atoms exists (`Checker/Valuation.lean`): every `pow5` atom is a form over older atoms (`Tab.WF`), because every form the checker holds names only atoms its table has (`St.Inv`, kept by every step, `step_inv` / `runN_inv'`) and the spec's symbolic run keeps that too (`permG_inv`); then `defsVal` values the atoms from the oldest on (`Tab.WF.valid`), and under it the spec's forms are the case's words (`spec_sound`);
-- **`CheckerSound`** (`Soundness.lean`), proven as `Soundness.checkerSound` (`Evm/Final.lean`, from `reaches_final`, `Xi_eq`, `spec_sound` and `outputsMatch_sound`): if the checker accepts a bytecode on a case, then every call that meets the case's facts, run by `Eip8024.Ξ` with any gas, runs out of gas or ends exactly as the case expects. It asks one thing of the case: its input words are below `2^256`. Without that it is false for contrived cases (a fact can pin a term whose value is above `2^256 - 1` to `2^256 - 1`, and the checker reads the pinned constant); every case of `Check.lean` reads calldata words and the capacity word, which `Theorems.lean` shows are below `2^256`;
-- the contract theorems (`Theorems.lean`, and each artifact's `correct` in `Proofs/`), now without hypotheses about the checker. For example, for the Huff permutation entries:
+- **`CheckerSound`** (`Soundness.lean`), proven as `Soundness.checkerSound` (`Evm/Final.lean`): if the checker accepts a bytecode on a case, then every call that meets the case's facts, run by `Eip8024.Ξ` with any gas, runs out of gas or ends exactly as the case expects. It asks one thing of the case: its input words are below `2^256`. Without that it is false for contrived cases (a fact can pin a term whose value is above `2^256 - 1` to `2^256 - 1`, and the checker reads the pinned constant); every case of `Check.lean` reads calldata words and the capacity word, which `Theorems.lean` shows are below `2^256`;
+- **`CheckerTotal`** (`Soundness.lean`), proven as `Soundness.checkerTotal`: if the checker accepts a bytecode on a case with gas `G` (`checkCaseGas`), then every such call given at least `G` gas ends exactly as the case expects with `G` gas used (`Exact (g - G)`: a success or revert with exactly the expected bytes and `g - G` gas left; running out of gas or any other exception falsifies it), and every such call given less than `G` runs out of gas. Both come from `checker_core` (from `reaches_final`, `Xi_eq`, `spec_sound`, `outputsMatch_sound` and the gas carried along the run), so `G` is exactly the gas of the call, not a bound;
+- the contract theorems (`Theorems.lean`, and each artifact's `correct`, `total` and `enough` in `Proofs/`), without hypotheses about the checker. Each contract kind has one dispatch over its cases (`huffPerm_of`, `huffHash_of`, `yulPerm_of`, `hashCap_of`, `yulHash_of`, `hashV2_of`) that turns what each case gives into the interface's outcome, and it gives both statements. For the Huff permutation entries, partial correctness:
 
   ```lean
   theorem huffPerm_correct (a : Artifact) (c : Params)
@@ -25,12 +26,27 @@ The goal of this directory is a kernel-checked proof that the generated runtime 
       Matches (Eip8024.Ξ σ σ₀ g A I) (huffPerm c cd)
   ```
 
-  and `Proofs/Huff/Amsterdam/T2.lean` instantiates it with the kernel check (`hc`) as `correct`. `Runs a cd v I` fixes only the call frame's code, calldata and call value (`runs_exists`: every artifact, calldata and value has such a frame); the accounts, substate, gas and the rest of the frame are arbitrary. `Matches` holds for an out-of-gas (or out-of-fuel) error, for a success whose output bytes are exactly `encodeWords (permutationWords c (calldataWords cd 0 c.t))`, and for nothing else: any other exceptional halt, a revert, or other bytes falsify it.
+  and total correctness:
+
+  ```lean
+  theorem huffPerm_total (a : Artifact) (c : Params) (gas : List Nat)
+      (hc : CheckedGas (Code.ofBytes a.bytes) (huffPermCases c) gas)
+      (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+      (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+      Total (huffPermCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (huffPerm c cd)
+
+  def Total (cases : List Case) (gas : List Nat) (e : Env) (g : Nat) (r : ...) (o : Outcome) :=
+    ∃ j, j < cases.length ∧ FactsHold e (cases.getD j default).facts ∧
+      (gas.getD j 0 ≤ g → Exact (g - gas.getD j 0) r o) ∧
+      (g < gas.getD j 0 → r = .error .OutOfGass)
+  ```
+
+  `Proofs/Huff/Amsterdam/T2.lean` instantiates them with its kernel checks as `correct` and `total`: there `gas` is the literal `[5912]` and `checkG : CheckedGas code cases gas` is kernel-checked, so a call of the t = 2 permutation given at least 5,912 gas returns exactly `encodeWords (permutationWords c (calldataWords cd 0 c.t))` and leaves `g - 5912`, and given less runs out of gas. Every artifact's file has its `gas` list (one entry per case, in the order of its `cases`), and `enough` states the simpler corollary: with at least the most gas of any case, every call ends exactly as the interface says. `Runs a cd v I` fixes only the call frame's code, calldata and call value (`runs_exists`: every artifact, calldata and value has such a frame); the accounts, substate, gas and the rest of the frame are arbitrary. `Matches` holds for an out-of-gas (or out-of-fuel) error, for a success whose output bytes are exactly the interface's, and for nothing else: any other exceptional halt, a revert, or other bytes falsify it.
 
 What the theorems do not say, and why this is not yet called formally verified:
 
-- **Partial correctness only.** Every call may run out of gas as far as the theorems go; nothing is proven about how much gas a call needs, so they would also hold of a contract that always ran out of gas. `scripts/Call.lean` runs every artifact through the same `Eip8024.Ξ` with `#eval` (not a proof): with 3·10^7 gas all 35 return exactly the interface's bytes (using under 100,000 gas), with 100 gas all run out.
-- **The semantics.** EVMLean models Cancun; the contracts target Osaka and Amsterdam. That the opcodes and gas rules the checker relies on are the same in those forks is not yet reviewed (lane B7), and the EIP-8024 overlay is checked against the EIP text and revm only (B8).
+- **The semantics.** EVMLean models Cancun; the contracts target Osaka and Amsterdam. That the opcodes and gas rules the checker relies on are the same in those forks is not yet reviewed (lane B7), and the EIP-8024 overlay is checked against the EIP text and revm only (B8). The gas `G` of the theorems is that of EVMLean's Cancun schedule; it equals what revm and forge measure on Osaka and Amsterdam for every artifact (Gas, below), which is evidence, not a proof, that the schedules agree on these paths.
+- **The frame, not the transaction.** `Ξ` is the execution of the call frame. A transaction calling the contract also pays the intrinsic 21,000 and the calldata (Gas, below); a contract calling it pays the `CALL` and the account access. Neither is part of the theorems.
 - **The olean trust** (`leanchecker` over the import closure, C9), the spec items listed under Constant provenance (C10, C11), the correspondence of `Bytecode/` with deployments (D13), and an independent review of the statements (E15) are still open.
 
 ## Layout
@@ -46,11 +62,11 @@ What the theorems do not say, and why this is not yet called formally verified:
 | `Poseidon2/Evm/Eip8024.lean` | DUPN / SWAPN (EIP-8024) on top of EVMLean, with tests; `Steps.lean`: `Xstep` of every `DUPn` / `SWAPn` and of DUPN / SWAPN, the overlay agreeing with EVMLean elsewhere, EVMLean's word operations as natural numbers; `Sim.lean`: the per-opcode simulation lemmas (stack and arithmetic); `Bytes.lean`: byte arrays as functions of the index, big-endian words; `Memory.lean`: the word memory against the byte memory (`MemRel`, `StRel`), `SimulatesM`, the lift of `Sim.lean`'s lemmas; `MemSim.lean`: the memory and data opcodes; `Decode.lean`: the checker's decoder and jump destinations against EVMLean's `decode` and `D_J`; `Control.lean`: `JUMP`, `JUMPI`, `STOP`; `Run.lean`: every accepted instruction as an EVM step, the run iterated with gas up to the final `RETURN` / `REVERT`; `Final.lean`: `RETURN`, `REVERT` and the proof of `CheckerSound` (`checkerSound`); `Smoke.lean` shows EVMLean is wired in |
 | `Poseidon2/Bytecode/` | The runtime bytecode of 35 artifacts, written by `poseidon2-gen lean-export` (generator-rs), with byte count and keccak256 |
 | `Poseidon2/Checker/` | The symbolic checker (`Forms`, `Bounds`, `SymExec`, `Check`), segmented checking (`Segments` for the bytecode run, `SpecSegments` for the spec side), its soundness (`Bridge`: the spec run; `BoundsSound`: word terms; `FieldSound`: field values; `Valuation`: the atom table's shape and a valuation of it), mutation tests (`Mutations`) |
-| `Poseidon2/Soundness.lean` | `CheckerSound`, the soundness proposition (proven in `Evm/Final.lean`) |
-| `Poseidon2/Theorems.lean` | For every contract kind: check accepted implies the interface behaviour (through `checkerSound`) |
-| `Poseidon2/Proofs/` | Library `Poseidon2Proofs`: per artifact, the kernel check and the contract theorem, written by `scripts/Emit.lean`; the 17 small artifacts are committed, the 18 large ones go to `Proofs/Generated/` (not committed) as a chain of parts |
+| `Poseidon2/Soundness.lean` | `CheckerSound` and `CheckerTotal`, the soundness propositions, and `Exact` (both proven in `Evm/Final.lean`) |
+| `Poseidon2/Theorems.lean` | For every contract kind: check accepted implies the interface behaviour (`*_correct`, through `checkerSound`), and check accepted with its gas implies the exact interface behaviour with that gas (`*_total`, `Total`, through `checkerTotal`) |
+| `Poseidon2/Proofs/` | Library `Poseidon2Proofs`: per artifact, the kernel check with the gas of each case (`gas`, `checkG`) and the contract theorems (`correct`, `total`, `enough`), written by `scripts/Emit.lean`; the 17 small artifacts are committed, the 18 large ones go to `Proofs/Generated/` (not committed) as a chain of parts |
 | `Poseidon2/AxiomCheck.lean`, `Audit.lean`, `Proofs/Audit.lean` | The audits (below) |
-| `scripts/` | Generators of the data files (node, Lean), `Dev.lean` (the checker by `#eval` on every artifact), `Call.lean` (every artifact called through `Eip8024.Ξ` by `#eval`), `Emit.lean` (writes `Proofs/`), `proof.sh` (writes and builds the proof of an artifact), `export.sh` (rewrites `Bytecode/`) |
+| `scripts/` | Generators of the data files (node, Lean), `Dev.lean` (the checker by `#eval` on every artifact, with the gas of each case), `Call.lean` (every artifact called through `Eip8024.Ξ` by `#eval`, again with exactly the gas it used and one less), `Emit.lean` (writes `Proofs/`), `proof.sh` (writes and builds the proof of an artifact), `export.sh` (rewrites `Bytecode/`) |
 
 ## Building
 
@@ -75,15 +91,15 @@ Measured on an Apple M2 Max with 96 GB, `/usr/bin/time -l`, one at a time:
 
 - `lake exe cache get` on a clean clone: 92 s (Mathlib cache already in `~/.cache/mathlib`, so no download), `.lake` 7.3 GB.
 - `lake build Poseidon2 Poseidon2.Proofs.Audit` on that clone (EVMLean, then everything of ours): 1,600 s at 11.1 GB with `LEAN_NUM_THREADS=1`, `.lake` 7.6 GB afterwards. The peak is `GrainCheck.lean` (383 s, 11.1 GB); then `DiagCheck.lean` (743 s, 6.4 GB), which imports it. With `LEAN_NUM_THREADS=2` the same build takes 1,170 s but two processes reach 14.5 GB together.
-- The 17 committed artifacts (`scripts/proof.sh`, writing included): 10 to 44 s and 3.0 to 5.3 GB each (372 s for all 17).
-- The 18 large ones (`scripts/proof.sh`, writing included): 81 to 436 s and 3.8 to 7.8 GB each, in the table below.
+- The 17 committed artifacts (`scripts/proof.sh`, writing included): 573 s for all 17, at most 5.4 GB.
+- The 18 large ones (`scripts/proof.sh`, writing included): 83 to 446 s and 3.6 to 7.6 GB each, in the table below.
 
 ## How the bytecode is checked
 
 1. `poseidon2-gen lean-export` writes each runtime bytecode as a Lean literal (`Bytecode/`).
-2. The checker (`Checker/`) runs it symbolically once per calldata class of its interface (`Check.lean`: `huffPermCases`, `huffHashCases`, `yulHashCases`, `yulPermCases`, `hashV2Cases`). Values are exact word terms with intervals, linear forms over atoms in `F_p` with an upper bound on the raw word, or partial S-box powers. Atoms are input words read in the field and fifth powers of earlier forms, looked up by definition, not by creation order. Control flow, jump destinations (EVMLean's `D_J`) and memory addresses must be concrete; every raw `ADD` / `MUL` / `SHL` on field values is bounded below `2^256`; a branch must be decided by its interval. Anything else fails.
+2. The checker (`Checker/`) runs it symbolically once per calldata class of its interface (`Check.lean`: `huffPermCases`, `huffHashCases`, `yulHashCases`, `yulPermCases`, `hashV2Cases`). Values are exact word terms with intervals, linear forms over atoms in `F_p` with an upper bound on the raw word, or partial S-box powers. Atoms are input words read in the field and fifth powers of earlier forms, looked up by definition, not by creation order. Control flow, jump destinations (EVMLean's `D_J`) and memory addresses must be concrete; every raw `ADD` / `MUL` / `SHL` on field values is bounded below `2^256`; a branch must be decided by its interval. Anything else fails. The checker also adds up the gas of its run (Gas, below).
 3. The returned forms are compared with `permG linOps` / `hashG linOps` run on the input atoms over the bytecode's own atom table: the same definition the spec uses, so the spec and the checker cannot drift.
-4. In the kernel (`Proofs/`), long runs are checked in segments between literal checker states, so no declaration holds the whole run; `Segments.lean` proves that segments compose (`seg_run`). The spec side of a permutation case is checked the same way, in segments of rounds (`SpecSegments.lean`: `permG_eq_roundsRun`, `rounds_seg`, `resultOk_perm`).
+4. In the kernel (`Proofs/`), long runs are checked in segments between literal checker states, so no declaration holds the whole run; `Segments.lean` proves that segments compose (`seg_run`). The spec side of a permutation case is checked the same way, in segments of rounds (`SpecSegments.lean`: `permG_eq_roundsRun`, `rounds_seg`, `resultOk_perm`, `resultOkGas_perm`). Each case is checked together with its gas (`checkCaseGas`), which the file states as a literal.
 
 Checker results (`scripts/Dev.lean`, `#eval`): every case of the 33 artifacts built from the current sources passes (148 cases), the deployed Yul v2 passes its 6, the deployed Huff v2 passes from 4 bytes of calldata on. Below 4 bytes the deployed Huff v2 adds its capacity word, which wrapped below zero, to another word unreduced; for empty calldata it returns `0x0fcc8f62…82d5` (anvil returns the same), where the deployed Yul v2 returns the permutation of its capacity word. `Mutations.lean` checks that one-byte mutations are rejected.
 
@@ -91,16 +107,48 @@ Kernel checks (`decide +kernel`), all 35 artifacts, one at a time, without error
 
 | Artifact | Parts | Bytecode segments | Files | Wall | Peak RSS |
 | -------- | ----- | ----------------- | ----- | ---- | -------- |
-| Huff t = 8, Amsterdam / Osaka | 6 / 6 | 6 / 6 | 4.9 / 4.9 MB | 163 / 169 s | 5.9 / 5.9 GB |
-| Huff t = 12 | 7 / 7 | 8 / 9 | 9.2 / 2.2 MB | 342 / 109 s | 7.8 / 4.6 GB |
-| Huff t = 16 | 8 / 8 | 11 / 12 | 2.8 / 3.0 MB | 159 / 148 s | 5.6 / 4.8 GB |
-| Huff t = 20 | 9 / 9 | 14 / 16 | 4.4 / 4.7 MB | 237 / 222 s | 6.3 / 5.1 GB |
-| Huff t = 24 | 10 / 11 | 17 / 20 | 5.8 / 6.7 MB | 334 / 293 s | 7.7 / 5.6 GB |
-| Huff t = 28 | 11 / 12 | 20 / 25 | 8.5 / 9.9 MB | 432 / 427 s | 7.7 / 5.8 GB |
-| Yul t = 8, optimizer 1,000,000 / 200 / off | 9 / 10 / 10 | 8 / 9 / 10 | 1.3 / 1.4 / 1.4 MB | 81 / 91 / 89 s | 3.8 / 4.1 / 4.0 GB |
-| Yul t = 12 | 11 / 11 / 12 | 14 / 14 / 15 | 2.3 / 2.5 / 2.4 MB | 148 / 164 / 161 s | 4.5 / 4.8 / 4.6 GB |
+| Huff t = 8, Amsterdam / Osaka | 6 / 6 | 6 / 6 | 4.9 / 4.9 MB | 164 / 167 s | 5.8 / 5.8 GB |
+| Huff t = 12 | 7 / 7 | 8 / 9 | 9.3 / 2.2 MB | 345 / 112 s | 7.6 / 4.4 GB |
+| Huff t = 16 | 8 / 8 | 11 / 12 | 2.8 / 3.0 MB | 164 / 151 s | 5.4 / 4.6 GB |
+| Huff t = 20 | 9 / 9 | 14 / 16 | 4.4 / 4.7 MB | 239 / 225 s | 6.0 / 5.0 GB |
+| Huff t = 24 | 10 / 11 | 17 / 20 | 5.8 / 6.7 MB | 338 / 299 s | 7.5 / 5.4 GB |
+| Huff t = 28 | 11 / 12 | 20 / 25 | 8.5 / 9.9 MB | 446 / 432 s | 7.4 / 5.6 GB |
+| Yul t = 8, optimizer 1,000,000 / 200 / off | 9 / 10 / 10 | 8 / 9 / 10 | 1.3 / 1.4 / 1.4 MB | 83 / 95 / 92 s | 3.6 / 3.8 / 3.7 GB |
+| Yul t = 12 | 11 / 11 / 12 | 14 / 14 / 15 | 2.3 / 2.5 / 2.4 MB | 150 / 165 / 163 s | 4.2 / 4.5 / 4.4 GB |
 
-Every permutation case has 7 spec segments. The Huff Amsterdam t = 8, 12, 28 numbers were measured again after `Theorems.lean` came to import the EVM proofs; the parts of a large artifact do not import `Theorems.lean` (only its last file does), and with it they took up to 8.0 GB (t = 12). Wall and peak are of `scripts/proof.sh <artifact>` with `LEAN_NUM_THREADS=1` (writing the files, about 10 to 15 s, included; peak is the largest Lean process). Before this layout, with segments of 3,000 instructions, the spec side in one declaration and one file per artifact, Huff t = 28 took 19.7 GB, for two reasons found by checking single declarations: the spec run of t = 28 alone took 12.7 GB, and a `CODECOPY` of 27 words near the end of the 64 KB code took 13 GB because each word walked the code list from its start (now it is walked once). A monolithic check (no segments) overflows the kernel's stack at 38.8 GB. Memory also grows with the number of kernel checks one Lean process holds, hence the parts.
+Every permutation case has 7 spec segments. All 35 were measured again after the checker came to compute the gas (the checkpoint states carry it and every case is checked with its gas): the large ones took at most 15 s longer than before and no more memory (`/usr/bin/time -l` gives Huff Amsterdam t = 12 7.81 GB, t = 28 7.61 GB, t = 8 5.98 GB), the 17 small ones 573 s instead of 372 s. The parts of a large artifact do not import `Theorems.lean` (only its last file does); with it they took up to 8.0 GB (t = 12). Wall and peak are of `scripts/proof.sh <artifact>` with `LEAN_NUM_THREADS=1` (writing the files, about 10 to 15 s, included; peak is the largest Lean process, sampled every second). Before this layout, with segments of 3,000 instructions, the spec side in one declaration and one file per artifact, Huff t = 28 took 19.7 GB, for two reasons found by checking single declarations: the spec run of t = 28 alone took 12.7 GB, and a `CODECOPY` of 27 words near the end of the 64 KB code took 13 GB because each word walked the code list from its start (now it is walked once). A monolithic check (no segments) overflows the kernel's stack at 38.8 GB. Memory also grows with the number of kernel checks one Lean process holds, hence the parts.
+
+## Gas
+
+The checker adds up the gas of its run as EVMLean charges it (Cancun): each instruction's static gas (`staticGas`: 0 for `STOP`, `RETURN`, `REVERT`; 1 for `JUMPDEST`; 2 for `PUSH0`, `POP`, `CALLVALUE`, `CALLDATASIZE`, `RETURNDATASIZE`, `MSIZE`; 5 for `MUL`, `DIV`, `MOD`; 8 for `ADDMOD`, `MULMOD`, `JUMP`; 10 for `JUMPI`; 3 for the rest it accepts, DUPN and SWAPN included; `CALLDATACOPY` and `CODECOPY` 3 plus 3 per word), plus the memory expansion, which over a run is `memCost` (EVMLean's `Cₘ`, 3 per word and words squared over 512) of the memory the run ends with, the `RETURN`'s range included. The path is concrete, so this is one number per case, `G`. The per-artifact files list it per case (`gas`), and the kernel checks it with the run (`checkCaseGas`). `CheckerTotal` makes it the exact gas of the call: with at least `G` the call ends as the interface says and `g - G` is left, with less it runs out of gas.
+
+`G` is execution gas: what `Ξ` consumes, the gas of the contract's own call frame. That is the number `poseidon2-gen verify` reports as call gas (revm's gas spent by the outermost frame) and the number in brackets in a forge or cast trace. A transaction calling the contract directly uses 21,000 + 4 per zero byte and 16 per non-zero byte of calldata + `G` (the EIP-7623 floor of 10 per zero and 40 per non-zero byte is lower for every returning call below, and can be higher for a reverting one, whose `G` is small); for example the deployed Huff v2 on three words of calldata (one of them `P + 7`; 66 zero and 34 non-zero bytes) used 36,677 = 21,000 + 808 + 14,869 on anvil (Osaka). A contract calling it pays the `CALL` and the account access on top.
+
+Every `G` of a returning case equals the measured call-frame gas, on both forks for Huff and at every solc setting for Yul. Huff, `poseidon2-gen verify --hardfork <fork> 2 3 4 8 12 16 20 24 28` (revm on the fork's rules), `G` / measured:
+
+| t | Amsterdam | Osaka |
+| - | --------- | ----- |
+| 2 | 5,912 / 5,912 | 5,912 / 5,912 |
+| 3 | 7,653 / 7,653 | 7,653 / 7,653 |
+| 4, `hash_1` / `hash_2` / `hash_3` | 11,895, 11,902, 11,975 / the same | 11,895, 11,902, 11,975 / the same |
+| 8 | 23,933 / 23,933 | 24,499 / 24,499 |
+| 12 | 34,288 / 34,288 | 35,696 / 35,696 |
+| 16 | 44,966 / 44,966 | 48,635 / 48,635 |
+| 20 | 55,763 / 55,763 | 63,188 / 63,188 |
+| 24 | 66,431 / 66,431 | 77,045 / 77,045 |
+| 28 | 79,032 / 79,032 | 94,502 / 94,502 |
+
+Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Poseidon2.t.sol` (`hash_1`, `hash_2`, `hash_3` of `Poseidon2Yul_BN254`, the same gas for all three and for calldata below 4 bytes) built as `scripts/export.sh` builds them, on forge's Amsterdam EVM, `G` / measured:
+
+| t | optimizer 1,000,000 runs | 200 runs | off |
+| - | ------------------------ | -------- | --- |
+| 2 | 9,019 / 9,019 | 9,019 / 9,019 | 10,200 / 10,200 |
+| 3 | 10,992 / 10,992 | 10,992 / 10,992 | 12,913 / 12,913 |
+| 4 | 15,152 / 15,152 | 15,158 / 15,158 | 15,320 / 15,320 |
+| 8 | 31,450 / 31,450 | 34,756 / 34,756 | 35,175 / 35,175 |
+| 12 | 48,991 / 48,991 | 51,021 / 51,021 | 54,184 / 54,184 |
+
+The deployed v2 contracts, `cast call --trace` on anvil (Osaka) with the runtime code of `deployed-artifacts/`: Huff 14,869 / 14,869 (calldata of 4 bytes or more), Yul 19,639 / 19,639. `scripts/Call.lean` gets the same numbers from EVMLean itself, and shows that each call returns with exactly that gas (0 left) and runs out of gas with one less. The reverting cases (the Yul wrappers: 43 gas with a call value, 68 below 4 bytes, 101 for another selector, 157, or 193 with the optimizer off, for short arguments; `Poseidon2Yul_BN254` and the deployed Yul v2: 43 with a call value) are kernel-checked like the others but were not measured.
 
 ## Continuous integration
 
@@ -110,7 +158,7 @@ Every permutation case has 7 spec segments. The Huff Amsterdam t = 8, 12, 28 num
 | --- | ------------ | ---------------------- |
 | Lean build | `leanprover/lean-action@v1`: elan, `lake exe cache get`, `lake build Poseidon2 Poseidon2.Proofs.Audit`, `.lake` cached for the jobs below; then `scripts/proof.sh` on the 17 small artifacts and `git diff --exit-code Poseidon2/Proofs` | 1,600 s at 11.1 GB on a clean clone; the proof check 87 s at 1.9 GB (it only rewrites the files, the build is cached) |
 | Exported bytecode is current | `scripts/export.sh` (forge `v1.8.5` with the submodules, the Rust exporter with huff-neo), then `git diff --exit-code Poseidon2/Bytecode`, so the proofs cover the bytecode the sources compile to | 181 s on a clean clone (the exporter's release build and the Osaka regeneration included), 0.3 GB; the files it writes are identical on two checkouts at different paths |
-| Kernel check, one per large artifact (18) | restores the build, `scripts/proof.sh <artifact>` | 81 to 432 s at 3.8 to 7.8 GB (table above) |
+| Kernel check, one per large artifact (18) | restores the build, `scripts/proof.sh <artifact>` | 83 to 446 s at 3.6 to 7.6 GB (table above) |
 
 The Yul builds of `export.sh` name their remappings: forge's detected ones carry the absolute path of the checkout into the solc metadata, whose hash ends the code, so the bytes depended on where the repository was checked out. The committed Yul bytecode was exported again that way; only the 53 metadata bytes at the end of each changed (checked by comparing the code before them), and the 15 Yul artifacts were kernel-checked again.
 
@@ -130,7 +178,7 @@ Not trusted: huff-neo, solc, the generators, the checker (`CheckerSound` is prov
 
 ## Sorry and axiom list
 
-No `sorry`, no `axiom` declared here, no `native_decide`. `Audit.lean` checks every constant of every module under `Poseidon2/` (selected by defining module, so private and auxiliary declarations are included) and fails on any file under `Poseidon2/` it does not import; `Proofs/Audit.lean` does the same for the committed files of `Poseidon2/Proofs/`, and every generated file under `Proofs/Generated/` audits its own constants (`#assert_standard_axioms_here`, checked to reject `sorry`, `native_decide` and an `axiom`) and, in an artifact's last file, those of its parts. `CheckerSound` is a theorem (`checkerSound`), not an axiom or a hypothesis.
+No `sorry`, no `axiom` declared here, no `native_decide`. `Audit.lean` checks every constant of every module under `Poseidon2/` (selected by defining module, so private and auxiliary declarations are included) and fails on any file under `Poseidon2/` it does not import; `Proofs/Audit.lean` does the same for the committed files of `Poseidon2/Proofs/`, and every generated file under `Proofs/Generated/` audits its own constants (`#assert_standard_axioms_here`, checked to reject `sorry`, `native_decide` and an `axiom`) and, in an artifact's last file, those of its parts. `CheckerSound` and `CheckerTotal` are theorems (`checkerSound`, `checkerTotal`), not axioms or hypotheses.
 
 ## Constant provenance
 
@@ -154,7 +202,7 @@ No `sorry`, no `axiom` declared here, no `native_decide`. `Audit.lean` checks ev
 
 ## Scripts
 
-`scripts/` holds what wrote the data files, so they can be regenerated and reviewed: `transcribe.mjs` (constants for t ≤ 16, from the fetched upstream files named in it), `vectors.mjs` and `genvectors.mjs` (`Vectors.lean`), `dump-params.rs` and `genwide.mjs` (t = 20, 24, 28), `rounds.mjs` (Rf / Rp), `GenDiag.lean` (the `DiagCheck.lean` certificates), `Dev.lean` (the checker in development mode), `Call.lean` (the calls through `Eip8024.Ξ`, development mode), `Emit.lean` (`Proofs/`), `proof.sh` (runs `Emit.lean` with each artifact's settings and builds the result) and `export.sh` (runs the exporter on fresh forge builds). The node scripts read upstream files fetched by hand into the working directory; their URLs and commits are in the scripts.
+`scripts/` holds what wrote the data files, so they can be regenerated and reviewed: `transcribe.mjs` (constants for t ≤ 16, from the fetched upstream files named in it), `vectors.mjs` and `genvectors.mjs` (`Vectors.lean`), `dump-params.rs` and `genwide.mjs` (t = 20, 24, 28), `rounds.mjs` (Rf / Rp), `GenDiag.lean` (the `DiagCheck.lean` certificates), `Dev.lean` (the checker in development mode, with the gas of each case), `Call.lean` (the calls through `Eip8024.Ξ`, development mode, with the gas they used), `Emit.lean` (`Proofs/`), `proof.sh` (runs `Emit.lean` with each artifact's settings and builds the result) and `export.sh` (runs the exporter on fresh forge builds). The node scripts read upstream files fetched by hand into the working directory; their URLs and commits are in the scripts.
 
 ## Conventions
 
