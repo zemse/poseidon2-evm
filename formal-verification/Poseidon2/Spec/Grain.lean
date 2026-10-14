@@ -17,8 +17,7 @@ written from that script for a prime field with the S-box `x ^ α`:
   rounds (one each), the last `R_F / 2` full rounds.
 
 Bit `i` of the state number is element `i` of the script's `bit_sequence`.
-The internal diagonal is not derived here (the script draws it at random and checks its
-minimal polynomials).
+The draws of the internal diagonal, which continue this generator, are in `Diagonal.lean`.
 -/
 
 namespace Poseidon2.Spec.Grain
@@ -144,110 +143,5 @@ def certStates (n p k s : Nat) : List Nat :=
     match constant n p 1000 s with
     | some (_, s') => s' :: certStates n p k s'
     | none => []
-
-end Poseidon2.Spec.Grain
-
-namespace Poseidon2.Spec.Grain
-
-/-! ## The internal diagonal
-
-For `t ≥ 4` the script's `generate_matrix_partial` draws `M_I = circ(0, 1, .., 1) + diag(r)`
-with `r` = `t` values `F(grain_random_bits(n))` (the `n` bits read modulo `p`, no rejection),
-continuing the same generator after the round constants, and redraws while
-`check_minpoly_condition` fails. The reference implementations store `r - 1` (`diagM1`).
-`diagonal t rf rp k` is that matrix's `r - 1` if draw `k` (counted from 0) is the first that
-passes; which `k` passes is not computed here. -/
-
-/-- The state after `m` values of `n` bits. -/
-def skipBits (n : Nat) : Nat → Nat → Option Nat
-  | 0, s => some s
-  | m + 1, s =>
-    match bits n 0 s with
-    | some (_, s') => skipBits n m s'
-    | none => none
-
-/-- `t` values of `n` bits, each read modulo `p`. -/
-def row (n p : Nat) : Nat → Nat → Option (List Nat)
-  | 0, _ => some []
-  | k + 1, s =>
-    match bits n 0 s with
-    | some (v, s') => (row n p k s').map (v % p :: ·)
-    | none => none
-
-/-- `diagM1` of draw `k` (from 0) of the partial matrix, for the BN254 scalar field. -/
-def diagonal (t rf rp k : Nat) : Option (List Nat) :=
-  (constants 254 P (rf * t + rp) (init 254 t rf rp)).bind fun r =>
-    ((skipBits 254 (k * t) r.2).bind (row 254 P t)).map (·.map fun v => (v + P - 1) % P)
-
-theorem getLast?_getD_cons (a s : Nat) (l : List Nat) :
-    (a :: l).getLast?.getD s = l.getLast?.getD a := by
-  cases l <;> simp [List.getLast?_cons]
-
-/-- A certificate for `constants` that also gives the final state. -/
-theorem constants_state_of_chain (n p : Nat) :
-    ∀ (vs ss : List Nat) (s : Nat), chain n p s vs ss = true →
-      constants n p vs.length s = some (vs, ss.getLastD s)
-  | [], [], _, _ => rfl
-  | v :: vs, s' :: ss, s, h => by
-    simp only [chain, Bool.and_eq_true, beq_iff_eq] at h
-    have ih := constants_state_of_chain n p vs ss s' h.2
-    simp [constants, h.1, ih, getLast?_getD_cons]
-  | [], _ :: _, _, h => by simp [chain] at h
-  | _ :: _, [], _, h => by simp [chain] at h
-
-/-- A certificate for `skipBits`: the state after each value. -/
-def stepsChain (n : Nat) : Nat → List Nat → Bool
-  | _, [] => true
-  | s, s' :: ss => ((bits n 0 s).map (·.2) == some s') && stepsChain n s' ss
-
-theorem skipBits_of_chain (n : Nat) :
-    ∀ (ss : List Nat) (s : Nat), stepsChain n s ss = true → skipBits n ss.length s = some (ss.getLastD s)
-  | [], _, _ => rfl
-  | s' :: ss, s, h => by
-    simp only [stepsChain, Bool.and_eq_true, beq_iff_eq] at h
-    have ih := skipBits_of_chain n ss s' h.2
-    cases hb : bits n 0 s with
-    | none => simp [hb] at h
-    | some r =>
-      obtain ⟨v, s''⟩ := r
-      simp only [hb, Option.map_some, Option.some.injEq] at h
-      obtain ⟨rfl, -⟩ := h
-      simp [skipBits, hb, ih, getLast?_getD_cons]
-
-/-- `diagonal` from certificates: the constant chain, the states of the skipped draws, and
-the drawn row checked from the last state. -/
-theorem diagonal_of_chain (t rf rp k : Nat) (vs ss ds d : List Nat)
-    (hlen : vs.length = rf * t + rp) (hc : chain 254 P (init 254 t rf rp) vs ss = true)
-    (hdl : ds.length = k * t) (hd : stepsChain 254 (ss.getLastD (init 254 t rf rp)) ds = true)
-    (hr : (row 254 P t (ds.getLastD (ss.getLastD (init 254 t rf rp)))).map
-      (·.map fun v => (v + P - 1) % P) = some d) :
-    diagonal t rf rp k = some d := by
-  have h1 := constants_state_of_chain 254 P vs ss _ hc
-  have h2 := skipBits_of_chain 254 ds _ hd
-  rw [hlen] at h1
-  rw [hdl] at h2
-  simp only [diagonal, h1, Option.bind_some, h2]
-  exact hr
-
-end Poseidon2.Spec.Grain
-
-namespace Poseidon2.Spec.Grain
-
-theorem stepsChain_append (n : Nat) :
-    ∀ (a b : List Nat) (s : Nat),
-      stepsChain n s (a ++ b) = (stepsChain n s a && stepsChain n (a.getLastD s) b)
-  | [], _, _ => by simp [stepsChain]
-  | x :: a, b, s => by
-    simp only [List.cons_append, stepsChain, stepsChain_append n a b x, Bool.and_assoc]
-    simp [getLast?_getD_cons]
-
-end Poseidon2.Spec.Grain
-
-namespace Poseidon2.Spec.Grain
-
-theorem stepsChain_append_of (n s s' : Nat) (a b : List Nat) (ha : stepsChain n s a = true)
-    (hs : a.getLastD s = s') (hb : stepsChain n s' b = true) :
-    stepsChain n s (a ++ b) = true := by
-  rw [stepsChain_append, ha, hs, hb]; rfl
 
 end Poseidon2.Spec.Grain
