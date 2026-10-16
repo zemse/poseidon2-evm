@@ -1,4 +1,5 @@
 import Poseidon2.AxiomCheck
+import Poseidon2.Proofs.Abi
 import Poseidon2.Proofs.Deployed.HuffV2
 import Poseidon2.Proofs.Deployed.YulV2
 import Poseidon2.Proofs.Huff.Amsterdam.T2

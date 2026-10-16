@@ -1,4 +1,5 @@
 import Poseidon2.Evm.Cancun
+import Poseidon2.Spec.Abi
 
 /-!
 # Contract theorems from the checker
@@ -552,5 +553,95 @@ theorem hashV2_cancun (a : Artifact) (c : Params)
     SameXi σ σ₀ g A I :=
   hashV2_of c cd v hcd (fun _ => SameXi σ σ₀ g A I)
     (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
+/-! ## ABI calldata of the t = 4 hash
+
+On ABI calldata of `hash_1` / `hash_2` / `hash_3` (`sel ++ encodeWords ws`, `Spec/Abi.lean`) the
+case of `Total` is known: the arity's for `huffHash`, the one from 4 bytes on for `yulHash` and
+`hashV2`. So total correctness is the exact outcome `hashWords c ws` with that case's gas. -/
+
+/-- With at least `G` gas (`g`) the call `r` ends exactly in `o` with `G` used; with less it runs
+out of gas. -/
+def ExactGas (G g : Nat)
+    (r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate)))
+    (o : Outcome) : Prop :=
+  (G ≤ g → Exact (g - G) r o) ∧ (g < G → r = .error .OutOfGass)
+
+theorem abi_length (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat) :
+    (sel ++ encodeWords ws).length = 4 + 32 * ws.length := by
+  simp [hsel, encodeWords_length]
+
+theorem abi_length_lt (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
+    (h3 : ws.length ≤ 3) : (sel ++ encodeWords ws).length < 2 ^ 64 := by
+  rw [abi_length sel hsel ws]; omega
+
+/-- `huffHash` on `n = 1, 2, 3` ABI input words: case `n - 1`. -/
+theorem huffHash_abi_total (c : Params) (gas : List Nat) (sel : List UInt8)
+    (hsel : sel.length = 4) (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length)
+    (h3 : ws.length ≤ 3) (v g : Nat)
+    {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
+    (h : Total (huffHashCases c) gas ⟨sel ++ encodeWords ws, v⟩ g r
+      (huffHash c (sel ++ encodeWords ws))) :
+    ExactGas (gas.getD (ws.length - 1) 0) g r (.ret (encodeWords [hashWords c ws])) := by
+  obtain ⟨j, hj, hf, he, ho⟩ := h
+  have hl := eval_cds _ v (abi_length_lt sel hsel ws h3)
+  rw [abi_length sel hsel ws] at hl
+  have hj' : j = ws.length - 1 := by
+    simp only [huffHashCases, List.length_cons, List.length_nil] at hj
+    rcases j with _ | _ | _ | j
+    all_goals first | omega | (
+      simp only [huffHashCases, List.getD_cons_zero, List.getD_cons_succ, factsHold_cons,
+        factsHold_nil, and_true, hl, cdsMax] at hf; omega)
+  subst hj'
+  rw [huffHash_abi c sel hsel ws hws h1 h3] at he
+  exact ⟨he, ho⟩
+
+/-- `yulHash` on 1 to 3 ABI input words and call value 0: the case from 4 bytes on (5). -/
+theorem yulHash_abi_total (c : Params) (hc : c.t = 4) (gas : List Nat) (sel : List UInt8)
+    (hsel : sel.length = 4) (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length)
+    (h3 : ws.length ≤ 3) (g : Nat)
+    {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
+    (h : Total (yulHashCases c) gas ⟨sel ++ encodeWords ws, 0⟩ g r
+      (yulHash c (sel ++ encodeWords ws) 0)) :
+    ExactGas (gas.getD 5 0) g r (.ret (encodeWords [hashWords c ws])) := by
+  obtain ⟨j, hj, hf, he, ho⟩ := h
+  have hl := eval_cds _ 0 (abi_length_lt sel hsel ws h3)
+  rw [abi_length sel hsel ws] at hl
+  have hcv := eval_cv (sel ++ encodeWords ws) 0 (by decide)
+  have hj' : j = 5 := by
+    simp only [yulHashCases, hashCapCases, List.map_cons, List.map_nil, List.cons_append,
+      List.nil_append, List.length_cons, List.length_nil] at hj
+    rcases j with _ | _ | _ | _ | _ | _ | j
+    all_goals first | omega | (
+      simp only [yulHashCases, hashCapCases, shortFacts, List.map_cons, List.map_nil,
+        List.cons_append, List.nil_append, List.getD_cons_zero, List.getD_cons_succ,
+        factsHold_cons, hl, hcv] at hf; omega)
+  subst hj'
+  rw [yulHash_abi c hc sel hsel ws hws h1 h3] at he
+  exact ⟨he, ho⟩
+
+/-- `hashV2` on 1 to 3 ABI input words, any call value: the case from 4 bytes on (4). -/
+theorem hashV2_abi_total (c : Params) (hc : c.t = 4) (gas : List Nat) (sel : List UInt8)
+    (hsel : sel.length = 4) (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length)
+    (h3 : ws.length ≤ 3) (v g : Nat)
+    {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
+    (h : Total (hashV2Cases c) gas ⟨sel ++ encodeWords ws, v⟩ g r
+      (hashV2 c (sel ++ encodeWords ws))) :
+    ExactGas (gas.getD 4 0) g r (.ret (encodeWords [hashWords c ws])) := by
+  obtain ⟨j, hj, hf, he, ho⟩ := h
+  have hl := eval_cds _ v (abi_length_lt sel hsel ws h3)
+  rw [abi_length sel hsel ws] at hl
+  have hj' : j = 4 := by
+    simp only [hashV2Cases, hashCapCases, List.map_cons, List.map_nil, List.cons_append,
+      List.nil_append, List.drop_succ_cons, List.drop_zero, List.length_cons,
+      List.length_nil] at hj
+    rcases j with _ | _ | _ | _ | _ | j
+    all_goals first | omega | (
+      simp only [hashV2Cases, hashCapCases, shortFacts, List.map_cons, List.map_nil,
+        List.cons_append, List.nil_append, List.drop_succ_cons, List.drop_zero,
+        List.getD_cons_zero, List.getD_cons_succ, factsHold_cons, hl] at hf; omega)
+  subst hj'
+  rw [hashV2_abi c hc sel hsel ws hws h1 h3] at he
+  exact ⟨he, ho⟩
 
 end Poseidon2.Theorems
