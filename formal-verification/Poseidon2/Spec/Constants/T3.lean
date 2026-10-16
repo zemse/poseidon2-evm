@@ -10,10 +10,10 @@ That file states the parameters follow the HorizenLabs `poseidon2_rust_params.sa
 `EXTERNAL_RC` holds the 8 full rounds in order (the first 4 run before the partial
 rounds), `INTERNAL_RC` one constant per partial round.
 
-Cross-checked at transcription (same values, same round order) against
-TaceoLabs noir-poseidon (round constants):
-https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go
+Cross-checked (same values, same round order) against TaceoLabs noir-poseidon (round constants)
+and HorizenLabs `poseidon2_instance_bn256.rs` (`RC3` and `MAT_DIAG3_M_1`):
 https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/consts.nr
+https://github.com/HorizenLabs/poseidon2/blob/bb476b9ca38198cf5092487283c8b8c5d4317c4e/plain_implementations/src/poseidon2/poseidon2_instance_bn256.rs
 (gnark-crypto has no t = 3 table.)
 -/
 

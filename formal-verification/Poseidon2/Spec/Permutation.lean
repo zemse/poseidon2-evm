@@ -6,19 +6,22 @@ import Mathlib.Data.ZMod.Basic
 The Poseidon2 permutation of the paper (Grassi, Khovratovich, Schofnegger,
 "Poseidon2: A Faster Version of the Poseidon Hash Function",
 https://eprint.iacr.org/2023/323), for a state width `t ∈ {2, 3, 4, 8, 12, ...}`
-and the S-box `x ↦ x ^ 5`:
+and the S-box `x ↦ x ^ 5`, with the matrices of the HorizenLabs reference script
+(`poseidon2_rust_params.sage`):
 
 * the external linear layer `M_E` before the first round,
 * `R_F / 2` full rounds: add a round constant to every element, S-box every element, `M_E`,
 * `R_P` partial rounds: add a round constant to element 0, S-box element 0, `M_I`,
 * `R_F / 2` full rounds.
 
-`M_E` is `circ(2, 1)` for `t = 2`, `circ(2, 1, 1)` for `t = 3`, `M4` for `t = 4` and
+`M_E` is `circ(2, 1)` for `t = 2`, `circ(2, 1, 1)` for `t = 3` (the paper sets `M_E = M_I`
+for these widths; the spec follows the script), `M4` for `t = 4` and
 `circ(2·M4, M4, ..., M4)` (blocks of four) for `t = 8, 12, ...`, with the paper's
 `M4 = [[5,7,1,3],[4,6,1,1],[1,3,5,7],[1,1,4,6]]`.
 `M_I` is `J + diag(d)` (J all ones): every row sums the state and adds `d_i · x_i`.
 The constants record holds `d` (the "diagonal minus one" of the reference implementations); for `t = 2` and `t = 3`
-it is `[1, 2]` and `[1, 1, 2]`, the paper's `[[2,1],[1,3]]` and `[[2,1,1],[1,2,1],[1,1,3]]`.
+it is `[1, 2]` and `[1, 1, 2]`, the script's fixed `[[2,1],[1,3]]` and `[[2,1,1],[1,2,1],[1,1,3]]`
+(the paper gives no numbers for these widths).
 
 The definition is written once, over an `Ops` record (zero, addition, adding and multiplying by
 a constant, the S-box with a threaded state `σ`), so the same text runs on field elements

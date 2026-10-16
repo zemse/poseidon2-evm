@@ -11,9 +11,11 @@ That file states the parameters follow the HorizenLabs `poseidon2_rust_params.sa
 rounds), `INTERNAL_RC` one constant per partial round.
 
 Cross-checked at transcription (same values, same round order) against
-gnark-crypto (round constants and diagonal) and TaceoLabs noir-poseidon (round constants and diagonal):
+gnark-crypto (round constants and diagonal), TaceoLabs noir-poseidon (round constants and diagonal)
+and Barretenberg `poseidon2_params.hpp` (round constants and diagonal):
 https://github.com/Consensys-Incorporated/gnark-crypto/blob/a3a3ae54638a1201fa818d7d722ee57b1e1631f2/ecc/bn254/fr/poseidon2/poseidon2_constants.go
 https://github.com/TaceoLabs/noir-poseidon/blob/ecb23c8476baba7ab7a16800ca25dd60e4832895/poseidon2/src/bn254/consts.nr
+https://github.com/AztecProtocol/aztec-packages/blob/8c7eb07b84eda9bcb3951fbacaa3529f6a726ae6/barretenberg/cpp/src/barretenberg/crypto/poseidon2/poseidon2_params.hpp
 -/
 
 namespace Poseidon2.Spec.Constants.T4

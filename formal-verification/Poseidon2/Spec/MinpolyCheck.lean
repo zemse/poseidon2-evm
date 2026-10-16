@@ -18,8 +18,9 @@ for `i = 1 .. 2t` the minimal polynomial of `M ^ i` over `GF(P)` is irreducible 
 (`Minpoly.FirstPass`) and that `diagM1` of `Constants/T<t>.lean` is its `r - 1`. So, given the
 round numbers, the spec's constants for every `t ≥ 4` are what the script outputs.
 
-For t = 2 and 3 the script fixes `M_I` and checks nothing: the t = 2 matrix passes the same
-check (`fixed_t2`), the t = 3 matrix fails it (`fixed_t3`, the eigenvalue 1).
+For t = 2 and 3 the script fixes `M_I` and does not run `check_minpoly_condition` on it (only its
+subspace-trail checks `algorithm_1` .. `algorithm_3`): the t = 2 matrix passes the condition
+(`fixed_t2`), the t = 3 matrix fails it (`fixed_t3`, the eigenvalue 1).
 -/
 
 namespace Poseidon2.Spec.MinpolyCheck
