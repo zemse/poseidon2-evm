@@ -65,6 +65,9 @@ jobs:
         run: ./compat-check.sh
         id: compat
 
+      - name: Run the Huff unit tests
+        run: hnc src/bn254/huff/Utils.huff test
+
       - name: Run Forge tests
         run: |
           forge test -vvv
