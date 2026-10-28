@@ -123,7 +123,7 @@ fn schedule(fork: &Fork, t: usize) -> Result<String> {
         result.state_in_memory,
         false,
         false,
-        MEMORY_UNKNOWN,
+        result.memory,
     );
     let wrapper = o.entry_gas + o.tail_gas + memory_gas(result.memory.max(32 * t));
     // Debug escapes the ASCII lines as JSON does
@@ -205,6 +205,36 @@ fn main() -> ExitCode {
         Err(err) => {
             eprintln!("error: {err}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schedule_gas_matches_execution() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for name in ["paris", "osaka", "amsterdam"] {
+            let fork = fork(name).unwrap();
+            let built = huff::run(&root, &fork, &[2, 3, 4], false, || Ok(())).unwrap();
+            let reports = verify(&root, &fork, &built).unwrap();
+            for report in reports {
+                let json = schedule(&fork, report.t).unwrap();
+                let number = |key: &str| -> u64 {
+                    json.split_once(&format!("\"{key}\":"))
+                        .unwrap()
+                        .1
+                        .split(',')
+                        .next()
+                        .unwrap()
+                        .parse()
+                        .unwrap()
+                };
+                let measured = report.permutation.as_ref().unwrap_or(&report.gas).measured;
+                assert_eq!(number("gas") + number("wrapper"), measured, "{report}");
+            }
         }
     }
 }
