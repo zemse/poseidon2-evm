@@ -116,6 +116,33 @@ Uncached derivation does not call the parameter cache: it computes round counts,
 
 The cache fix is verified independently of the uncommitted tree code: e1150f9 archived to `astra-cache-source`, with only `round_constants.rs` and its new test module copied in, using a separate `astra-cache-target`. The complete 37-test generator suite passes there, including pinned answers, generator equality and compiled reference/gas gates (`astra-cache-isolated-tests.log`).
 
+### 5. Bound-checked sum trees
+
+The serial sum reduces its accumulator when another lazy input would overflow. A tree can instead feed two lazy partial sums to one ADDMOD. `sum_tree.rs` plans ordered binary trees; `treeSums` emits the chosen tree with PRIME before each ADDMOD's operands. The consuming internal rounds and streamed column sums use it. No new scalar state, multiplication, fork opcode or public interface is needed.
+
+Correctness follows by induction over the tree. Each leaf occurs once, in the supplied order. An ADD is admitted only when the exact inclusive child bounds have a checked uint256 sum; its bound is that sum. An ADDMOD takes the BN254 PRIME, accepts full-word operands and has bound P-1. Both nodes preserve the sum of their leaves modulo P. The root must meet the requested cap. Emission independently replays these operations through value.rs, which still rejects unsafe ADD/MUL/SHL and wrong moduli; no overflow check is bypassed.
+
+The planner prices a leaf/PRIME copy at 3, ADD at 3 and ADDMOD at 8, common to all supported forks. Its cache key contains the complete ordered bound vector and cap. Fork, layout and memory options are not missing inputs to this model: reach, shadow loads, actual PRIME supply and code size are deliberately outside it, checked and priced by the emitter and complete-call option search. Smaller bounds with no greater arithmetic cost dominate for the primary objective. Peak is only a tie-break among retained trees; pruning may discard an equal-gas larger-bound tree with a smaller peak, so no global peak-optimality claim is made.
+
+Trying trees only on the already-selected old schedule misses the Amsterdam t8/t12 savings and several legacy improvements. The final search retains the entire original family, evaluates the corresponding tree family separately (including compact-entry attempts), and keeps the old candidate on failure, tie or regression. Actual entry/tail/memory gas, body periods, inline rounds and code limits decide the winner, not planner gas alone.
+
+Before is e1150f9, including compact inputs. All figures below are compiled call-frame gas with reference-checked outputs and exact model agreement:
+
+| t | Amsterdam before | After | Osaka before | After | Paris before | After |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 23,933 | 23,807 | 24,499 | 24,217 | 24,560 | 24,278 |
+| 12 | 34,288 | 34,145 | 35,696 | 35,047 | 35,707 | 35,058 |
+| 16 | 44,966 | 44,494 | 48,635 | 48,635 | 48,809 | 48,809 |
+| 20 | 55,763 | 54,835 | 63,188 | 62,956 | 63,362 | 63,130 |
+| 24 | 66,431 | 65,489 | 76,985 | 76,281 | 77,159 | 76,455 |
+| 28 | 79,032 | 77,826 | 94,434 | 93,372 | 94,614 | 93,552 |
+
+Every t2/t3/t4 permutation and hash arity is unchanged. All widths still fit one contract. Amsterdam t8/t12 now choose consuming rounds, lowering peak depth from 657/931 to 140/184. t24/t28 keep 25/12 steady rounds inline instead of 24/11. The six Amsterdam permutations are regenerated; default wrappers, vectors, constants and round counts are unchanged.
+
+Verification: all nine widths on each of Amsterdam/Osaka/Paris, 864 calls total. Four planner tests include 96 asymmetric/random bound lists compared with unpruned exhaustive interval-tree costs, numeric replay at zero, bounds, half-bounds and random values, uint256 endpoints and cache-order/cap isolation. Two emitter tests replay across all six supported forks and check gas, depth, preserved tail, bounds, overflow/reach rejection and fallback selection. After the independent cache fix, the complete 45-test Rust suite passes with concurrent tests and Rayon enabled. Foundry passes 127 tests with the configured 10,000-run t4 fuzz tests. Clippy, formatting, five gas-floor tests, 28 stacksearch tests and whitespace checks pass. A second all-width regeneration is byte-identical to the first generated diff.
+
+Logs: `astra-tree-final-{amsterdam,osaka,paris}.log`, `astra-tree-unit-tests.log`, `astra-tree-all-tests-fixed.log`, `astra-tree-forge.log`, `astra-tree-clippy.log`, `astra-tree-stacksearch-tests.log`, `astra-tree-regeneration.log`. `astra-tree-selected-*` records the weaker selected-layout-only control. The failed pre-cache-fix suite remains in `astra-tree-all-tests.log`, not counted as a completed gate. `astra-tree-final-tests.log` is the final suite rerun after the iterator-only lint cleanup.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
@@ -126,8 +153,10 @@ The integration branch is `opt`, not the older local `main`. Coordinator commit 
 
 ## Remaining search
 
-- EXCHANGE in internal and streamed block scheduling, including PRIME preplacement.
-- Width-selective raw calldata entries for legacy wide schedules. Earlier all-width forcing regressed t16/t20; compare candidates per width instead.
+- Preserve equal-gas tree alternatives with lower peak; test actual legacy reach/load costs, especially t16 where the serial candidate still wins.
+- Tree leaf-order and code-size ties that could free more shared-body inline rounds.
+- EXCHANGE in internal and streamed block scheduling outside the exhausted kept-block windows.
+- More selective raw calldata entries than the retained all-shadowed compact candidate.
 - Full-word input reduction placement and initial linear layer fusion, with exact interval bounds.
 - Shared-body period and boundary cost interactions after any byte savings.
 

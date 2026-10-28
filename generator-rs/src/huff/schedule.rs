@@ -123,6 +123,8 @@ pub struct BuildOptions {
     pub external_stream: bool,
     /// leave every shadowed input in calldata without a placeholder slot
     pub compact_inputs: bool,
+    /// sum trees of bound-checked ADDs and ADDMODs instead of serial chains
+    pub tree_sums: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -151,6 +153,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     prime_in_memory: false,
     external_stream: false,
     compact_inputs: false,
+    tree_sums: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -277,6 +280,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.compact_inputs {
         enabled.push("compactInputs".to_string());
+    }
+    if opts.tree_sums {
+        enabled.push("treeSums".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -777,14 +783,62 @@ impl<'a> Builder<'a> {
         Ok(acc)
     }
 
-    /// Sum of values with every operand DUPed in advance, deepest value
-    /// first, so the chain runs in place and leaves nothing behind. A
+    fn emit_sum_tree(
+        &mut self,
+        plan: &super::sum_tree::Plan,
+        values: &[Id],
+        name: &str,
+    ) -> Result<Id> {
+        match &plan.node {
+            super::sum_tree::Node::Leaf(i) => self.e.dup(values[*i]),
+            super::sum_tree::Node::Pair {
+                left,
+                right,
+                reduce,
+            } => {
+                if *reduce {
+                    self.e.push_prime()?;
+                }
+                let left = self.emit_sum_tree(left, values, name)?;
+                let right = self.emit_sum_tree(right, values, name)?;
+                if *reduce {
+                    let p = self.p();
+                    self.e.compute(
+                        Op::Addmod,
+                        &[inplace(right), inplace(left), inplace(p)],
+                        name,
+                    )
+                } else {
+                    self.e
+                        .compute(Op::Add, &[inplace(right), inplace(left)], name)
+                }
+            }
+        }
+    }
+
+    /// Without tree_sums, every operand is DUPed in advance, deepest value
+    /// first, so the serial chain runs in place and leaves nothing behind. A
     /// reduction (where a partial sum would overflow or the final one exceed
     /// cap) is an ADDMOD with a PRIME copy placed under its operand while
     /// the reach of the later DUPs allows (loads from memory have none), the
     /// first steps first, else an ADDMOD with a copy DUPed on top and
     /// swapped under the accumulator (3 gas more, no slot).
     fn chain_sum_in_place(&mut self, values: &[Id], name: &str, cap: U256) -> Result<Id> {
+        if values.len() < 2 {
+            bail!("chainSumInPlace needs two values");
+        }
+        if self.opts.tree_sums {
+            let ordered: Vec<Id> = self
+                .by_depth(values)
+                .into_iter()
+                .map(|i| values[i])
+                .collect();
+            let bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
+            let Some(plan) = super::sum_tree::plan(&bounds, cap) else {
+                bail!("no sum tree meets the bound");
+            };
+            return self.emit_sum_tree(&plan, &ordered, name);
+        }
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Step {
             Add,
@@ -792,9 +846,6 @@ impl<'a> Builder<'a> {
             AddmodTop,
         }
         let n = values.len();
-        if n < 2 {
-            bail!("chainSumInPlace needs two values");
-        }
         let order: Vec<Id> = self
             .by_depth(values)
             .into_iter()
@@ -3384,6 +3435,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         prime_in_memory: false,
                                                                         external_stream,
                                                                         compact_inputs: false,
+                                                                        tree_sums: false,
                                                                     });
                                                                 }
                                                             }
@@ -3723,18 +3775,44 @@ pub fn build_best_with(
     }
     // Compact entries can lose cheap DUPs of inputs that were within reach.
     // Try the selected schedule without replacing the original candidate.
-    if let Some((opts, gas)) = best
-        && opts.shadow
-        && range.from == 0
-        && !boundary.calldata
-        && !boundary.prime_second
-        && !boundary.store_inputs
-    {
-        let compact = BuildOptions {
-            compact_inputs: true,
-            ..opts
+    let compact_entry = |best: Option<(BuildOptions, u64)>| {
+        if let Some((opts, gas)) = best
+            && opts.shadow
+            && range.from == 0
+            && !boundary.calldata
+            && !boundary.prime_second
+            && !boundary.store_inputs
+        {
+            let compact = BuildOptions {
+                compact_inputs: true,
+                ..opts
+            };
+            Some(prefer((opts, gas), evaluate(&compact).result))
+        } else {
+            best
+        }
+    };
+    best = compact_entry(best);
+    if params.t >= 8 {
+        let trees = |shadow| {
+            candidates(params.t, shadow, fork.reach)
+                .into_iter()
+                .map(|opts| BuildOptions {
+                    tree_sums: true,
+                    ..opts
+                })
+                .collect()
         };
-        best = Some(prefer((opts, gas), evaluate(&compact).result));
+        let mut tree_best = None;
+        if search(trees(false), &mut tree_best, &mut failures) == 0 {
+            search(trees(true), &mut tree_best, &mut failures);
+        }
+        if let Some(tree) = compact_entry(tree_best) {
+            best = Some(match best {
+                Some(current) => prefer(current, Ok(tree)),
+                None => tree,
+            });
+        }
     }
     match best {
         Some((opts, gas)) => {
@@ -3758,6 +3836,147 @@ mod tests {
     use crate::field;
     use crate::huff::fork::fork;
     use crate::round_constants::generate_params_uncached;
+
+    #[test]
+    fn sum_trees_replay_through_emitter_on_every_fork() {
+        let params = generate_params_uncached(8);
+        for name in [
+            "paris",
+            "shanghai",
+            "cancun",
+            "prague",
+            "osaka",
+            "amsterdam",
+        ] {
+            for trial in 0..12 {
+                let bounds: Vec<_> = (0..8)
+                    .map(|i| p1() * u256(1 + ((i + trial) % 3) as u64))
+                    .collect();
+                let inputs = vec![
+                    vec![U256::ZERO; 8],
+                    bounds.clone(),
+                    bounds.iter().map(|&b| b / u256(2)).collect(),
+                ];
+                let boundary = Boundary {
+                    bounds: Some(bounds),
+                    ..Boundary::default()
+                };
+                let opts = BuildOptions {
+                    tree_sums: true,
+                    ..DEFAULT_OPTIONS
+                };
+                let mut b = Builder::new(
+                    &params,
+                    &inputs,
+                    opts,
+                    fork(name).unwrap(),
+                    Range {
+                        from: 0,
+                        to: step_count(&params),
+                    },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &boundary,
+                )
+                .unwrap();
+                let values = b.state.clone();
+                let original = b.e.from_top();
+                let ordered: Vec<_> = b
+                    .by_depth(&values)
+                    .into_iter()
+                    .map(|i| b.bound(values[i]))
+                    .collect();
+                let cap = p1() * u256(1 + (trial % 2) as u64);
+                let plan = super::super::sum_tree::plan(&ordered, cap).unwrap();
+                let out = b.chain_sum_in_place(&values, "sum", cap).unwrap();
+                assert_eq!(b.e.bound(out), plan.bound);
+                assert!(b.e.bound(out) <= cap);
+                assert_eq!(b.e.gas, plan.gas);
+                assert_eq!(b.e.max_depth, original.len() + plan.peak);
+                assert_eq!(&b.e.from_top()[1..], original);
+                for (k, input) in inputs.iter().enumerate() {
+                    assert_eq!(
+                        field::reduce(b.e.value(out).vals[k]),
+                        input.iter().copied().fold(U256::ZERO, field::add)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sum_tree_emission_rejects_overflow_and_unreachable_leaves() {
+        use super::super::sum_tree::{Node, Plan};
+        use std::sync::Arc;
+        let params = generate_params_uncached(2);
+        let boundary = Boundary {
+            bounds: Some(vec![UINT256_MAX, u256(1)]),
+            ..Boundary::default()
+        };
+        let mut b = Builder::new(
+            &params,
+            &[vec![U256::ZERO, u256(1)]],
+            DEFAULT_OPTIONS,
+            fork("osaka").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            false,
+            &boundary,
+        )
+        .unwrap();
+        let values = b.state.clone();
+        let leaf = |i, bound| {
+            Arc::new(Plan {
+                node: Node::Leaf(i),
+                bound,
+                gas: 3,
+                peak: 1,
+            })
+        };
+        let invalid = Plan {
+            node: Node::Pair {
+                left: leaf(0, UINT256_MAX),
+                right: leaf(1, u256(1)),
+                reduce: false,
+            },
+            bound: U256::ZERO,
+            gas: 9,
+            peak: 2,
+        };
+        assert!(b.emit_sum_tree(&invalid, &values, "sum").is_err());
+        let mut b = Builder::new(
+            &params,
+            &[vec![U256::ZERO, u256(1)]],
+            DEFAULT_OPTIONS,
+            fork("osaka").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            false,
+            &boundary,
+        )
+        .unwrap();
+        b.e.max_reach = 1;
+        let unreachable = leaf(1, u256(1));
+        assert!(b.emit_sum_tree(&unreachable, &values, "sum").is_err());
+        let old = (DEFAULT_OPTIONS, 100);
+        let tree = BuildOptions {
+            tree_sums: true,
+            ..DEFAULT_OPTIONS
+        };
+        assert_eq!(prefer(old, Err("unreachable tree".to_string())), old);
+        assert_eq!(prefer(old, Ok((tree, 101))), old);
+        assert_eq!(prefer(old, Ok((tree, 100))), old);
+        assert_eq!(prefer(old, Ok((tree, 99))), (tree, 99));
+    }
 
     #[test]
     fn compact_inputs_keep_original_on_failure_or_no_saving() {
