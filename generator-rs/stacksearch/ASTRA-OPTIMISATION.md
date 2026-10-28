@@ -201,6 +201,22 @@ This is the low phase after its S-box, from x < P, s1 < 3P, s2 < 2P to bounds (2
 
 Logs: `astra-t3int-{tests,all-tests,clippy}.log`, `astra-t3-low-exchange-w8.log`, `astra-t3-low-exchange-w8-resources.log`, `astra-t3-low-exchange-w8-result.json`. Production generator and Huff are unchanged. The next scheduling approach fixes the incumbent's arithmetic DAG, whose funded post-S-box floor is 47 gas, rather than starting this broad linear-form search at h = 18.
 
+### 9. Fixed low-phase DAG: scoped exhaustion below 56
+
+`t3dag` fixes the incumbent's six arithmetic nodes: q = x + b; sum = ADDMOD(q,c); a' = sum + x; b' = sum + b; d = c + c; c' = sum + d. The initial stack is `[x,c,b]` with bounds (1,2,3). Outputs (a',b',c') have bounds (2,4,5), with goal stack `[a',P,c',b']` and at most one trailing garbage value. Each node runs once. The root funds 23 arithmetic gas, two PRIME supplies and six value copies, for 47 gas, not an attainable schedule claim.
+
+Earlier prototypes with one spare copy per live value exhausted below 56 at windows 8 and 9 (70,941 and 135,717 states). The final tool removes that copy-count restriction: every live value can be copied and PRIME pushed whenever the window permits. A focused regression exercises copies the earlier filter rejected. The heuristic is checked for consistency on short reachable prefixes, the incumbent and all its suffixes still replay at 56 with EXCHANGE off/on, and the DAG's forms and inclusive bounds are checked.
+
+One follow-up with the broader move set was justified by stock accounting: across valid computation masks at most nine useful entries are needed; an extra supplied entry costs three gas above the funded bound, and a sub-56 path has at most eight gas of headroom. This motivates window 11 rather than an arbitrary larger frontier. It does not remove the fixed-DAG, once-only computation and one-garbage restrictions.
+
+```sh
+EXCHANGE=1 generator-rs/stacksearch/target/release/t3dag 11 56
+```
+
+This completed normally in 1.2941 seconds, exhausting 213,997 states below 56, with sampled peak RSS 43,808 KiB. Neither the 8 GiB guard nor the 20-minute deadline fired. There is no cheaper candidate in this tested graph/window, not a proof over all EVM schedules or other internal-round DAGs. No generator or Huff change, and no new call-gas saving, follows from this result.
+
+Six focused tests pass. Evidence: `astra-t3dag-tests.log`, `astra-t3dag-widened-tests.log`, `astra-t3dag-low-exchange-w{8,9}*`, `astra-t3dag-low-unrestricted-w11.log` and its result JSON. Further low-phase window increases are not pursued; delayed PRIME placement in legacy sum trees is next.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
