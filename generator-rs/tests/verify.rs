@@ -60,7 +60,7 @@ fn amsterdam_sum_trees() {
 #[test]
 fn osaka_sum_trees() {
     let reports = run("osaka", &[8, 12, 20]);
-    for (report, gas) in reports.iter().zip([24217, 35047, 62956]) {
+    for (report, gas) in reports.iter().zip([24217, 35047, 61768]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);
@@ -87,7 +87,7 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 48124);
+    assert_eq!(reports[0].gas.measured, 47809);
 }
 
 /// t = 24 fits one contract with the sums of its memory elements fused
@@ -96,7 +96,7 @@ fn osaka_t24() {
     let reports = run("osaka", &[24]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 75942);
+    assert_eq!(reports[0].gas.measured, 75843);
 }
 
 /// t = 28 fits one contract once the external rounds stream

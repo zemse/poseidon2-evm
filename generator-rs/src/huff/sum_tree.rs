@@ -1,9 +1,10 @@
 // Interval trees of ADD / ADDMOD, with exact inclusive bounds. The leaf
-// order is fixed; PRIME is placed before the operands of each ADDMOD.
-// Costs assume three-gas leaf/PRIME copies, ADD at 3 and ADDMOD at 8 on
-// every supported fork. Reach, memory loads and code size are not modelled:
-// the emitter checks and prices the chosen tree in its actual layout.
-// The cache key includes ordered bounds, the output cap and frontier policy.
+// order is fixed. PRIME is preplaced, or supplied after both operands with
+// SWAP2. Costs assume three-gas leaf/PRIME copies, ADD/SWAP at 3 and ADDMOD
+// at 8 on every supported fork. Base planning ignores reach, loads and size;
+// the optional placement pass estimates leaf loads from the current depths.
+// The emitter checks and prices the complete schedule in its actual layout.
+// The global key includes bounds, cap, frontier and uniform placement policy.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -16,6 +17,7 @@ pub(super) enum Node {
         left: Arc<Plan>,
         right: Arc<Plan>,
         reduce: bool,
+        late_prime: bool,
     },
 }
 
@@ -27,24 +29,33 @@ pub(super) struct Plan {
     pub peak: usize,
 }
 
-type Cache = HashMap<(Vec<U256>, U256, bool), Option<Arc<Plan>>>;
+type Cache = HashMap<(Vec<U256>, U256, bool, bool), Option<Arc<Plan>>>;
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
 
 pub(super) fn plan(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
-    cached_plan(bounds, cap, false)
+    cached_plan(bounds, cap, false, false)
 }
 
 pub(super) fn plan_peak(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
-    cached_plan(bounds, cap, true)
+    cached_plan(bounds, cap, true, false)
 }
 
-fn cached_plan(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>> {
-    let key = (bounds.to_vec(), cap, peak_aware);
+pub(super) fn plan_late(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>> {
+    cached_plan(bounds, cap, peak_aware, true)
+}
+
+fn cached_plan(
+    bounds: &[U256],
+    cap: U256,
+    peak_aware: bool,
+    late_prime: bool,
+) -> Option<Arc<Plan>> {
+    let key = (bounds.to_vec(), cap, peak_aware, late_prime);
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(found) = cache.lock().expect("sum tree cache").get(&key) {
         return found.clone();
     }
-    let found = frontier(bounds, peak_aware)
+    let found = frontier(bounds, peak_aware, late_prime)
         .into_iter()
         .filter(|p| p.bound <= cap)
         .min_by_key(|p| (p.gas, p.peak, p.bound));
@@ -55,7 +66,7 @@ fn cached_plan(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>
     found
 }
 
-fn frontier(bounds: &[U256], peak_aware: bool) -> Vec<Arc<Plan>> {
+fn frontier(bounds: &[U256], peak_aware: bool, late_prime: bool) -> Vec<Arc<Plan>> {
     let n = bounds.len();
     if n == 0 {
         return Vec::new();
@@ -86,9 +97,20 @@ fn frontier(bounds: &[U256], peak_aware: bool) -> Vec<Arc<Plan>> {
                                 };
                                 sum
                             };
-                            let gas = left.gas + right.gas + if reduce { 11 } else { 3 };
-                            let extra = usize::from(reduce);
-                            let peak = (left.peak + extra).max(right.peak + 1 + extra);
+                            let late = reduce && late_prime;
+                            let gas = left.gas
+                                + right.gas
+                                + if late {
+                                    14
+                                } else if reduce {
+                                    11
+                                } else {
+                                    3
+                                };
+                            let extra = usize::from(reduce && !late);
+                            let peak = (left.peak + extra)
+                                .max(right.peak + 1 + extra)
+                                .max(if late { 3 } else { 0 });
                             let keep = if peak_aware {
                                 !pareto.iter().any(|old| {
                                     old.bound <= bound && old.gas <= gas && old.peak <= peak
@@ -104,6 +126,7 @@ fn frontier(bounds: &[U256], peak_aware: bool) -> Vec<Arc<Plan>> {
                                         left: left.clone(),
                                         right: right.clone(),
                                         reduce,
+                                        late_prime: late,
                                     },
                                     bound,
                                     gas,
@@ -137,6 +160,85 @@ fn frontier(bounds: &[U256], peak_aware: bool) -> Vec<Arc<Plan>> {
         }
     }
     std::mem::take(&mut cells[0][n])
+}
+
+/// Reprice placement on a fixed arithmetic tree. Depths and reach are fixed
+/// for this local memo; no layout-dependent result enters the global cache.
+/// An out-of-reach leaf adds a three-gas load estimate, not its store cost.
+pub(super) fn place_for_reach(base: &Arc<Plan>, depths: &[usize], reach: usize) -> Arc<Plan> {
+    type Placed = (Arc<Plan>, usize);
+    fn place(
+        base: &Arc<Plan>,
+        depths: &[usize],
+        reach: usize,
+        extra: usize,
+        memo: &mut HashMap<(usize, usize), Placed>,
+    ) -> Placed {
+        // Base nodes remain alive for the entire local traversal.
+        let key = (Arc::as_ptr(base) as usize, extra);
+        if let Some(found) = memo.get(&key) {
+            return found.clone();
+        }
+        let found = match &base.node {
+            Node::Leaf(i) => (
+                base.clone(),
+                usize::from(depths[*i] > 0 && depths[*i].saturating_add(extra) > reach),
+            ),
+            Node::Pair {
+                left,
+                right,
+                reduce,
+                ..
+            } => {
+                let mut best: Option<Placed> = None;
+                for late in [false, true] {
+                    if late && !reduce {
+                        continue;
+                    }
+                    let p = usize::from(*reduce && !late);
+                    let (left, nl) = place(left, depths, reach, extra + p, memo);
+                    let (right, nr) = place(right, depths, reach, extra + p + 1, memo);
+                    let gas = left.gas
+                        + right.gas
+                        + if late {
+                            14
+                        } else if *reduce {
+                            11
+                        } else {
+                            3
+                        };
+                    let peak =
+                        (left.peak + p)
+                            .max(right.peak + p + 1)
+                            .max(if late { 3 } else { 0 });
+                    let loads = nl + nr;
+                    let score = (gas + 3 * loads as u64, loads, peak, gas);
+                    if best.as_ref().is_none_or(|(old, reads)| {
+                        score < (old.gas + 3 * *reads as u64, *reads, old.peak, old.gas)
+                    }) {
+                        best = Some((
+                            Arc::new(Plan {
+                                node: Node::Pair {
+                                    left,
+                                    right,
+                                    reduce: *reduce,
+                                    late_prime: late,
+                                },
+                                bound: base.bound,
+                                gas,
+                                peak,
+                            }),
+                            loads,
+                        ));
+                    }
+                }
+                best.expect("preplaced choice")
+            }
+        };
+        memo.insert(key, found.clone());
+        found
+    }
+    place(base, depths, reach, 0, &mut HashMap::new()).0
 }
 
 #[cfg(test)]
@@ -176,20 +278,31 @@ mod tests {
                 left,
                 right,
                 reduce,
+                late_prime,
             } => {
                 let a = replay(left, bounds, inputs, leaves);
                 let b = replay(right, bounds, inputs, leaves);
                 let (bound, gas, result) = if *reduce {
-                    (PRIME - u256(1), 11, field::add(a, b))
+                    (
+                        PRIME - u256(1),
+                        if *late_prime { 14 } else { 11 },
+                        field::add(a, b),
+                    )
                 } else {
+                    assert!(!late_prime);
                     let bound = wide(left.bound) + wide(right.bound);
                     assert!(bound <= wide(UINT256_MAX));
                     (U256::from_limbs_slice(&bound.as_limbs()[..4]), 3, a + b)
                 };
                 assert_eq!(plan.bound, bound);
                 assert_eq!(plan.gas, left.gas + right.gas + gas);
-                let p = usize::from(*reduce);
-                assert_eq!(plan.peak, (p + left.peak).max(p + 1 + right.peak));
+                let p = usize::from(*reduce && !late_prime);
+                assert_eq!(
+                    plan.peak,
+                    (p + left.peak)
+                        .max(p + 1 + right.peak)
+                        .max(if *late_prime { 3 } else { 0 })
+                );
                 assert!(result <= plan.bound);
                 result
             }
@@ -318,7 +431,7 @@ mod tests {
                     .any(|q| q != p && q.0 <= p.0 && q.1 <= p.1 && q.2 <= p.2)
             })
             .collect();
-        let got: Vec<_> = frontier(bounds, true)
+        let got: Vec<_> = frontier(bounds, true, false)
             .iter()
             .map(|p| (p.bound, p.gas, p.peak))
             .collect();
@@ -345,7 +458,7 @@ mod tests {
 
     #[test]
     fn peak_frontiers_match_exhaustive_parent_compositions() {
-        assert!(frontier(&[], true).is_empty());
+        assert!(frontier(&[], true, false).is_empty());
         for n in 1..=5 {
             for code in 0..5usize.pow(n as u32) {
                 let mut x = code;
@@ -366,6 +479,143 @@ mod tests {
         ] {
             check_frontier(&bounds);
         }
+    }
+
+    #[test]
+    fn reach_placement_is_local_to_depths_and_preserves_values() {
+        let bound = PRIME - u256(1);
+        let base = plan_peak(&[bound, bound], bound).unwrap();
+        let near = place_for_reach(&base, &[2, 1], 16);
+        let deep = place_for_reach(&base, &[16, 15], 16);
+        let amsterdam = place_for_reach(&base, &[16, 15], 235);
+        assert_eq!(near.gas, 17);
+        assert_eq!(deep.gas, 20);
+        assert_eq!(amsterdam.gas, 17);
+        for tree in [near, deep, amsterdam] {
+            let mut leaves = Vec::new();
+            let value = replay(&tree, &[bound, bound], &[bound, bound], &mut leaves);
+            assert_eq!(leaves, vec![0, 1]);
+            assert_eq!(value, field::add(bound, bound));
+        }
+    }
+
+    #[test]
+    fn reach_placement_matches_exhaustive_choices() {
+        fn choices(
+            base: &Plan,
+            depths: &[usize],
+            reach: usize,
+            extra: usize,
+        ) -> Vec<(u64, usize, usize)> {
+            match &base.node {
+                Node::Leaf(i) => vec![(
+                    3,
+                    usize::from(depths[*i] > 0 && depths[*i] + extra > reach),
+                    1,
+                )],
+                Node::Pair {
+                    left,
+                    right,
+                    reduce,
+                    ..
+                } => {
+                    let mut out = Vec::new();
+                    for late in [false, true] {
+                        if late && !reduce {
+                            continue;
+                        }
+                        let p = usize::from(*reduce && !late);
+                        for (lg, lr, lp) in choices(left, depths, reach, extra + p) {
+                            for (rg, rr, rp) in choices(right, depths, reach, extra + p + 1) {
+                                let gas = lg
+                                    + rg
+                                    + if late {
+                                        14
+                                    } else if *reduce {
+                                        11
+                                    } else {
+                                        3
+                                    };
+                                let peak = (lp + p).max(rp + p + 1).max(if late { 3 } else { 0 });
+                                out.push((gas, lr + rr, peak));
+                            }
+                        }
+                    }
+                    out
+                }
+            }
+        }
+        fn loads(plan: &Plan, depths: &[usize], reach: usize, extra: usize) -> usize {
+            match &plan.node {
+                Node::Leaf(i) => usize::from(depths[*i] > 0 && depths[*i] + extra > reach),
+                Node::Pair {
+                    left,
+                    right,
+                    reduce,
+                    late_prime,
+                } => {
+                    let p = usize::from(*reduce && !late_prime);
+                    loads(left, depths, reach, extra + p)
+                        + loads(right, depths, reach, extra + p + 1)
+                }
+            }
+        }
+        for trial in 0..72 {
+            let n = 2 + trial % 5;
+            let bounds: Vec<_> = (0..n)
+                .map(|i| (PRIME - u256(1)) * u256(1 + ((trial + i) % 5) as u64))
+                .collect();
+            let depths: Vec<_> = (0..n)
+                .map(|i| {
+                    if (trial + i) % 7 == 0 {
+                        0
+                    } else {
+                        12 + (trial + n - i) % 7
+                    }
+                })
+                .collect();
+            let base = plan_peak(&bounds, PRIME - u256(1)).unwrap();
+            for reach in [16, 235] {
+                let expected = choices(&base, &depths, reach, 0)
+                    .into_iter()
+                    .map(|(g, r, p)| (g + 3 * r as u64, r, p, g))
+                    .min()
+                    .unwrap();
+                let chosen = place_for_reach(&base, &depths, reach);
+                let reads = loads(&chosen, &depths, reach, 0);
+                assert_eq!(
+                    (
+                        chosen.gas + 3 * reads as u64,
+                        reads,
+                        chosen.peak,
+                        chosen.gas
+                    ),
+                    expected
+                );
+                let mut leaves = Vec::new();
+                let value = replay(&chosen, &bounds, &bounds, &mut leaves);
+                assert_eq!(leaves, (0..n).collect::<Vec<_>>());
+                assert_eq!(value, bounds.iter().copied().fold(U256::ZERO, field::add));
+            }
+        }
+    }
+
+    #[test]
+    fn late_prime_prices_swap_and_separates_cache_policy() {
+        let p1 = PRIME - u256(1);
+        let ordinary = plan_peak(&[p1, p1], p1).unwrap();
+        let late = plan_late(&[p1, p1], p1, true).unwrap();
+        assert_eq!((ordinary.gas, ordinary.peak), (17, 3));
+        assert_eq!((late.gas, late.peak), (20, 3));
+        assert!(!Arc::ptr_eq(&ordinary, &late));
+        assert!(Arc::ptr_eq(&late, &plan_late(&[p1, p1], p1, true).unwrap()));
+        let bounds = [5, 1, 4, 2].map(|u| p1 * u256(u));
+        let tree = plan_late(&bounds, p1, true).unwrap();
+        assert_eq!((tree.gas, tree.peak), (43, 3));
+        let mut leaves = Vec::new();
+        let got = replay(&tree, &bounds, &bounds, &mut leaves);
+        assert_eq!(leaves, vec![0, 1, 2, 3]);
+        assert_eq!(got, bounds.into_iter().fold(U256::ZERO, field::add));
     }
 
     #[test]

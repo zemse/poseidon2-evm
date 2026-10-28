@@ -217,18 +217,43 @@ This completed normally in 1.2941 seconds, exhausting 213,997 states below 56, w
 
 Six focused tests pass. Evidence: `astra-t3dag-tests.log`, `astra-t3dag-widened-tests.log`, `astra-t3dag-low-exchange-w{8,9}*`, `astra-t3dag-low-unrestricted-w11.log` and its result JSON. Further low-phase window increases are not pursued; delayed PRIME placement in legacy sum trees is next.
 
+### 10. Delayed PRIME placement: uniform rejection, adaptive candidate
+
+A late ADDMOD evaluates both children, supplies PRIME and uses SWAP2. Its funded node cost is 14 instead of 11 gas; peak is max(left peak, 1 + right peak, 3). Placement is explicit in the node, and uniform placement policy is part of the global cache key. A unit case with leaves at depths 16 and 15 confirms that preplacement loses DUP16 reach while late supply emits correctly at 20 gas with its caller stack preserved. A mechanism win is not a complete-call win.
+
+Uniform late placement on the selected Osaka schedules compiles and verifies but regresses t16/t24/t28 to 48,877 / 76,704 / 93,148 gas. The t28 case passed through the split-selection machinery but ended with one runtime contract and identical cold/warm costs. A broader uniform-late option-family search improves those candidates to 48,250 / 76,446 / 93,088, still above 48,124 / 75,942 / 92,158. All reported candidates passed compiled reference checks with zero model differences; no uniform-late runtime improvement is claimed.
+
+The adaptive candidate keeps the selected arithmetic tree and chooses preplaced or late PRIME per node. It scores primitive gas plus a three-gas extra-load estimate for each leaf moved beyond reach, then prefers fewer such reads and lower peak. Store costs, memory expansion and code-size effects are left to the full schedule comparison. The placement memo is local to one call: node identity and working offset are keys, with the entire original depth vector and reach fixed for that memo. It does not cache layout-dependent decisions globally. Mixed-node gas and peak are recomputed from the emitted placement.
+
+A forced adaptive-family trial verifies t16/t24/t28 at 47,809 / 75,843 / 92,158. Normal strict winner selection retains every old serial/tree/peak/compact candidate on failure or non-improvement. All nine widths on Amsterdam, Osaka and Paris then pass compiled reference verification, 864 calls with every gas-model difference zero. Before is f1bef66 (runtime identical to c7d63fc):
+
+| Fork | t | Before | Adaptive selected | Saving | Runtime bytes before | After |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 16 | 48,124 | 47,809 | 315 | 22,951 | 24,242 |
+| Osaka | 20 | 62,956 | 61,768 | 1,188 | 23,832 | 23,884 |
+| Osaka | 24 | 75,942 | 75,843 | 99 | 23,985 | 23,738 |
+| Paris | 16 | 48,298 | 47,983 | 315 | 23,062 | 24,353 |
+| Paris | 20 | 63,130 | 61,942 | 1,188 | 23,907 | 23,947 |
+| Paris | 24 | 76,116 | 76,017 | 99 | 24,036 | 23,789 |
+
+Amsterdam, all other legacy widths and every t4 arity remain unchanged. The t16 runtime grows by 1,291 bytes while lowering call gas; deployment cost is not the objective. Every width still fits one contract.
+
+The full 51-test generator suite passes (36 library, one CLI, three EIP, four generator, seven execution). Placement tests include exhaustive comparisons on small fixed trees, depth/reach isolation, cache-policy separation, value replay and emitter checks. Foundry passes 127 tests with the configured 10,000-run t4 fuzz tests. Clippy, formatting, five gas-floor tests, 39 stacksearch tests and whitespace checks pass. Default all-width regeneration leaves checked-in Huff and generated tests unchanged. New legacy formal exports/proofs remain a coordinator-owned integration gate, not a result claimed by this lane.
+
+Logs: `astra-late-prime-{unit,selected-osaka,forced-osaka,family-osaka}.log`, `astra-adaptive-prime-{unit,osaka,final-unit,final-amsterdam,final-osaka,final-paris,all-tests,clippy,generation,forge,search-tests}.log`. `astra-late-prime-uniform.patch` and `astra-adaptive-prime-forced.patch` preserve the intermediate experiments. A separate remaining lead is the conservative wrapper-size budget in mod.rs/split.rs: actual compact entries can be smaller, but no budget-refinement saving has been measured here.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
 
-`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 28 tests after the search extension. `cargo fmt` and `git diff --check` pass. No production generator or checked-in Huff changes accompany it.
+`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 39 tests with the t3int and t3dag extensions. Formatting and targeted Clippy pass for those tools. Their search-only commits do not change the production generator or Huff.
 
 The integration branch is `opt`, not the older local `main`. Coordinator commit a433745 corrects the diagnostic `schedule` wrapper-memory accounting; core floors and compiled baseline measurements above are unaffected. The old diagnostic small-width call totals were two to four gas too high. Subsequent experiments use `opt` as their base.
 
 ## Remaining search
 
-- EXCHANGE in small-width internal rounds; the earlier cycle and placement searches used top-based SWAPs.
-- Delayed PRIME placement for legacy trees when preplacement forces otherwise reachable leaves into memory.
+- Actual-wrapper-aware byte budgets for whole and split builds; conservative entry estimates can leave bytes unused.
+- Other internal arithmetic DAGs or cross-round layouts, not wider searches of the exhausted fixed t3 low-phase DAG.
 - Cross-kernel code-size changes large enough to buy additional inline rounds, rather than the rejected local byte/leaf-order family.
 - More selective raw calldata entries than the retained all-shadowed compact candidate.
 - Full-word input reduction placement and initial linear layer fusion, with exact interval bounds.

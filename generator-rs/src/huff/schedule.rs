@@ -127,6 +127,10 @@ pub struct BuildOptions {
     pub tree_sums: bool,
     /// retain bound/gas/peak Pareto alternatives when planning sum trees
     pub tree_peak: bool,
+    /// supply tree ADDMOD moduli after both operands, with SWAP2
+    pub tree_late_prime: bool,
+    /// choose tree PRIME placement using current leaf depths
+    pub tree_adaptive_prime: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -157,6 +161,8 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     compact_inputs: false,
     tree_sums: false,
     tree_peak: false,
+    tree_late_prime: false,
+    tree_adaptive_prime: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -289,6 +295,12 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.tree_peak {
         enabled.push("treePeak".to_string());
+    }
+    if opts.tree_late_prime {
+        enabled.push("treeLatePrime".to_string());
+    }
+    if opts.tree_adaptive_prime {
+        enabled.push("treeAdaptivePrime".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -801,19 +813,24 @@ impl<'a> Builder<'a> {
                 left,
                 right,
                 reduce,
+                late_prime,
             } => {
-                if *reduce {
+                if *reduce && !late_prime {
                     self.e.push_prime()?;
                 }
                 let left = self.emit_sum_tree(left, values, name)?;
                 let right = self.emit_sum_tree(right, values, name)?;
                 if *reduce {
                     let p = self.p();
-                    self.e.compute(
-                        Op::Addmod,
-                        &[inplace(right), inplace(left), inplace(p)],
-                        name,
-                    )
+                    let (top, next) = if *late_prime {
+                        self.e.push_prime()?;
+                        self.e.swap(2)?;
+                        (left, right)
+                    } else {
+                        (right, left)
+                    };
+                    self.e
+                        .compute(Op::Addmod, &[inplace(top), inplace(next), inplace(p)], name)
                 } else {
                     self.e
                         .compute(Op::Add, &[inplace(right), inplace(left)], name)
@@ -840,13 +857,21 @@ impl<'a> Builder<'a> {
                 .map(|i| values[i])
                 .collect();
             let bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
-            let planned = if self.opts.tree_peak {
+            let planned = if self.opts.tree_late_prime {
+                super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+            } else if self.opts.tree_peak {
                 super::sum_tree::plan_peak(&bounds, cap)
             } else {
                 super::sum_tree::plan(&bounds, cap)
             };
             let Some(plan) = planned else {
                 bail!("no sum tree meets the bound");
+            };
+            let plan = if self.opts.tree_adaptive_prime {
+                let depths: Vec<_> = ordered.iter().map(|&v| self.e.find(v)).collect();
+                super::sum_tree::place_for_reach(&plan, &depths, self.e.max_reach)
+            } else {
+                plan
             };
             return self.emit_sum_tree(&plan, &ordered, name);
         }
@@ -3448,6 +3473,8 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         compact_inputs: false,
                                                                         tree_sums: false,
                                                                         tree_peak: false,
+                                                                        tree_late_prime: false,
+                                                                        tree_adaptive_prime: false,
                                                                     });
                                                                 }
                                                             }
@@ -3829,6 +3856,38 @@ pub fn build_best_with(
             }
         }
     }
+    if fork.reach == 16 && params.t >= 8 {
+        let mut placed_best = None;
+        for tree_peak in [false, true] {
+            let placed = |shadow| {
+                candidates(params.t, shadow, fork.reach)
+                    .into_iter()
+                    .map(|opts| BuildOptions {
+                        tree_sums: true,
+                        tree_peak,
+                        tree_adaptive_prime: true,
+                        ..opts
+                    })
+                    .collect()
+            };
+            let mut family = None;
+            if search(placed(false), &mut family, &mut failures) == 0 {
+                search(placed(true), &mut family, &mut failures);
+            }
+            if let Some(candidate) = compact_entry(family) {
+                placed_best = Some(match placed_best {
+                    Some(current) => prefer(current, Ok(candidate)),
+                    None => candidate,
+                });
+            }
+        }
+        if let Some(candidate) = placed_best {
+            best = Some(match best {
+                Some(current) => prefer(current, Ok(candidate)),
+                None => candidate,
+            });
+        }
+    }
     match best {
         Some((opts, gas)) => {
             let result = build_checked(
@@ -3965,6 +4024,7 @@ mod tests {
                 left: leaf(0, UINT256_MAX),
                 right: leaf(1, u256(1)),
                 reduce: false,
+                late_prime: false,
             },
             bound: U256::ZERO,
             gas: 9,
@@ -3998,6 +4058,57 @@ mod tests {
         assert_eq!(prefer(old, Ok((tree, 101))), old);
         assert_eq!(prefer(old, Ok((tree, 100))), old);
         assert_eq!(prefer(old, Ok((tree, 99))), (tree, 99));
+    }
+
+    #[test]
+    fn late_tree_prime_avoids_an_unreachable_leaf() {
+        let params = generate_params_uncached(2);
+        let values = vec![vec![p1(), p1()]];
+        for placement in 0..3 {
+            let late = placement > 0;
+            let mut b = Builder::new(
+                &params,
+                &values,
+                DEFAULT_OPTIONS,
+                fork("osaka").unwrap(),
+                Range {
+                    from: 0,
+                    to: step_count(&params),
+                },
+                HashSet::new(),
+                false,
+                true,
+                &Boundary::default(),
+            )
+            .unwrap();
+            let inputs = b.state.clone();
+            let mut backing = vec![b.p(); 14];
+            backing.extend([inputs[1], inputs[0]]);
+            b.e.set_stack(&backing);
+            b.e.max_depth = backing.len();
+            let tree = if placement == 1 {
+                super::super::sum_tree::plan_late(&[p1(), p1()], p1(), true)
+            } else {
+                super::super::sum_tree::plan_peak(&[p1(), p1()], p1())
+            }
+            .unwrap();
+            let tree = if placement == 2 {
+                super::super::sum_tree::place_for_reach(&tree, &[16, 15], 16)
+            } else {
+                tree
+            };
+            let result = b.emit_sum_tree(&tree, &inputs, "sum");
+            if late {
+                let out = result.unwrap();
+                assert_eq!(b.e.gas, 20);
+                assert_eq!(b.e.gas, tree.gas);
+                assert_eq!(b.e.max_depth, backing.len() + tree.peak);
+                assert_eq!(b.e.value(out).vals, vec![field::add(p1(), p1())]);
+                assert_eq!(&b.e.from_top()[1..], backing);
+            } else {
+                assert!(result.is_err());
+            }
+        }
     }
 
     #[test]
