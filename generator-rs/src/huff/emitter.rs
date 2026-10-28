@@ -4,8 +4,8 @@
 // one concrete evaluation per test vector. The emitter records gas, maximum
 // depth, maximum DUP index and bytecode size, and refuses any DUP or SWAP
 // deeper than the fork allows: 16 with the legacy opcodes, 235 from
-// Amsterdam where EIP-8024 adds DUPN / SWAPN, emitted as DUPn() / SWAPn()
-// macros. Before Shanghai a zero is the ZERO() macro (PUSH1 0x00).
+// Amsterdam where EIP-8024 adds DUPN / SWAPN, emitted as dupn n / swapn n.
+// Before Shanghai huff-neo writes a zero literal as PUSH1 0x00.
 //
 // A value that would be DUPed out of reach can instead be shadowed: stored to
 // a memory slot when it is produced and loaded from there whenever it is out
@@ -90,10 +90,11 @@ fn op_gas(op: Op) -> u64 {
     }
 }
 
-/// Text, gas and bytes of PUSHing a constant on the fork.
-pub fn push_text(c: U256, fork: &Fork) -> String {
+/// Text, gas and bytes of PUSHing a constant on the fork (huff-neo writes a
+/// zero literal as PUSH0 or PUSH1 0x00 as the fork has PUSH0).
+pub fn push_text(c: U256) -> String {
     if c.is_zero() {
-        return if fork.push0 { "0x0" } else { "ZERO()" }.to_string();
+        return "0x0".to_string();
     }
     let digits = hex_digits(c);
     if digits.len().div_ceil(2) == 32 {
@@ -496,11 +497,7 @@ impl Emitter {
             self.opcode(|| "[PRIME]".to_string(), gas::PUSH, 33);
         } else {
             let fork = self.fork;
-            self.opcode(
-                || push_text(c, &fork),
-                push_gas(c, &fork),
-                push_bytes(c, &fork),
-            );
+            self.opcode(|| push_text(c), push_gas(c, &fork), push_bytes(c, &fork));
         }
         self.pushed(v);
         Ok(v)
@@ -796,11 +793,7 @@ impl Emitter {
         let fork = self.fork;
         let c = u256(offset as u64);
         self.opcode(|| "dup1".to_string(), gas::DUP, 1);
-        self.opcode(
-            || push_text(c, &fork),
-            push_gas(c, &fork),
-            push_bytes(c, &fork),
-        );
+        self.opcode(|| push_text(c), push_gas(c, &fork), push_bytes(c, &fork));
         self.opcode(|| "mstore".to_string(), gas::MSTORE, 1);
         self.stores += 1;
         Ok(offset)
@@ -876,11 +869,7 @@ impl Emitter {
         let fork = self.fork;
         let c = u256(offset as u64);
         self.opcode(|| "dup1".to_string(), gas::DUP, 1);
-        self.opcode(
-            || push_text(c, &fork),
-            push_gas(c, &fork),
-            push_bytes(c, &fork),
-        );
+        self.opcode(|| push_text(c), push_gas(c, &fork), push_bytes(c, &fork));
         self.opcode(|| "mstore".to_string(), gas::MSTORE, 1);
         self.stores += 1;
         Ok(offset)
@@ -892,11 +881,7 @@ impl Emitter {
         }
         let fork = self.fork;
         let c = u256(offset as u64);
-        self.opcode(
-            || push_text(c, &fork),
-            push_gas(c, &fork),
-            push_bytes(c, &fork),
-        );
+        self.opcode(|| push_text(c), push_gas(c, &fork), push_bytes(c, &fork));
         self.opcode(|| "mload".to_string(), gas::MLOAD, 1);
         self.loads += 1;
         self.pushed(v);
@@ -906,11 +891,7 @@ impl Emitter {
     fn load_calldata(&mut self, offset: usize, v: Id) {
         let fork = self.fork;
         let c = u256(offset as u64);
-        self.opcode(
-            || push_text(c, &fork),
-            push_gas(c, &fork),
-            push_bytes(c, &fork),
-        );
+        self.opcode(|| push_text(c), push_gas(c, &fork), push_bytes(c, &fork));
         self.opcode(|| "calldataload".to_string(), gas::CALLDATALOAD, 1);
         self.loads += 1;
         self.pushed(v);

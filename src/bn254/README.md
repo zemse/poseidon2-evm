@@ -95,7 +95,7 @@ On Osaka, omitting t = 2 backing copies saves 42 call gas but grows the runtime 
 | osaka     | `PUSH0`                   | 16                     | 24,576                         | 49,152                         | 2,600 cold / 100 warm                           |
 | amsterdam | `PUSH0`                   | 235 (`DUPN` / `SWAPN`) | 65,536                         | 131,072                        | 3,000 cold / 100 warm                           |
 
-A fork other than amsterdam writes `huff/<fork>/t<t>/` and `test/<fork>/`; its tests need a foundry profile with that `evm_version`. huffc turns every zero literal into `PUSH0`, so before Shanghai the generator writes `ZERO()` (`huff/<fork>/Zero.huff`, `__VERBATIM(0x6000)`) and the test deploys with `with_evm_version`.
+A fork other than amsterdam writes `huff/<fork>/t<t>/` and `test/<fork>/`; its tests run with `FOUNDRY_EVM_VERSION=<fork> forge test` and deploy with `with_evm_version(<fork>)`, so hnc writes a zero literal as `PUSH1 0x00` before Shanghai.
 
 #### Amsterdam (EIP-8024)
 

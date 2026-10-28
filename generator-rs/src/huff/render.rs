@@ -54,12 +54,8 @@ fn deployer(fork: &Fork) -> String {
 }
 
 /// includes of a permutation in the width directory
-fn includes(fork: &Fork, utils_path: &str) -> String {
-    let mut text = format!("#include \"{utils_path}\"\n");
-    if !fork.push0 {
-        text += "#include \"../Zero.huff\"\n";
-    }
-    text
+fn includes(utils_path: &str) -> String {
+    format!("#include \"{utils_path}\"\n")
 }
 
 fn fork_note(fork: &Fork) -> &'static str {
@@ -67,7 +63,7 @@ fn fork_note(fork: &Fork) -> &'static str {
         return "/// @dev Uses EIP-8024 DUPN / SWAPN: runs on Amsterdam and later only\n";
     }
     if !fork.push0 {
-        return "/// @dev No PUSH0 (Zero.huff): runs before Shanghai as well\n";
+        return "/// @dev No PUSH0: runs before Shanghai as well\n";
     }
     ""
 }
@@ -103,11 +99,7 @@ impl Code {
     fn push(&mut self, c: usize) {
         let v = u256(c as u64);
         let fork = self.fork;
-        self.op(
-            &push_text(v, &fork),
-            push_gas(v, &fork),
-            push_bytes(v, &fork),
-        );
+        self.op(&push_text(v), push_gas(v, &fork), push_bytes(v, &fork));
     }
 
     fn dup(&mut self, n: usize) {
@@ -248,7 +240,7 @@ fn hand_over_tail(fork: Fork, t: usize, memory: usize) -> Code {
     code.op("jumpi", 10, 1);
     code.end("");
     // the revert branch: bytes only, a call that succeeds skips it
-    let zero = push_text(U256::ZERO, &fork);
+    let zero = push_text(U256::ZERO);
     code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
     code.op(&zero, 0, push_bytes(U256::ZERO, &fork));
     code.op("revert", 0, 1);
@@ -413,7 +405,7 @@ pub fn render_permutation(
 {lines}
 }}
 {tables}",
-        includes = includes(fork, utils_path),
+        includes = includes(utils_path),
         note = fork_note(fork),
         stats = stats(result),
         options = describe_options(opts),
@@ -447,17 +439,6 @@ library DeployParts {{
         return next;
     }}
 }}
-"
-    )
-}
-
-/// PUSH1 0x00 for the forks before Shanghai: huffc turns every zero literal
-/// into PUSH0 (EIP-3855), which they do not have.
-pub fn render_zero() -> String {
-    format!(
-        "{HEADER}
-/// @notice A zero as PUSH1 0x00 (3 gas, 2 bytes) for the forks without EIP-3855 PUSH0, which huffc emits for any zero literal
-#define macro ZERO() = {{ __VERBATIM(0x6000) }}
 "
     )
 }
@@ -641,7 +622,7 @@ pub fn render_hash_entry(
 {entry_lines}
 }}
 ",
-        includes = includes(fork, utils_path),
+        includes = includes(utils_path),
         last = total - 1,
         note = fork_note(fork),
         stats = stats(result),
@@ -786,7 +767,7 @@ pub fn render_part(
 {code_lines}
 }}
 {chain}",
-        includes = includes(fork, utils_path),
+        includes = includes(utils_path),
         end = hex_off(32 * t),
         note = fork_note(fork),
         stats = stats(result),
@@ -851,7 +832,7 @@ import {{HuffConfig, HuffNeoConfig}} from \"foundry-huff-neo/HuffNeoConfig.sol\"
 import {{IPoseidon2}} from \"../../src/IPoseidon2.sol\";
 
 /// @notice Vectors come from the reference sponge in generator-rs/src/reference.rs
-/// @dev The hash entry targets {name}: run with FOUNDRY_PROFILE={name}
+/// @dev The hash entry targets {name}: run with FOUNDRY_EVM_VERSION={name}
 contract Poseidon2T{t}Test is Test {{
     using HuffNeoConfig for HuffConfig;
 
@@ -923,12 +904,12 @@ pub fn render_forge_test(params: &Params, vectors: &[Vector], fork: &Fork, parts
         String::new()
     } else if fork.reach > 16 {
         format!(
-            "/// @dev The permutation uses EIP-8024 DUPN / SWAPN: run with FOUNDRY_PROFILE={}\n",
+            "/// @dev The permutation uses EIP-8024 DUPN / SWAPN: run with FOUNDRY_EVM_VERSION={}\n",
             fork.name
         )
     } else {
         format!(
-            "/// @dev The permutation targets {}: run with FOUNDRY_PROFILE={}\n",
+            "/// @dev The permutation targets {}: run with FOUNDRY_EVM_VERSION={}\n",
             fork.name, fork.name
         )
     };

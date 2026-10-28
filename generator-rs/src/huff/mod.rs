@@ -36,7 +36,7 @@ use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
     MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead,
     render_deploy_parts, render_entry, render_forge_test, render_hash_entry, render_hash_test,
-    render_part, render_permutation, render_zero, test_dir,
+    render_part, render_permutation, test_dir,
 };
 use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
@@ -182,22 +182,22 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
     // body pays for the size (the chains, the calls, diag constants in
     // memory), which a split may beat
     let mut parts = None;
-    if let Some(b) = &best {
-        if b.opts.consume_group > 0 {
-            let split = split_permutation(&params, &inputs, *fork)?;
-            let single = entry_gas(fork, t, &b.result);
-            if split.iter().map(|p| part_gas(p, t)).sum::<u64>() < single {
-                actions.push(Action::Log(format!(
-                    "{label}: {}",
-                    describe(&b.result, &b.opts)
-                )));
-                actions.push(Action::Log(format!(
-                    "  {single} gas per call as one contract: the split below costs less"
-                )));
-                best = None;
-            }
-            parts = Some(split);
+    if let Some(b) = &best
+        && b.opts.consume_group > 0
+    {
+        let split = split_permutation(&params, &inputs, *fork)?;
+        let single = entry_gas(fork, t, &b.result);
+        if split.iter().map(|p| part_gas(p, t)).sum::<u64>() < single {
+            actions.push(Action::Log(format!(
+                "{label}: {}",
+                describe(&b.result, &b.opts)
+            )));
+            actions.push(Action::Log(format!(
+                "  {single} gas per call as one contract: the split below costs less"
+            )));
+            best = None;
         }
+        parts = Some(split);
     }
     if let Some(best) = best {
         let (result, opts) = (&best.result, &best.opts);
@@ -206,7 +206,6 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
             // t4/Poseidon2.huff is the hash_1 / hash_2 / hash_3 entry: round 0
             // per arity, then the rounds after it shared, returning s0' alone
             actions.push(Action::MkdirAll(dir.clone()));
-            fork_files(&mut actions, fork);
             actions.push(Action::Write(
                 format!("{dir}/Permutation.huff"),
                 render_permutation(&params, result, opts, utils_path, fork),
@@ -265,7 +264,6 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
             return Ok(Width { t, actions, target });
         }
         actions.push(Action::MkdirAll(dir.clone()));
-        fork_files(&mut actions, fork);
         // the parts of an earlier split
         actions.push(Action::Remove(format!("{dir}/DeployParts.sol")));
         actions.push(Action::RemoveParts(dir.clone(), 0));
@@ -311,7 +309,6 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         fork.code_size
     )));
     actions.push(Action::MkdirAll(dir.clone()));
-    fork_files(&mut actions, fork);
     let mut total = 0;
     let mut gases = Vec::new();
     for (i, part) in parts.iter().enumerate() {
@@ -359,16 +356,6 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         gas: gases,
     };
     Ok(Width { t, actions, target })
-}
-
-/// the opcode macros a fork needs next to its width directories
-fn fork_files(actions: &mut Vec<Action>, fork: &Fork) {
-    if !fork.push0 {
-        actions.push(Action::Write(
-            format!("{}/Zero.huff", huff_dir(fork)),
-            render_zero(),
-        ));
-    }
 }
 
 /// Logs the lines of a width and applies its filesystem steps.
