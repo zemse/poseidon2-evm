@@ -5,6 +5,10 @@
 // POP 2, ADD 3, ADDMOD 8, MUL2 (PUSH1 2 MULMOD on [v, P]) 11.
 //
 //   t3int B1in B2in B1out B2out G MAXLEN [B0=4] [UB]
+// EXCHANGE=1 adds non-top exchanges within MAXLEN. REPLAY="..." replays
+// the printed DSL and checks the goal and every suffix's heuristic bound.
+// The positive-form whitelist, live-only DUP filter and window restrict
+// the search; a bounded result is not an unrestricted EVM optimum.
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
@@ -12,7 +16,7 @@ const MAXD: usize = 16;
 type Form = [u8; 3];
 const TARGETS: [Form; 3] = [[2, 1, 1], [1, 2, 1], [1, 1, 3]];
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct St {
     len: u8,
     s: [u8; MAXD], // bottom first; 0 = P, else 1 + form_index * 6 + bound
@@ -22,8 +26,28 @@ struct Pb {
     tb: [u8; 3],
     g: usize,
     maxlen: usize,
+    exchange: bool,
     forms: Vec<Form>,
     idx: HashMap<Form, usize>,
+}
+
+struct Replay {
+    state: St,
+    cost: u32,
+    trace: Vec<(St, u32)>,
+}
+
+fn exchange_code(j: usize, k: usize) -> Option<u8> {
+    if j == 0 || j >= k || k >= MAXD || j + k > 30 {
+        return None;
+    }
+    u8::try_from(45 + (k - 1) * (k - 2) / 2 + j - 1).ok()
+}
+
+fn exchange_pair(code: u8) -> Option<(usize, usize)> {
+    let code = usize::from(code.checked_sub(45)?);
+    let k = (2..MAXD).find(|&k| code < k * (k - 1) / 2)?;
+    Some((code - (k - 1) * (k - 2) / 2 + 1, k))
 }
 
 fn le(a: Form, b: Form) -> bool {
@@ -31,6 +55,35 @@ fn le(a: Form, b: Form) -> bool {
 }
 
 impl Pb {
+    fn replay(&self, initial: St, program: &str) -> Result<Replay, String> {
+        let (mut state, mut cost) = (initial, 0u32);
+        let mut trace = vec![(state, cost)];
+        let mut moves = Vec::new();
+        for op in program.split_whitespace() {
+            self.moves(&state, &mut moves);
+            let (gas, _, next) = moves
+                .iter()
+                .find(|(_, mv, _)| mvname(*mv) == op)
+                .ok_or_else(|| format!("replay move {op} is not available"))?;
+            cost += gas;
+            state = *next;
+            trace.push((state, cost));
+        }
+        Ok(Replay { state, cost, trace })
+    }
+
+    fn check_replay(&self, replay: &Replay) -> Result<(), String> {
+        if !self.goal(&replay.state) {
+            return Err("replay did not reach the goal".to_string());
+        }
+        for &(state, spent) in &replay.trace {
+            if !self.h(&state).is_some_and(|h| h <= replay.cost - spent) {
+                return Err(format!("heuristic exceeds replay suffix at gas {spent}"));
+            }
+        }
+        Ok(())
+    }
+
     fn enc(&self, f: Form, k: u8) -> u8 {
         (1 + self.idx[&f] * 6 + k as usize) as u8
     }
@@ -67,8 +120,8 @@ impl Pb {
         let m = self.missing(st);
         let mut cost = 0u32;
         let mut pneed = 1i32;
-        for i in 0..3 {
-            if m[i] {
+        for (i, &missing) in m.iter().enumerate() {
+            if missing {
                 if self.tb[i] < 2 {
                     cost += 8;
                     pneed += 1;
@@ -99,27 +152,8 @@ impl Pb {
             dups = dups.max(need - have);
         }
         moves += dups.max(0) as u32;
-        // dead entries (no missing target takes them, a second copy of an
-        // output, PRIME copies beyond those still needed) beyond the garbage
-        // limit must be popped
-        let mut dead = (pc - pneed).max(0) as usize;
-        let mut seen = [false; 3];
-        for &v in &st.s[..st.len as usize] {
-            if v == 0 {
-                continue;
-            }
-            let (f, k) = self.dec(v);
-            if let Some(i) = self.tgt(f, k) {
-                if seen[i] {
-                    dead += 1;
-                }
-                seen[i] = true;
-            } else if !self.live(f, k, &m) {
-                dead += 1;
-            }
-        }
-        let pops = dead.saturating_sub(self.g) as u32;
-        Some(cost + 3 * moves + 2 * pops)
+        // Spare PRIME copies can feed intermediate reductions; omit cleanup.
+        Some(cost + 3 * moves)
     }
     fn goal(&self, st: &St) -> bool {
         let n = st.len as usize;
@@ -167,6 +201,19 @@ impl Pb {
             let mut ns = *st;
             ns.s.swap(n - 1, n - 1 - k);
             out.push((3, (16 + k) as u8, ns));
+        }
+        if self.exchange {
+            for k in 2..n {
+                for j in 1..k {
+                    if top(j) == top(k) {
+                        continue;
+                    }
+                    let mut ns = *st;
+                    ns.s.swap(n - 1 - j, n - 1 - k);
+                    let code = exchange_code(j, k).expect("working-window exchange");
+                    out.push((3, code, ns));
+                }
+            }
         }
         if n >= 1 {
             let mut ns = *st;
@@ -248,21 +295,38 @@ fn mvname(m: u8) -> String {
         41 => "pop".into(),
         42 => "add".into(),
         43 => "addmod".into(),
-        _ => "mul2".into(),
+        44 => "mul2".into(),
+        _ => {
+            let (j, k) = exchange_pair(m).expect("exchange move");
+            format!("exchange{j},{k}")
+        }
     }
 }
 
-fn main() {
-    let a: Vec<String> = std::env::args().collect();
-    let arg = |i: usize, d: u32| a.get(i).map(|s| s.parse().unwrap()).unwrap_or(d);
-    let b1 = arg(1, 1) as u8;
-    let b2 = arg(2, 1) as u8;
-    let o1 = arg(3, 1) as u8;
-    let o2 = arg(4, 1) as u8;
-    let g = arg(5, 2) as usize;
-    let maxlen = arg(6, 10) as usize;
-    let b0 = arg(7, 4) as u8;
-    let ub = arg(8, 1 << 30);
+fn problem(a: &[String], exchange: bool) -> Result<(Pb, St, u32), String> {
+    if a.len() > 8 {
+        return Err("too many arguments".to_string());
+    }
+    let arg = |i: usize, d: u32| {
+        a.get(i).map_or(Ok(d), |s| {
+            s.parse::<u32>()
+                .map_err(|_| format!("invalid argument {}: {s}", i + 1))
+        })
+    };
+    let b1 = arg(0, 1)?;
+    let b2 = arg(1, 1)?;
+    let o1 = arg(2, 1)?;
+    let o2 = arg(3, 1)?;
+    let g = arg(4, 2)? as usize;
+    let maxlen = arg(5, 10)? as usize;
+    let b0 = arg(6, 4)?;
+    let ub = arg(7, 1 << 30)?;
+    if !(4..=MAXD).contains(&maxlen) {
+        return Err("MAXLEN must be in 4..16".to_string());
+    }
+    if ![b0, b1, b2, o1, o2].iter().all(|b| (1..=5).contains(b)) {
+        return Err("bounds must be in 1..5".to_string());
+    }
     let mut forms = vec![];
     for x in 0..=2u8 {
         for y in 0..=2u8 {
@@ -276,9 +340,10 @@ fn main() {
     }
     let idx = forms.iter().enumerate().map(|(i, &f)| (f, i)).collect();
     let pb = Pb {
-        tb: [b0, o1, o2],
+        tb: [b0 as u8, o1 as u8, o2 as u8],
         g,
         maxlen,
+        exchange,
         forms,
         idx,
     };
@@ -286,9 +351,22 @@ fn main() {
         len: 0,
         s: [0; MAXD],
     };
-    for (f, k) in [([0, 1, 0], b1), ([0, 0, 1], b2), ([1, 0, 0], 1)] {
+    for (f, k) in [([0, 1, 0], b1 as u8), ([0, 0, 1], b2 as u8), ([1, 0, 0], 1)] {
         init.s[init.len as usize] = pb.enc(f, k);
         init.len += 1;
+    }
+    Ok((pb, init, ub))
+}
+
+fn main() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let exchange = std::env::var("EXCHANGE").is_ok_and(|v| v == "1");
+    let (pb, init, ub) = problem(&args, exchange)?;
+    if let Ok(program) = std::env::var("REPLAY") {
+        let replay = pb.replay(init, &program)?;
+        pb.check_replay(&replay)?;
+        println!("replay cost {}, goal true", replay.cost);
+        return Ok(());
     }
     let mut best: HashMap<St, (u32, Option<(St, u8)>)> = HashMap::new();
     best.insert(init, (0, None));
@@ -304,7 +382,7 @@ fn main() {
         }
         if f >= ub {
             println!("no program below {ub}, expanded {exp}");
-            return;
+            return Ok(());
         }
         if f > lastf {
             lastf = f;
@@ -329,9 +407,16 @@ fn main() {
             }
             let dsl: Vec<&str> = path.iter().map(|(m, _)| m.as_str()).collect();
             println!("dsl: {}", dsl.join(" "));
-            return;
+            return Ok(());
         }
         exp += 1;
+        if exp.is_multiple_of(1_000_000) {
+            eprintln!(
+                "expanded {exp} states {} queue {} f {f}",
+                best.len(),
+                pq.len()
+            );
+        }
         pb.moves(&st, &mut buf);
         for (c, mv, ns) in buf.drain(..) {
             let ng = g + c;
@@ -339,10 +424,21 @@ fn main() {
                 continue;
             }
             let Some(hh) = pb.h(&ns) else { continue };
+            if ng + hh >= ub {
+                continue;
+            }
             best.insert(ns, (ng, Some((st, mv))));
             cnt += 1;
             pq.push(Reverse((ng + hh, Reverse(ng), u64::MAX - cnt, ns)));
         }
     }
-    println!("no solution, expanded {exp}");
+    println!(
+        "no solution below {ub}, expanded {exp}, states {}",
+        best.len()
+    );
+    Ok(())
 }
+
+#[cfg(test)]
+#[path = "../t3int_tests.rs"]
+mod tests;

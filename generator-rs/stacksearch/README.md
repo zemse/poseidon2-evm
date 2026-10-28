@@ -20,7 +20,7 @@ The binaries, run from this directory after `cargo build --release`:
   internal <lanes> <init> <goal> [max_garbage=0] [max_depth=16] [s=<bounds>;o=<bounds>]
   ```
 
-- `target/release/t3int` (`src/bin/t3int.rs`) searches the t = 3 internal round after its S-box over single opcodes, from `[x, s2, s1]` to `[s0', P, s2', s1']`: values are linear forms over x, s1, s2 with a bound in units of P (ADD while the bound stays at most 5), so diag 1, 1, 2 needs no products. Its bound counts the final op of every missing output (an ADDMOD with its PRIME copy for an output reduced below P), the PRIME copies, one DUP per output a leaf must still reach beyond its entries, and a POP per dead value beyond the garbage limit.
+- `target/release/t3int` (`src/bin/t3int.rs`) searches the t = 3 internal round after its S-box over single opcodes, from `[x, s2, s1]` to `[s0', P, s2', s1']`: values are linear forms over x, s1, s2 with a bound in units of P (ADD while the bound stays at most 5), so diag 1, 1, 2 needs no products. Its bound counts the final op of every missing output (an ADDMOD with its PRIME copy for an output reduced below P), mandatory PRIME supply and the largest leaf-copy deficit. It omits cleanup charges. `EXCHANGE=1` enables EIP-8024 exchanges within the working window; `REPLAY="<program>"` checks a printed DSL program, its goal and every suffix's bound. Bounds must be in 1..5 and the window in 4..16. The whitelist, live-only DUP filter and window remain restrictions, not an unrestricted optimality proof.
 
   ```
   t3int <s1 bound> <s2 bound> <s1' bound> <s2' bound> [max_garbage=2] [max_len=10] [s0' bound=4] [ub]

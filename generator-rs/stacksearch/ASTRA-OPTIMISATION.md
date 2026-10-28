@@ -185,6 +185,22 @@ The byte savings at t24/t28 do not buy another inline round: both still keep 25/
 
 Artifacts: `astra-byte-tree-{amsterdam,forced-amsterdam,shallow,bound-desc,bound-asc}.log`, `astra-byte-tree-unit.log`, `astra-sum-bytes.rs` and `astra-byte-tree-bound-asc.patch`. A fresh all-width Amsterdam verify after removing the prototypes reproduces c7d63fc (`astra-byte-tree-restored.log`).
 
+### 8. EXCHANGE-aware t3 linear-form search: memory cutoff
+
+`t3int` now supports EXCHANGE moves within its at-most-16-slot window, replay with goal/suffix-bound checks, validation before narrowing CLI bounds, and upper-bound pruning before storing a child. EXCHANGE off retains the old move set. The heuristic counts missing final arithmetic, mandatory PRIME supply and the maximum leaf-copy deficit, without cleanup charges. Removing those charges is conservative; the tests do not establish an old-heuristic counterexample for this t3 graph.
+
+Five focused tests cover all 105 exchange move codes, pair/window legality, three-gas exchanges versus equivalent nine-gas SWAP triples, unchanged disabled moves, six incumbent programs with both settings and every suffix, malformed bounds/windows/replays, displaced goals, consumable spare PRIME and recombinable partials. The complete stacksearch suite passes 33 tests. These tests validate the harness, not a new EVM optimisation.
+
+One search was run, with an 8 GiB sampled RSS guard and a 20-minute deadline:
+
+```sh
+EXCHANGE=1 generator-rs/stacksearch/target/release/t3int 3 2 4 5 1 8 2 56
+```
+
+This is the low phase after its S-box, from x < P, s1 < 3P, s2 < 2P to bounds (2,4,5), with one garbage slot and window 8. Its incumbent replays at 56 gas. The search hit the RSS guard after 76.1168 seconds, sampled peak 9,072,128 KiB; sampling and allocation bursts permit overshoot. It received SIGTERM (return code -15). Last reported progress was 23,000,000 expansions, 55,589,909 retained states, queue 33,215,587, f = 51. These are last reported counters, not final totals. No cheaper candidate was returned, and the search did not exhaust. No larger version of this frontier follows here.
+
+Logs: `astra-t3int-{tests,all-tests,clippy}.log`, `astra-t3-low-exchange-w8.log`, `astra-t3-low-exchange-w8-resources.log`, `astra-t3-low-exchange-w8-result.json`. Production generator and Huff are unchanged. The next scheduling approach fixes the incumbent's arithmetic DAG, whose funded post-S-box floor is 47 gas, rather than starting this broad linear-form search at h = 18.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
