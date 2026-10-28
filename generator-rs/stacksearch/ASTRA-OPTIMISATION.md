@@ -321,11 +321,32 @@ Three focused tests check every graph's forms/bounds/funded root, unchanged incu
 
 Reproduce one case with `EXCHANGE=1 generator-rs/stacksearch/target/release/t3variants xc sc 11 56`. Evidence: `astra-t3-next-trace.json`, `astra-t3-variants-exchange{0,1}.json`, corresponding per-case logs, `astra-t3-variants-{tests,clippy,all-tests}.log`. A different remaining boundary experiment would allow the inactive stack order to change across rounds and charge every transition, rather than increasing these exhausted windows.
 
+### 14. Inactive stack-order freedom: no sub-56 low phase
+
+`t3variants` now accepts separate inactive input/output orders, leaving the active lane and PRIME positions fixed. Input `bc` renames only the two leaf IDs; output `bc` swaps only the two inactive target slots. The default `cb-cb` graph, move set and incumbent replay are unchanged. Bounds remain (x,b,c) = (1,3,2), outputs (2,4,5).
+
+Only the three new boundaries `cb-bc`, `bc-cb` and `bc-bc` were searched, across all six arithmetic DAGs, with EXCHANGE off and on. None of the unchanged `cb-cb` searches was repeated. All 36 serial runs exhausted below 56 gas in window 11, with no candidate. For a given DAG and move set the expanded/retained counts were equal across the three new boundaries:
+
+| Common pair | Final c path | States per boundary, EXCHANGE off | States per boundary, EXCHANGE on |
+| --- | --- | ---: | ---: |
+| x+b | c+c | 203,267 | 213,997 |
+| x+b | sum+c | 154,581 | 163,090 |
+| x+c | c+c | 213,092 | 224,500 |
+| x+c | sum+c | 170,062 | 179,589 |
+| b+c | c+c | 213,389 | 224,500 |
+| b+c | sum+c | 170,359 | 179,589 |
+
+Every process had a sampled 4 GiB RSS guard and five-minute deadline; neither fired. Maximum sampled RSS was 45,600 KiB. This is a result about the listed fixed DAGs, once-only nodes, boundaries, one-garbage allowance, working window and move families. It is not joint-round synthesis or unrestricted EVM optimality. No new program exists here to compile or charge as a full-chain candidate, and no runtime saving is claimed.
+
+Tests cover all 24 DAG/layout combinations, original-basis forms and bounds, unchanged default graphs, wrong target orders, malformed layout strings and prefix heuristic consistency. Adapter controls replay the incumbent in each orientation and charge both ends: nine gas per changed end with SWAP triples, three with EXCHANGE. A free input/output relabeling is not counted as a caller-frame improvement. All 48 search tests, targeted Clippy, Rust formatting and whitespace checks pass. No production, generated Huff or formal files change.
+
+Reproduce a new boundary with `LAYOUT=bc-cb EXCHANGE=1 generator-rs/stacksearch/target/release/t3variants xb cc 11 56`. Evidence: `astra-t3-layouts-exchange{0,1}.json`, the per-case logs, `astra-t3-layout-{tests,all-tests,clippy}.log`. Further window increases for these low-phase DAGs are deprioritized; the next inspection returns to the larger wide-state legacy placement and code-budget headroom.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
 
-`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 46 tests with the t3int, t3dag, sheardag and t3variants extensions. Formatting and targeted Clippy pass for the changed tools. Their search-only commits do not change the production generator or Huff.
+`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 48 tests with the t3int, t3dag, sheardag and t3variants extensions. Formatting and targeted Clippy pass for the changed tools. Their search-only commits do not change the production generator or Huff.
 
 The integration branch is `opt`, not the older local `main`. Coordinator commit a433745 corrects the diagnostic `schedule` wrapper-memory accounting; core floors and compiled baseline measurements above are unaffected. The old diagnostic small-width call totals were two to four gas too high. Subsequent experiments use `opt` as their base.
 

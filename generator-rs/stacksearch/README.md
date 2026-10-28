@@ -38,7 +38,7 @@ The binaries, run from this directory after `cargo build --release`:
   sheardag <mask> <u_bound> <v_bound> [window=12] [upper_bound=funded+10]
   ```
 
-- `target/release/t3variants` (`src/bin/t3variants.rs`) varies the low-phase original-basis DAG: the first sum pair is x+b, x+c or b+c, and the c' path is `(c+c)+sum` or `(sum+c)+c`. All have the t3dag input/output bounds, boundary and funded root. `EXCHANGE` and `REPLAY` use the shared engine. ASTRA-OPTIMISATION.md records the scoped sub-56 exhaustion for the five new graphs at window 11.
+- `target/release/t3variants` (`src/bin/t3variants.rs`) varies the low-phase original-basis DAG: the first sum pair is x+b, x+c or b+c, and the c' path is `(c+c)+sum` or `(sum+c)+c`. All have the t3dag input/output bounds and funded root. `LAYOUT=cb-cb` (default), `cb-bc`, `bc-cb` or `bc-bc` sets the inactive input/output order under the active lane and PRIME. `EXCHANGE` and `REPLAY` use the shared engine. ASTRA-OPTIMISATION.md records the scoped sub-56 exhaustion for these graphs and boundaries at window 11.
 
   ```
   t3variants <xb|xc|bc> <cc|sc> [window=11] [upper_bound=56]
