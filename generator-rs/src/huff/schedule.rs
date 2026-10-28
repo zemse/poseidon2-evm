@@ -121,6 +121,8 @@ pub struct BuildOptions {
     /// of the last blocks of a layer, which the next layer takes first, and
     /// the column sums load them; without, all stay on the stack
     pub external_stream: bool,
+    /// leave every shadowed input in calldata without a placeholder slot
+    pub compact_inputs: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -148,6 +150,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     internal_mul3: false,
     prime_in_memory: false,
     external_stream: false,
+    compact_inputs: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -190,6 +193,8 @@ pub const HANDOVER_BOUND_TEXT: &str = "2p";
 /// input_slots entry of an input the entry leaves in calldata (see
 /// Emitter::declare_raw)
 pub const RAW_INPUT: usize = usize::MAX;
+/// a raw calldata input with no stack placeholder
+pub const COMPACT_INPUT: usize = usize::MAX - 1;
 
 /// the boundary of part `from` of a split: lazy inputs from calldata
 pub fn part_boundary(t: usize, from: usize) -> Boundary {
@@ -269,6 +274,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.external_stream {
         enabled.push("externalStream".to_string());
+    }
+    if opts.compact_inputs {
+        enabled.push("compactInputs".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -528,25 +536,30 @@ impl<'a> Builder<'a> {
             if e.shadows(Key::In(i)) {
                 if boundary.calldata {
                     e.declare_calldata(v, 32 * i);
-                } else if i + 1 > fork.reach && !boundary.store_inputs {
+                } else if (i + 1 > fork.reach || opts.compact_inputs) && !boundary.store_inputs {
                     e.declare_raw(v, 32 * i);
-                    *slot = Some(RAW_INPUT);
+                    *slot = Some(if opts.compact_inputs {
+                        COMPACT_INPUT
+                    } else {
+                        RAW_INPUT
+                    });
                 } else {
                     *slot = Some(e.declare(v));
                 }
             }
             state.push(v);
         }
-        // an input left in calldata holds its place on the stack as a zero
-        // (PUSH0), so the stack is as deep as with the input
+        // raw inputs keep their slots as zeros unless compact_inputs omits them
         let mut stack = Vec::with_capacity(t + 1);
         for (i, &v) in state.iter().enumerate() {
-            if input_slots[i] == Some(RAW_INPUT) {
-                let vals = vec![U256::ZERO; inputs.len()];
-                let z = crate::value::Value::new(format!("z{i}"), U256::ZERO, vals, None)?;
-                stack.push(e.alloc(z));
-            } else {
-                stack.push(v);
+            match input_slots[i] {
+                Some(COMPACT_INPUT) => {}
+                Some(RAW_INPUT) => {
+                    let vals = vec![U256::ZERO; inputs.len()];
+                    let z = crate::value::Value::new(format!("z{i}"), U256::ZERO, vals, None)?;
+                    stack.push(e.alloc(z));
+                }
+                _ => stack.push(v),
             }
         }
         if boundary.prime_second {
@@ -3142,9 +3155,12 @@ fn build_checked(
             result => result,
         }
     };
-    // the inputs out of reach left in calldata change the stack the probe
-    // saw, so a build that fails with them stores them instead
-    let raw = opts.shadow && !boundary.calldata && !boundary.store_inputs && params.t > fork.reach;
+    // raw inputs change the stack the probe saw, so a build that fails
+    // with them stores them instead
+    let raw = opts.shadow
+        && !boundary.calldata
+        && !boundary.store_inputs
+        && (params.t > fork.reach || opts.compact_inputs);
     match build(boundary) {
         Err(_) if raw => build(&Boundary {
             store_inputs: true,
@@ -3367,6 +3383,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         internal_mul3,
                                                                         prime_in_memory: false,
                                                                         external_stream,
+                                                                        compact_inputs: false,
                                                                     });
                                                                 }
                                                             }
@@ -3424,6 +3441,36 @@ pub fn build_best(
     build_best_with(params, inputs, max_bytes, fork, range, &Boundary::default())
 }
 
+fn prefer(
+    current: (BuildOptions, u64),
+    alternative: std::result::Result<(BuildOptions, u64), String>,
+) -> (BuildOptions, u64) {
+    match alternative {
+        Ok(candidate) if candidate.1 < current.1 => candidate,
+        _ => current,
+    }
+}
+
+/// Call-frame cost, excluding a folded hash's fixed dispatch and prologue.
+fn frame_cost(params: &Params, result: &BuildResult, fork: Fork, boundary: &Boundary) -> u64 {
+    let outputs = boundary.live.as_ref().map_or(params.t, Vec::len);
+    let stack_entry = boundary.prime_second;
+    let hands_over = result.range.to < step_count(params);
+    let overhead = super::render::overhead(
+        fork,
+        if stack_entry { outputs } else { params.t },
+        &result.input_slots,
+        result.state_in_memory,
+        hands_over,
+        boundary.calldata,
+        result.memory,
+    );
+    result.gas
+        + if stack_entry { 0 } else { overhead.entry_gas }
+        + overhead.tail_gas
+        + memory_gas(result.memory.max(32 * outputs))
+}
+
 /// build_best from lazy inputs and for the outputs the caller reads.
 pub fn build_best_with(
     params: &Params,
@@ -3440,8 +3487,7 @@ pub fn build_best_with(
         )
     };
     let attempt = |opts: &BuildOptions| build(opts).ok();
-    // the code and the memory it expands (the state region at least)
-    let cost = |result: &BuildResult| result.gas + memory_gas(result.memory.max(32 * params.t));
+    let cost = |result: &BuildResult| frame_cost(params, result, fork, boundary);
     let evaluate = |opts: &BuildOptions| -> Outcome {
         let mut opts = *opts;
         let mut first = build(&opts);
@@ -3675,6 +3721,21 @@ pub fn build_best_with(
             summary.join("\n  ")
         )));
     }
+    // Compact entries can lose cheap DUPs of inputs that were within reach.
+    // Try the selected schedule without replacing the original candidate.
+    if let Some((opts, gas)) = best
+        && opts.shadow
+        && range.from == 0
+        && !boundary.calldata
+        && !boundary.prime_second
+        && !boundary.store_inputs
+    {
+        let compact = BuildOptions {
+            compact_inputs: true,
+            ..opts
+        };
+        best = Some(prefer((opts, gas), evaluate(&compact).result));
+    }
     match best {
         Some((opts, gas)) => {
             let result = build_checked(
@@ -3697,6 +3758,147 @@ mod tests {
     use crate::field;
     use crate::huff::fork::fork;
     use crate::round_constants::generate_params_uncached;
+
+    #[test]
+    fn compact_inputs_keep_original_on_failure_or_no_saving() {
+        let old = (DEFAULT_OPTIONS, 100);
+        let compact = BuildOptions {
+            compact_inputs: true,
+            ..DEFAULT_OPTIONS
+        };
+        assert_eq!(prefer(old, Err("out of reach".to_string())), old);
+        assert_eq!(prefer(old, Ok((compact, 101))), old);
+        assert_eq!(prefer(old, Ok((compact, 100))), old);
+        assert_eq!(prefer(old, Ok((compact, 99))), (compact, 99));
+    }
+
+    #[test]
+    fn compact_input_stack_and_fallback_boundaries() {
+        let params = generate_params_uncached(20);
+        let inputs = vec![vec![p1(); 20]];
+        let range = Range {
+            from: 0,
+            to: step_count(&params),
+        };
+        let shadow = HashSet::from([Key::In(2), Key::In(17), Key::In(19)]);
+        for name in ["paris", "osaka", "amsterdam"] {
+            let fork = fork(name).unwrap();
+            for compact_inputs in [false, true] {
+                let opts = BuildOptions {
+                    shadow: true,
+                    compact_inputs,
+                    ..DEFAULT_OPTIONS
+                };
+                let mut b = Builder::new(
+                    &params,
+                    &inputs,
+                    opts,
+                    fork,
+                    range,
+                    shadow.clone(),
+                    false,
+                    true,
+                    &Boundary::default(),
+                )
+                .unwrap();
+                if compact_inputs {
+                    assert_eq!(b.e.depth(), 18);
+                    assert_eq!(b.e.at(17), Some(b.p()));
+                    for i in [2, 17, 19] {
+                        assert_eq!(b.input_slots[i], Some(COMPACT_INPUT));
+                        assert_eq!(b.e.find(b.state[i]), 0);
+                        let before = b.e.gas;
+                        b.e.dup(b.state[i]).unwrap();
+                        assert_eq!(b.e.gas - before, 14);
+                        assert_eq!(b.e.bound(b.e.top(0).unwrap()), p1());
+                        b.e.pop().unwrap();
+                    }
+                } else {
+                    assert_eq!(b.e.depth(), 21);
+                    assert_eq!(b.e.at(20), Some(b.p()));
+                    if fork.reach == 16 {
+                        for i in [17, 19] {
+                            assert_eq!(b.input_slots[i], Some(RAW_INPUT));
+                            assert_eq!(b.e.bound(b.e.top(i).unwrap()), U256::ZERO);
+                        }
+                    }
+                }
+                for boundary in [
+                    Boundary {
+                        store_inputs: true,
+                        ..Boundary::default()
+                    },
+                    part_boundary(20, 1),
+                ] {
+                    let b = Builder::new(
+                        &params,
+                        &inputs,
+                        opts,
+                        fork,
+                        range,
+                        shadow.clone(),
+                        false,
+                        false,
+                        &boundary,
+                    )
+                    .unwrap();
+                    assert_eq!(b.e.depth(), 21);
+                    assert!(!b.input_slots.contains(&Some(COMPACT_INPUT)));
+                    assert!(!b.input_slots.contains(&Some(RAW_INPUT)));
+                    for i in [2, 17, 19] {
+                        assert_eq!(b.e.top(i).unwrap(), b.state[i]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frame_cost_distinguishes_hash_stack_and_split_calldata() {
+        let params = generate_params_uncached(4);
+        let fork = fork("osaka").unwrap();
+        let mut result = BuildResult {
+            lines: Vec::new(),
+            gas: 100,
+            bytes: 0,
+            max_depth: 0,
+            max_dup: 0,
+            swaps: 0,
+            pops: 0,
+            stores: 0,
+            loads: 0,
+            range: Range {
+                from: 2,
+                to: step_count(&params),
+            },
+            state_in_memory: false,
+            input_slots: vec![None; 4],
+            step_bytes: Vec::new(),
+            memory: 0,
+            tables: Vec::new(),
+        };
+        let hash = Boundary {
+            prime_second: true,
+            live: Some(vec![0]),
+            ..Boundary::default()
+        };
+        // MSIZE MSTORE MSIZE PUSH0 RETURN, plus one word of memory.
+        assert_eq!(frame_cost(&params, &result, fork, &hash), 112);
+        let lazy = part_boundary(4, 2);
+        assert_eq!(frame_cost(&params, &result, fork, &lazy), 162);
+        assert_eq!(
+            frame_cost(&params, &result, fork, &Boundary::default()),
+            194
+        );
+        result.range.to -= 1;
+        result.state_in_memory = true;
+        result.memory = 128;
+        let tail = super::super::render::overhead(fork, 4, &[], true, true, true, 128);
+        assert_eq!(
+            frame_cost(&params, &result, fork, &lazy),
+            100 + tail.entry_gas + tail.tail_gas + 12
+        );
+    }
 
     #[test]
     fn internal3_periodic_bounds_and_boundaries() {

@@ -55,6 +55,36 @@ Window 9 finished in about ten minutes. RSS sampling began eight minutes into th
 
 Three focused Rust tests check exchange pair legality, all working depths through 16, preservation of the fixed floor and original move set, identical-value rejection, three-gas replay versus the equivalent nine-gas SWAP triple, and replay of the unchanged 347-gas incumbent with EXCHANGE off and on. This is a search-tool change, not a production gas saving. The result excludes only the fixed-DAG, bounded working windows and generation rules tested.
 
+### 2. Compact raw input entries: lower wide legacy call gas
+
+The first prototype left all shadowed t24/t28 inputs in calldata but retained their zero placeholders: Osaka 77,020 / 94,477, 25 gas saved at each width. Omitting the placeholders and counting PRIME depth from the slots actually loaded gives 76,985 / 94,434. Both prototypes were compiled and checked on 24 full-word/shared-vector calls per width. The final implementation has no width threshold: `compactInputs` is an additional attempt on the selected shadow schedule, and a failed, tied or slower attempt retains the original candidate.
+
+Selection now includes actual entry, tail and memory costs. Later split parts load lazy calldata without the initial reductions and include their hand-over tail. Folded hash rounds start from the prologue's stack, pay no calldata entry, and return only the live output; fixed dispatch/prologue costs do not affect their ranking.
+
+| Fork | Entry | Before | Selected after | Saving | Runtime bytes before | After |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Osaka | t16 | 48,635 | 48,635 | 0 | 24,302 | 24,302 |
+| Osaka | t20 | 63,188 | 63,188 | 0 | 24,026 | 24,026 |
+| Osaka | t24 | 77,045 | 76,985 | 60 | 24,213 | 23,873 |
+| Osaka | t28 | 94,502 | 94,434 | 68 | 24,370 | 23,898 |
+| Paris | t16 | 48,809 | 48,809 | 0 | 24,413 | 24,413 |
+| Paris | t20 | 63,362 | 63,362 | 0 | 24,089 | 24,089 |
+| Paris | t24 | 77,227 | 77,159 | 68 | 24,272 | 23,924 |
+| Paris | t28 | 94,694 | 94,614 | 80 | 24,415 | 23,931 |
+
+All Amsterdam entries and Osaka t2/t3/t4/t8/t12 retain the baseline gas table above. Default Amsterdam regeneration leaves every checked-in Huff/test file unchanged. The improvement is in the legacy generated output, which is not checked in.
+
+Final gates completed:
+
+- `verify 2 3 4 8 12 16 20 24 28` on Amsterdam and Osaka: 288 calls each, exact measured/model equality.
+- `verify --hardfork paris 2 3 4 16 20 24 28`: 240 calls, exact equality. Separate baseline b534d07 source and target directories reproduce the Paris before values on 96 wide calls.
+- `cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml`: 35 tests passed (22 library, one CLI, three known-answer, four generator, five execution).
+- Five new unit tests cover marker/placeholder semantics, PRIME depth/reach, lazy and stored boundaries, unchanged selection on failure/tie/regression, and hash/split frame-cost distinctions. Existing strict gas assertions change only for the independently measured Osaka t24/t28 reductions; correctness and gas tolerances are unchanged.
+- Full Foundry suite: 127 passed, zero failed/skipped, three t4 fuzz tests at 10,000 runs. Existing dependency sources are borrowed read-only with `--lib-paths` and two separate `--remappings` flags; no installation. An initial import-resolution failure and an incorrect two-value remapping invocation (zero tests) are not counted as passes.
+- Default all-width regeneration, `forge fmt`, `cargo fmt --check`, Clippy with `--all-targets -- -D warnings`, five gas-floor tests and `git diff --check` pass.
+
+Logs: `astra-compact-selected-{amsterdam,osaka,paris}.log`, `astra-baseline-paris-wide-isolated.log`, `astra-compact-{unit-tests,all-tests,forge,clippy,generation}.log`. The first attempted Paris baseline reused the candidate's Cargo target and was invalid evidence; only the isolated-target baseline is used. Do not share one target directory between baseline and candidate packages with the same name/version.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
