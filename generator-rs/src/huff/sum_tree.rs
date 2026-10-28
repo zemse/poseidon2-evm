@@ -3,7 +3,7 @@
 // Costs assume three-gas leaf/PRIME copies, ADD at 3 and ADDMOD at 8 on
 // every supported fork. Reach, memory loads and code size are not modelled:
 // the emitter checks and prices the chosen tree in its actual layout.
-// The cache key is the complete ordered bound vector and the output cap.
+// The cache key includes ordered bounds, the output cap and frontier policy.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -23,20 +23,31 @@ pub(super) struct Plan {
     pub node: Node,
     pub bound: U256,
     pub gas: u64,
-    /// peak of this tree, not minimized across discarded equal-gas bounds
+    /// working-stack peak under this tree's fixed emission order
     pub peak: usize,
 }
 
-type Cache = HashMap<(Vec<U256>, U256), Option<Arc<Plan>>>;
+type Cache = HashMap<(Vec<U256>, U256, bool), Option<Arc<Plan>>>;
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
 
 pub(super) fn plan(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
-    let key = (bounds.to_vec(), cap);
+    cached_plan(bounds, cap, false)
+}
+
+pub(super) fn plan_peak(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
+    cached_plan(bounds, cap, true)
+}
+
+fn cached_plan(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>> {
+    let key = (bounds.to_vec(), cap, peak_aware);
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(found) = cache.lock().expect("sum tree cache").get(&key) {
         return found.clone();
     }
-    let found = build(bounds, cap);
+    let found = frontier(bounds, peak_aware)
+        .into_iter()
+        .filter(|p| p.bound <= cap)
+        .min_by_key(|p| (p.gas, p.peak, p.bound));
     cache
         .lock()
         .expect("sum tree cache")
@@ -44,10 +55,10 @@ pub(super) fn plan(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
     found
 }
 
-fn build(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
+fn frontier(bounds: &[U256], peak_aware: bool) -> Vec<Arc<Plan>> {
     let n = bounds.len();
     if n == 0 {
-        return None;
+        return Vec::new();
     }
     let mut cells: Vec<Vec<Vec<Arc<Plan>>>> = vec![vec![Vec::new(); n + 1]; n];
     for (i, &bound) in bounds.iter().enumerate() {
@@ -62,6 +73,7 @@ fn build(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
         for start in 0..=n - len {
             let end = start + len;
             let mut choices: BTreeMap<U256, Arc<Plan>> = BTreeMap::new();
+            let mut pareto: Vec<Arc<Plan>> = Vec::new();
             for (mid, row) in cells.iter().enumerate().take(end).skip(start + 1) {
                 for left in &cells[start][mid] {
                     for right in &row[end] {
@@ -77,42 +89,54 @@ fn build(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
                             let gas = left.gas + right.gas + if reduce { 11 } else { 3 };
                             let extra = usize::from(reduce);
                             let peak = (left.peak + extra).max(right.peak + 1 + extra);
-                            if choices
-                                .get(&bound)
-                                .is_none_or(|old| (gas, peak) < (old.gas, old.peak))
-                            {
-                                choices.insert(
+                            let keep = if peak_aware {
+                                !pareto.iter().any(|old| {
+                                    old.bound <= bound && old.gas <= gas && old.peak <= peak
+                                })
+                            } else {
+                                choices
+                                    .get(&bound)
+                                    .is_none_or(|old| (gas, peak) < (old.gas, old.peak))
+                            };
+                            if keep {
+                                let candidate = Arc::new(Plan {
+                                    node: Node::Pair {
+                                        left: left.clone(),
+                                        right: right.clone(),
+                                        reduce,
+                                    },
                                     bound,
-                                    Arc::new(Plan {
-                                        node: Node::Pair {
-                                            left: left.clone(),
-                                            right: right.clone(),
-                                            reduce,
-                                        },
-                                        bound,
-                                        gas,
-                                        peak,
-                                    }),
-                                );
+                                    gas,
+                                    peak,
+                                });
+                                if peak_aware {
+                                    pareto.retain(|old| {
+                                        !(bound <= old.bound && gas <= old.gas && peak <= old.peak)
+                                    });
+                                    pareto.push(candidate);
+                                } else {
+                                    choices.insert(bound, candidate);
+                                }
                             }
                         }
                     }
                 }
             }
-            let mut cheapest = u64::MAX;
-            for (_, choice) in choices {
-                if choice.gas < cheapest {
-                    cheapest = choice.gas;
-                    cells[start][end].push(choice);
+            if peak_aware {
+                pareto.sort_by_key(|p| (p.bound, p.gas, p.peak));
+                cells[start][end] = pareto;
+            } else {
+                let mut cheapest = u64::MAX;
+                for (_, choice) in choices {
+                    if choice.gas < cheapest {
+                        cheapest = choice.gas;
+                        cells[start][end].push(choice);
+                    }
                 }
             }
         }
     }
-    cells[0][n]
-        .iter()
-        .filter(|p| p.bound <= cap)
-        .min_by_key(|p| (p.gas, p.peak, p.bound))
-        .cloned()
+    std::mem::take(&mut cells[0][n])
 }
 
 #[cfg(test)]
@@ -262,6 +286,86 @@ mod tests {
         let tree = plan(&[bound; 4], PRIME - u256(1)).unwrap();
         assert_eq!(tree.gas, 4 * 3 + 2 * 3 + 11);
         assert_eq!(tree.bound, PRIME - u256(1));
+    }
+
+    fn exhaustive_peak(bounds: &[U256]) -> Vec<(U256, u64, usize)> {
+        if bounds.len() == 1 {
+            return vec![(bounds[0], 3, 1)];
+        }
+        let mut out = Vec::new();
+        for split in 1..bounds.len() {
+            for (a, ga, pa) in exhaustive_peak(&bounds[..split]) {
+                for (b, gb, pb) in exhaustive_peak(&bounds[split..]) {
+                    if let Some(sum) = a.checked_add(b) {
+                        out.push((sum, ga + gb + 3, pa.max(pb + 1)));
+                    }
+                    out.push((PRIME - u256(1), ga + gb + 11, (pa + 1).max(pb + 2)));
+                }
+            }
+        }
+        out
+    }
+
+    fn check_frontier(bounds: &[U256]) {
+        let mut all = exhaustive_peak(bounds);
+        all.sort_unstable();
+        all.dedup();
+        let want: Vec<_> = all
+            .iter()
+            .copied()
+            .filter(|p| {
+                !all.iter()
+                    .any(|q| q != p && q.0 <= p.0 && q.1 <= p.1 && q.2 <= p.2)
+            })
+            .collect();
+        let got: Vec<_> = frontier(bounds, true)
+            .iter()
+            .map(|p| (p.bound, p.gas, p.peak))
+            .collect();
+        assert_eq!(got, want, "bounds {bounds:?}");
+    }
+
+    #[test]
+    fn peak_frontier_recovers_equal_gas_witness() {
+        let bounds = [5, 1, 4, 2].map(|u| (PRIME - u256(1)) * u256(u));
+        let old = plan(&bounds, PRIME - u256(1)).unwrap();
+        let new = plan_peak(&bounds, PRIME - u256(1)).unwrap();
+        assert_eq!((old.gas, old.peak), (37, 5));
+        assert_eq!((new.gas, new.peak), (37, 4));
+        assert!(!Arc::ptr_eq(&old, &new));
+        assert!(Arc::ptr_eq(
+            &new,
+            &plan_peak(&bounds, PRIME - u256(1)).unwrap()
+        ));
+        let mut leaves = Vec::new();
+        let got = replay(&new, &bounds, &bounds, &mut leaves);
+        assert_eq!(leaves, vec![0, 1, 2, 3]);
+        assert_eq!(got, bounds.into_iter().fold(U256::ZERO, field::add));
+    }
+
+    #[test]
+    fn peak_frontiers_match_exhaustive_parent_compositions() {
+        assert!(frontier(&[], true).is_empty());
+        for n in 1..=5 {
+            for code in 0..5usize.pow(n as u32) {
+                let mut x = code;
+                let bounds: Vec<_> = (0..n)
+                    .map(|_| {
+                        let bound = (PRIME - u256(1)) * u256((x % 5 + 1) as u64);
+                        x /= 5;
+                        bound
+                    })
+                    .collect();
+                check_frontier(&bounds);
+            }
+        }
+        for bounds in [
+            vec![U256::ZERO; 5],
+            vec![UINT256_MAX, u256(1), U256::ZERO],
+            vec![u256(1), UINT256_MAX, UINT256_MAX - u256(1), u256(2)],
+        ] {
+            check_frontier(&bounds);
+        }
     }
 
     #[test]

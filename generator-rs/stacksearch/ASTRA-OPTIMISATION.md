@@ -143,6 +143,29 @@ Verification: all nine widths on each of Amsterdam/Osaka/Paris, 864 calls total.
 
 Logs: `astra-tree-final-{amsterdam,osaka,paris}.log`, `astra-tree-unit-tests.log`, `astra-tree-all-tests-fixed.log`, `astra-tree-forge.log`, `astra-tree-clippy.log`, `astra-tree-stacksearch-tests.log`, `astra-tree-regeneration.log`. `astra-tree-selected-*` records the weaker selected-layout-only control. The failed pre-cache-fix suite remains in `astra-tree-all-tests.log`, not counted as a completed gate. `astra-tree-final-tests.log` is the final suite rerun after the iterator-only lint cleanup.
 
+### 6. Peak-aware Pareto sum trees
+
+The ordered bounds `[5, 1, 4, 2] * (P-1)` with cap P-1 expose a real lost alternative: the earlier planner chooses 37 gas with peak 5, but an exhaustive interval-tree enumeration finds 37 with peak 4. This was a lost optimisation, not unsafe arithmetic.
+
+`treePeak` retains a frontier over inclusive output bound, arithmetic gas and working-stack peak. A candidate is removed only when another is no greater in all three coordinates (equal triples retain their first representative). This dominance composes at either child position: parent bounds are monotone checked sums or P-1, costs are additive, and peaks are maxima of the child peaks plus fixed offsets. Leaf order and the PRIME-before-operands convention stay fixed. The root still prefers gas, then peak, then bound. The old arithmetic-only tree policy remains a separate candidate, and tied, slower or failed peak-aware builds cannot replace it. The cache key now also includes frontier policy.
+
+Regressions replace the diagnostic-only test: the concrete 37-gas witness reaches peak 4, all 3,905 bound lists of length 1..5 with entries 1..5 times P-1 match the complete nondominated triple set from unpruned parent composition, and additional zero/full-word endpoint lists agree. Both policies replay through the emitter on all six supported forks; cache tests distinguish policies. This is an exact frontier for the stated grammar and emission convention, not unrestricted EVM scheduling optimality.
+
+Measured call-frame gas: before is b95f817, after is this candidate:
+
+| Fork | t | Before | After | Saving | Runtime bytes before | After |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 16 | 48,635 | 48,124 | 511 | 24,302 | 22,951 |
+| Osaka | 24 | 76,281 | 75,942 | 339 | 24,036 | 23,985 |
+| Osaka | 28 | 93,372 | 92,158 | 1,214 | 23,915 | 23,956 |
+| Paris | 16 | 48,809 | 48,298 | 511 | 24,413 | 23,062 |
+| Paris | 24 | 76,455 | 76,116 | 339 | 24,087 | 24,036 |
+| Paris | 28 | 93,552 | 92,527 | 1,025 | 23,948 | 23,885 |
+
+Every Amsterdam width and every other legacy entry/arity is unchanged. All nine widths on Amsterdam, Osaka and Paris pass compiled reference verification (864 calls, every gas-model difference zero). The actual whole-call improvements, not the peak witness alone, justify selection. The full 47-test generator suite and 127 Foundry tests pass, Clippy passes, and all-width default regeneration leaves checked-in Huff and generated tests unchanged. Formal exports and proof correspondence are coordinator-owned and have not been refreshed by this lane.
+
+Evidence: `astra-tree-peak-diagnostic.log`, `astra-peak-unit-tests.log`, `astra-peak-{amsterdam,osaka,paris}.log`, `astra-peak-all-tests.log`, `astra-peak-forge.log`, `astra-peak-clippy.log`, `astra-peak-generation.log`. The Osaka full-family comparison remained CPU-active with about 126 MiB observed RSS; its longer generation time is not an EVM performance claim.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

@@ -125,6 +125,8 @@ pub struct BuildOptions {
     pub compact_inputs: bool,
     /// sum trees of bound-checked ADDs and ADDMODs instead of serial chains
     pub tree_sums: bool,
+    /// retain bound/gas/peak Pareto alternatives when planning sum trees
+    pub tree_peak: bool,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -154,6 +156,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     external_stream: false,
     compact_inputs: false,
     tree_sums: false,
+    tree_peak: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -283,6 +286,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.tree_sums {
         enabled.push("treeSums".to_string());
+    }
+    if opts.tree_peak {
+        enabled.push("treePeak".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -834,7 +840,12 @@ impl<'a> Builder<'a> {
                 .map(|i| values[i])
                 .collect();
             let bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
-            let Some(plan) = super::sum_tree::plan(&bounds, cap) else {
+            let planned = if self.opts.tree_peak {
+                super::sum_tree::plan_peak(&bounds, cap)
+            } else {
+                super::sum_tree::plan(&bounds, cap)
+            };
+            let Some(plan) = planned else {
                 bail!("no sum tree meets the bound");
             };
             return self.emit_sum_tree(&plan, &ordered, name);
@@ -3436,6 +3447,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         external_stream,
                                                                         compact_inputs: false,
                                                                         tree_sums: false,
+                                                                        tree_peak: false,
                                                                     });
                                                                 }
                                                             }
@@ -3794,24 +3806,27 @@ pub fn build_best_with(
     };
     best = compact_entry(best);
     if params.t >= 8 {
-        let trees = |shadow| {
-            candidates(params.t, shadow, fork.reach)
-                .into_iter()
-                .map(|opts| BuildOptions {
-                    tree_sums: true,
-                    ..opts
-                })
-                .collect()
-        };
-        let mut tree_best = None;
-        if search(trees(false), &mut tree_best, &mut failures) == 0 {
-            search(trees(true), &mut tree_best, &mut failures);
-        }
-        if let Some(tree) = compact_entry(tree_best) {
-            best = Some(match best {
-                Some(current) => prefer(current, Ok(tree)),
-                None => tree,
-            });
+        for tree_peak in [false, true] {
+            let trees = |shadow| {
+                candidates(params.t, shadow, fork.reach)
+                    .into_iter()
+                    .map(|opts| BuildOptions {
+                        tree_sums: true,
+                        tree_peak,
+                        ..opts
+                    })
+                    .collect()
+            };
+            let mut tree_best = None;
+            if search(trees(false), &mut tree_best, &mut failures) == 0 {
+                search(trees(true), &mut tree_best, &mut failures);
+            }
+            if let Some(tree) = compact_entry(tree_best) {
+                best = Some(match best {
+                    Some(current) => prefer(current, Ok(tree)),
+                    None => tree,
+                });
+            }
         }
     }
     match best {
@@ -3848,7 +3863,8 @@ mod tests {
             "osaka",
             "amsterdam",
         ] {
-            for trial in 0..12 {
+            for trial in 0..24 {
+                let tree_peak = trial >= 12;
                 let bounds: Vec<_> = (0..8)
                     .map(|i| p1() * u256(1 + ((i + trial) % 3) as u64))
                     .collect();
@@ -3863,6 +3879,7 @@ mod tests {
                 };
                 let opts = BuildOptions {
                     tree_sums: true,
+                    tree_peak,
                     ..DEFAULT_OPTIONS
                 };
                 let mut b = Builder::new(
@@ -3888,7 +3905,12 @@ mod tests {
                     .map(|i| b.bound(values[i]))
                     .collect();
                 let cap = p1() * u256(1 + (trial % 2) as u64);
-                let plan = super::super::sum_tree::plan(&ordered, cap).unwrap();
+                let plan = if tree_peak {
+                    super::super::sum_tree::plan_peak(&ordered, cap)
+                } else {
+                    super::super::sum_tree::plan(&ordered, cap)
+                }
+                .unwrap();
                 let out = b.chain_sum_in_place(&values, "sum", cap).unwrap();
                 assert_eq!(b.e.bound(out), plan.bound);
                 assert!(b.e.bound(out) <= cap);
