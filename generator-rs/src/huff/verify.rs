@@ -575,6 +575,10 @@ mod linear_probe;
 mod shear_probe;
 
 #[cfg(test)]
+#[path = "../../stacksearch/entry_grid_probe.rs"]
+mod entry_grid_probe;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::PRIME;

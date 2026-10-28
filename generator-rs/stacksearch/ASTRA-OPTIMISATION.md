@@ -342,6 +342,27 @@ Tests cover all 24 DAG/layout combinations, original-basis forms and bounds, unc
 
 Reproduce a new boundary with `LAYOUT=bc-cb EXCHANGE=1 generator-rs/stacksearch/target/release/t3variants xb cc 11 56`. Evidence: `astra-t3-layouts-exchange{0,1}.json`, the per-case logs, `astra-t3-layout-{tests,all-tests,clippy}.log`. Further window increases for these low-phase DAGs are deprioritized; the next inspection returns to the larger wide-state legacy placement and code-budget headroom.
 
+### 15. Joint body-period/inline grids: selected wide Osaka schedules unchanged
+
+`build_best_with` greedily spends bytes on diagonal literals and then inline rounds, checking shorter body periods until the next non-improvement. A finite test-only probe instead enumerates all `group_candidates` plus the ungrouped body, crossed with every legal inline count, around each selected whole-entry option set. Each build is reference-checked, rejects excessive depth and prices its own actual entry/tail bytes and full-frame gas. The original candidate is retained on ties or regressions; production selection is not changed.
+
+All four selected Osaka schedules already use PUSH32 diagonals, so these runs do not explore stored-diagonal policies. They also hold consume slots, PRIME storage, sum-tree/placement policy and external scheduling fixed. This is not an exhaustive search across the generator's full option family.
+
+| Width | Attempts | Successful builds | Fit runtime/depth limits | Baseline and best call gas | Runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16 | 448 | 381 | 67 | 47,809 | 24,242 |
+| 20 | 448 | 389 | 24 | 61,768 | 23,884 |
+| 24 | 448 | 389 | 14 | 75,843 | 23,738 |
+| 28 | 406 | 365 | 4 | 91,920 | 24,407 |
+
+The 1,750 grid attempts finish without a lower-cost candidate. The selected baselines are independently compiled and executed on 24 full-word/shared-vector calls each, 96 calls total, with exact gas and runtime-byte agreement. The probe would compile each strict improvement before reporting it; none occurred. Each serial process had a sampled 4 GiB RSS guard and 20-minute deadline, neither reached. Maximum sampled RSS was 130,576 KiB. No host timing comparison or new runtime saving is claimed.
+
+The explicit ignored test `joint_entry_budget_grid` in `entry_grid_probe.rs` passed once per listed width. The ordinary library suite passes 44 tests with this expensive probe ignored, and all-target Clippy, Rust formatting and whitespace checks pass. This unit adds only the test probe and its `cfg(test)` hook; no production, generated Huff, formal, dependency or lockfile edits. It does not rerun the previous full generator/Forge gates.
+
+Reproduce from the repository root with `GRID_WIDTH=28 GRID_FORK=osaka cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_entry_budget_grid -- --ignored --nocapture`. Evidence: `astra-entry-grid-osaka-t{16,20,24,28}.log`, their resource JSONs, `astra-entry-grid-library-tests.log` and `astra-entry-grid-clippy.log`.
+
+The next structural target is the fused sum of memory-held internal outputs. `internal_round_consume` still accumulates those outputs serially and uses late PRIME plus SWAP2 on overflow, even when the incoming sum uses a planned tree. A streaming tree may save reductions and placement there, but its pending values, reach, fused bounds, body size and complete-call selection must all be measured before claiming a benefit.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
