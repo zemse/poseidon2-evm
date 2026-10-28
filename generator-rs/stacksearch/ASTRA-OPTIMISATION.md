@@ -166,6 +166,25 @@ Every Amsterdam width and every other legacy entry/arity is unchanged. All nine 
 
 Evidence: `astra-tree-peak-diagnostic.log`, `astra-peak-unit-tests.log`, `astra-peak-{amsterdam,osaka,paris}.log`, `astra-peak-all-tests.log`, `astra-peak-forge.log`, `astra-peak-clippy.log`, `astra-peak-generation.log`. The Osaka full-family comparison remained CPU-active with about 126 MiB observed RSS; its longer generation time is not an EVM performance claim.
 
+### 7. Context-priced sum bytes and leaf orders: no runtime win
+
+A temporary planner adds exact code bytes to bound/gas/peak frontiers. Its subproblem key includes leaf interval, live prefix depth and nearest PRIME depth; the outer key includes ordered bounds, original leaf depths, PRIME depth, reach and cap. A leaf prices DUP1..16 at one byte and DUPN at two; a PRIME copy costs one/two bytes when reachable and PUSH32 otherwise. The model is restricted to distinct, stack-held non-PRIME leaves, with no shadow loads or memory-backed PRIME. Every emitted kernel checks its gas and recorded bytes against that model.
+
+Four forced Amsterdam candidates were compiled and reference-checked at t8/t12/t16/t20/t24/t28, 144 calls each (576 total), with zero model differences. A separate normal selection run retained the baseline on ties.
+
+| t | Baseline gas | Deepest-first / shallowest-first gas | Either bound-sorted order gas | Baseline bytes | Deepest-first / shallowest-first bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 23,807 | 23,807 | 23,815 | 24,725 | 24,725 |
+| 12 | 34,145 | 34,145 | 34,153 | 35,906 | 35,906 |
+| 16 | 44,494 | 44,494 | 44,502 | 48,380 | 48,323 |
+| 20 | 54,835 | 54,835 | 54,843 | 60,455 | 60,286 |
+| 24 | 65,489 | 65,489 | 65,505 | 65,015 | 64,867 |
+| 28 | 77,826 | 77,826 | 77,842 | 65,151 | 65,105 |
+
+The byte savings at t24/t28 do not buy another inline round: both still keep 25/12. The smaller widths are not code-size-bound on Amsterdam. Sorting by ascending or descending bound loses 8 gas at t8..t20 and 16 at t24/t28. These results reject the tested leaf orders and local tree-byte objective, not all cross-kernel code-size schedules. No runtime benefit is claimed from deployment size alone, and no prototype code is retained in production.
+
+Artifacts: `astra-byte-tree-{amsterdam,forced-amsterdam,shallow,bound-desc,bound-asc}.log`, `astra-byte-tree-unit.log`, `astra-sum-bytes.rs` and `astra-byte-tree-bound-asc.patch`. A fresh all-width Amsterdam verify after removing the prototypes reproduces c7d63fc (`astra-byte-tree-restored.log`).
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
@@ -176,9 +195,9 @@ The integration branch is `opt`, not the older local `main`. Coordinator commit 
 
 ## Remaining search
 
-- Preserve equal-gas tree alternatives with lower peak; test actual legacy reach/load costs, especially t16 where the serial candidate still wins.
-- Tree leaf-order and code-size ties that could free more shared-body inline rounds.
-- EXCHANGE in internal and streamed block scheduling outside the exhausted kept-block windows.
+- EXCHANGE in small-width internal rounds; the earlier cycle and placement searches used top-based SWAPs.
+- Delayed PRIME placement for legacy trees when preplacement forces otherwise reachable leaves into memory.
+- Cross-kernel code-size changes large enough to buy additional inline rounds, rather than the rejected local byte/leaf-order family.
 - More selective raw calldata entries than the retained all-shadowed compact candidate.
 - Full-word input reduction placement and initial linear layer fusion, with exact interval bounds.
 - Shared-body period and boundary cost interactions after any byte savings.
