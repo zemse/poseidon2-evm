@@ -2,7 +2,7 @@
 name = "poseidon2-gen"
 version = "0.1.0"
 edition = "2024"
-description = "Rust port of the poseidon2-evm Huff and Yul generators"
+description = "The poseidon2-evm Huff and Yul generators"
 license = "MIT"
 publish = false
 

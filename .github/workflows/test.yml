@@ -19,10 +19,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          node-version: '24'
+          workspaces: generator-rs
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1

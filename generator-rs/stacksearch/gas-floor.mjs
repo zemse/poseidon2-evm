@@ -1,9 +1,11 @@
 // Osaka t = 2, 3, 4 opcode accounting and the fixed-mix stack-slot relaxation.
-// Run with Node's native TypeScript support: node gas-floor.mjs [2 3 4].
-// This reads generator output; compiled revm verification is a separate gate.
+// Run with node gas-floor.mjs [2 3 4] (needs cargo).
+// This reads the Rust generator output; compiled revm verification is a
+// separate gate.
 
 import assert from "node:assert/strict";
-import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const arithmetic = {
   add: [3, 1],
@@ -98,31 +100,35 @@ async function main() {
     widths.every((t) => [2, 3, 4].includes(t)),
     "supported widths: 2, 3, 4",
   );
-  const { assertKnown } =
-    await import("../../generator/round-constants/assert-known.ts");
-  const { generateParams } =
-    await import("../../generator/round-constants/round-constants.ts");
-  const { testInputs } = await import("../../generator/shared/vectors.ts");
-  const { FORKS } = await import("../../generator/huff/fork.ts");
-  const { buildBest, describeOptions } =
-    await import("../../generator/huff/schedule.ts");
-  const { entryBytes, overhead, memoryGas } =
-    await import("../../generator/huff/render.ts");
-  assertKnown();
-  const fork = FORKS.osaka;
+  // the schedules `poseidon2-gen huff --hardfork osaka` selects
+  const manifest = fileURLToPath(new URL("../Cargo.toml", import.meta.url));
+  const schedules = JSON.parse(
+    execFileSync(
+      "cargo",
+      [
+        "run",
+        "--release",
+        "--quiet",
+        "--manifest-path",
+        manifest,
+        "--",
+        "schedule",
+        "--hardfork",
+        "osaka",
+        ...widths.map(String),
+      ],
+      {
+        encoding: "utf8",
+        maxBuffer: 1 << 28,
+        stdio: ["ignore", "pipe", "inherit"],
+      },
+    ),
+  );
   const rows = [];
-  for (const t of widths) {
-    const params = generateParams(t);
-    const best = buildBest(
-      params,
-      testInputs(t),
-      fork.codeSize - entryBytes(fork, t),
-      fork,
-    );
-    assert(best, `no Osaka schedule for t=${t}`);
-    const built = best.result;
+  for (const built of schedules) {
+    const { t } = built;
     const segments = trace(built.lines);
-    assert.equal(segments.length, 1 + params.roundsF + params.roundsP);
+    assert.equal(segments.length, 1 + built.roundsF + built.roundsP);
     const counts = sumCounts(segments);
     const core = account(counts);
     assert.equal(core.gas, built.gas);
@@ -130,13 +136,11 @@ async function main() {
       segments.reduce((sum, segment) => sum + segment.gas, 0),
       built.gas,
     );
-    const o = overhead(fork, t, built.inputSlots, built.stateInMemory, false);
-    const wrapper =
-      o.entryGas + o.tailGas + memoryGas(Math.max(built.memory, 32 * t));
+    const wrapper = built.wrapper;
     const expected = {
       initial: 1,
-      external: params.roundsF,
-      internal: params.roundsP,
+      external: built.roundsF,
+      internal: built.roundsP,
     };
     const groups = Object.entries(expected).map(([name, count]) => {
       const selected = segments.filter((segment) => segment.group === name);
@@ -145,7 +149,7 @@ async function main() {
     });
     rows.push({
       t,
-      options: describeOptions(best.opts),
+      options: built.options,
       counts,
       core,
       wrapper,

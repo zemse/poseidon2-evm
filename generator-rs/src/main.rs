@@ -1,8 +1,8 @@
-// poseidon2-gen: the Huff and Yul generators of generator/huff/generate.ts
-// and generator/yul/generate.ts, writing the same files relative to the
-// working directory (the repository root), and `verify`, which compiles and
-// runs the generated Huff (huff/verify.rs), and `lean-export`, which writes
-// the bytecode the formal verification checks (lean_export.rs), and
+// poseidon2-gen: the Huff and Yul generators, writing their files relative
+// to the working directory (the repository root), `schedule`, which prints
+// the schedule `huff` selects for stacksearch/gas-floor.mjs, `verify`, which
+// compiles and runs the generated Huff (huff/verify.rs), `lean-export`, which
+// writes the bytecode the formal verification checks (lean_export.rs), and
 // `eip8024-corpus`, which runs programs around DUPN / SWAPN / EXCHANGE in revm
 // for the Lean overlay to be compared with (eip8024.rs).
 
@@ -12,8 +12,12 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use poseidon2_gen::assert_known::assert_known;
 use poseidon2_gen::error::Result;
-use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, fork};
+use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, Fork, fork};
+use poseidon2_gen::huff::render::{MEMORY_UNKNOWN, entry_bytes, memory_gas, overhead};
+use poseidon2_gen::huff::schedule::{Range, build_best, describe_options, step_count};
 use poseidon2_gen::huff::verify::verify;
+use poseidon2_gen::round_constants::generate_params;
+use poseidon2_gen::vectors::test_inputs;
 use poseidon2_gen::{bail, eip8024, huff, lean_export, yul};
 
 #[derive(Parser)]
@@ -43,6 +47,15 @@ enum Command {
     /// huff-neo and runs it in revm: outputs against the reference, gas
     /// against the model (default: 4)
     Verify {
+        /// hardfork whose opcodes and code size the output targets
+        #[arg(long, default_value = DEFAULT_HARDFORK)]
+        hardfork: String,
+        widths: Vec<usize>,
+    },
+    /// Prints the schedule `huff` selects for each width (default: 4) as
+    /// JSON: its options, gas, the gas around it and its lines, for
+    /// stacksearch/gas-floor.mjs
+    Schedule {
         /// hardfork whose opcodes and code size the output targets
         #[arg(long, default_value = DEFAULT_HARDFORK)]
         hardfork: String,
@@ -90,6 +103,41 @@ fn widths(widths: Vec<usize>) -> Result<Vec<usize>> {
     Ok(widths)
 }
 
+/// The schedule `huff` selects for t on the fork as a JSON object, its
+/// wrapper the entry and tail gas around it with the memory it expands.
+fn schedule(fork: &Fork, t: usize) -> Result<String> {
+    let params = generate_params(t);
+    let budget = fork.code_size - entry_bytes(*fork, t, &[], false, MEMORY_UNKNOWN);
+    let range = Range {
+        from: 0,
+        to: step_count(&params),
+    };
+    let Some(best) = build_best(&params, &test_inputs(t), budget, *fork, range)? else {
+        bail!("no {} schedule for t = {t}", fork.name);
+    };
+    let result = &best.result;
+    let o = overhead(
+        *fork,
+        t,
+        &result.input_slots,
+        result.state_in_memory,
+        false,
+        false,
+        MEMORY_UNKNOWN,
+    );
+    let wrapper = o.entry_gas + o.tail_gas + memory_gas(result.memory.max(32 * t));
+    // Debug escapes the ASCII lines as JSON does
+    let lines: Vec<String> = result.lines.iter().map(|l| format!("{l:?}")).collect();
+    Ok(format!(
+        "{{\"t\":{t},\"roundsF\":{},\"roundsP\":{},\"options\":{:?},\"gas\":{},\"wrapper\":{wrapper},\"lines\":[{}]}}",
+        params.rounds_f,
+        params.rounds_p,
+        describe_options(&best.opts),
+        result.gas,
+        lines.join(",")
+    ))
+}
+
 fn run(cli: Cli) -> Result<()> {
     let root = Path::new(".");
     match cli.command {
@@ -116,6 +164,19 @@ fn run(cli: Cli) -> Result<()> {
             let w = widths(w)?;
             let built = huff::run(root, &fork, &w, false, assert_known)?;
             verify(root, &fork, &built)?;
+            Ok(())
+        }
+        Command::Schedule {
+            hardfork,
+            widths: w,
+        } => {
+            assert_known()?;
+            let fork = fork(&hardfork)?;
+            let rows = widths(w)?
+                .into_iter()
+                .map(|t| schedule(&fork, t))
+                .collect::<Result<Vec<_>>>()?;
+            println!("[{}]", rows.join(",\n"));
             Ok(())
         }
         Command::Yul { widths: w } => {

@@ -1,6 +1,7 @@
-//! Rust port of the poseidon2-evm code generators (`generator/` in
-//! TypeScript): the Poseidon2 BN254 parameters, the reference permutation,
-//! and the Huff and Yul generators, with byte-identical output.
+//! The poseidon2-evm code generators: the Poseidon2 BN254 parameters, the
+//! reference permutation, and the Huff and Yul generators. They port the
+//! TypeScript generators (`generator/`, removed after 8067f7a) with
+//! byte-identical output; "the TS" in comments means those.
 
 pub mod assert_known;
 pub mod eip8024;

@@ -1,6 +1,6 @@
 # stacksearch
 
-The offline search behind the stack programs of `generator/huff/templates.ts` and `generator-rs/src/huff/templates.rs`: an A\* over the EVM stack programs that compute one Poseidon2 external round (or the M4 of a block of the `externalD` layer) from a given stack layout to a given layout, with the S-box of a lane as one move. Values are linear forms over the S-box outputs with a bound in units of P, so an `ADD` is allowed only while the bound stays below 2^256 and the result otherwise takes an `ADDMOD`; only the forms the linear layer needs are allowed (`build` in `src/bin/macro.rs`).
+The offline search behind the stack programs of `generator-rs/src/huff/templates.rs`: an A\* over the EVM stack programs that compute one Poseidon2 external round (or the M4 of a block of the `externalD` layer) from a given stack layout to a given layout, with the S-box of a lane as one move. Values are linear forms over the S-box outputs with a bound in units of P, so an `ADD` is allowed only while the bound stays below 2^256 and the result otherwise takes an `ADDMOD`; only the forms the linear layer needs are allowed (`build` in `src/bin/macro.rs`).
 
 Two binaries, run from this directory after `cargo build --release`:
 

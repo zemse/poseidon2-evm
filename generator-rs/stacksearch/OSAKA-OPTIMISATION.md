@@ -252,7 +252,7 @@ cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo
 cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork amsterdam 2 3 4
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" finite_linear_arithmetic_candidates -- --test-threads=1 --nocapture
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
-node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
+node --test "$SEARCH/gas-floor.test.mjs"
 cargo fmt --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --check
 ```
 
@@ -360,7 +360,7 @@ cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo
 cargo run --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- verify --hardfork amsterdam 2 3 4
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" t2_omitted_backing_and_compact_budget -- --test-threads=1 --nocapture
 cargo test --release --locked --offline --manifest-path "$ROOT/generator-rs/Cargo.toml" -- --test-threads=1
-node --test "$SEARCH/gas-floor.test.mjs" "$SEARCH/reduction-policy.test.mjs"
+node --test "$SEARCH/gas-floor.test.mjs"
 node "$SEARCH/gas-floor.mjs"
 ```
 

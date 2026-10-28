@@ -6,7 +6,7 @@ This document preserves the starting measurements. See the [final accounting](OS
 
 ## Reproduce
 
-From the repository root, with the existing dependencies and Node's native TypeScript support:
+From the repository root, with the existing dependencies, node and cargo:
 
 ```
 cargo run --release --locked --offline --manifest-path generator-rs/Cargo.toml -- verify --hardfork osaka 2 3 4
@@ -123,6 +123,6 @@ The next experiments are boundary-flexible round schedules, joint reduction/layo
 - [Osaka gas schedule](https://github.com/ethereum/execution-specs/blob/master/src/ethereum/forks/osaka/vm/gas.py).
 - [EIP-7883](https://eips.ethereum.org/EIPS/eip-7883): MODEXP's 500-gas minimum already exceeds the current three-MULMOD S-box before call/memory overhead. EVM EXP is modulo 2^256, not the BN254 prime.
 - [Poseidon2 paper](https://eprint.iacr.org/2023/323).
-- `generator/README.md` and `generator/round-constants/assert-known.ts`: parameter and external-oracle provenance.
-- `generator/huff/schedule.ts`, `templates.ts`, `emitter.ts`, `generator/shared/value.ts`: selected schedules, bounds and gas accounting.
+- `generator-rs/README.md` and `generator-rs/src/assert_known.rs`: parameter and external-oracle provenance.
+- `generator-rs/src/huff/schedule.rs`, `templates.rs`, `emitter.rs`, `generator-rs/src/value.rs`: selected schedules, bounds and gas accounting.
 - `generator-rs/src/huff/verify.rs`: compiled execution and call-frame gas checks.

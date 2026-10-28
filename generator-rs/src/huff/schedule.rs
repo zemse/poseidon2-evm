@@ -3899,4 +3899,125 @@ mod tests {
             }
         }
     }
+
+    /// opcode counts of each internal round in emitted lines
+    fn internal_counts(lines: &[String]) -> Vec<HashMap<String, usize>> {
+        let mut rounds = Vec::new();
+        let mut current: Option<HashMap<String, usize>> = None;
+        for line in lines {
+            let text = line.trim();
+            if let Some(rest) = text.strip_prefix("// Round ") {
+                rounds.extend(current.take());
+                if rest.ends_with("(internal)") {
+                    current = Some(HashMap::new());
+                }
+                continue;
+            }
+            if let Some(counts) = &mut current {
+                let code = text.split("//").next().unwrap_or("");
+                for op in code.split_whitespace() {
+                    *counts.entry(op.to_string()).or_default() += 1;
+                }
+            }
+        }
+        rounds.extend(current);
+        rounds
+    }
+
+    fn count(round: &HashMap<String, usize>, op: &str) -> usize {
+        round.get(op).copied().unwrap_or(0)
+    }
+
+    #[test]
+    fn t2_lazy_mulmod_policy_and_external_reentry() {
+        let mut params = generate_params_uncached(2);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for b in 1..=3 {
+                for float_prime_internal in [false, true] {
+                    let bounds = vec![PRIME * u256(3) - u256(1), PRIME * u256(b) - u256(1)];
+                    let inputs = vec![
+                        vec![U256::ZERO, U256::ZERO],
+                        vec![u256(1), bounds[1]],
+                        bounds.clone(),
+                    ];
+                    // build_permutation checks every output against permutation_steps
+                    let result = build_permutation_with(
+                        &params,
+                        &inputs,
+                        &BuildOptions {
+                            internal_mul3: true,
+                            float_prime_internal,
+                            internal_reduce_outputs: true,
+                            external_template: true,
+                            ..DEFAULT_OPTIONS
+                        },
+                        fork(name).unwrap(),
+                        Range {
+                            from: 5,
+                            to: step_count(&params),
+                        },
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    let rounds = internal_counts(&result.lines);
+                    assert_eq!(rounds.len(), 56);
+                    assert_eq!(count(&rounds[0], "addmod"), if b == 3 { 2 } else { 0 });
+                    for round in &rounds[1..] {
+                        assert_eq!(count(round, "mul"), 0);
+                        assert_eq!(count(round, "addmod"), 0);
+                        assert_eq!(count(round, "mulmod"), 4);
+                        assert_eq!(count(round, "add"), 4);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t3_periodic_reductions_and_external_reentry() {
+        let mut params = generate_params_uncached(3);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            let result = build_permutation(
+                &params,
+                &[
+                    vec![U256::ZERO; 3],
+                    vec![p1(); 3],
+                    vec![u256(1), p1(), U256::ZERO],
+                ],
+                &BuildOptions {
+                    external_template: true,
+                    internal_template: true,
+                    ..DEFAULT_OPTIONS
+                },
+                fork(name).unwrap(),
+                Range {
+                    from: 0,
+                    to: step_count(&params),
+                },
+                true,
+            )
+            .unwrap();
+            let rounds = internal_counts(&result.lines);
+            assert_eq!(rounds.len(), 56);
+            let mods: Vec<usize> = rounds.iter().map(|r| count(r, "addmod")).collect();
+            assert_eq!(mods[..5], [3, 1, 2, 1, 3]);
+            assert_eq!(mods[55], 2);
+            for (n, expected) in [(1, 27), (2, 15), (3, 14)] {
+                assert_eq!(mods.iter().filter(|&&m| m == n).count(), expected);
+            }
+            assert_eq!(rounds.iter().map(|r| count(r, "add")).sum::<usize>(), 293);
+            assert_eq!(mods.iter().sum::<usize>(), 99);
+            assert!(rounds.iter().all(|r| count(r, "mulmod") == 3));
+        }
+    }
 }
