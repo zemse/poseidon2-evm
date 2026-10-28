@@ -106,6 +106,16 @@ The prototypes were removed after saving `astra-factored-lazy.patch`, `astra-fac
 
 Next structural target: tree-shaped rather than serial sum reductions. Balanced ADD/ADDMOD trees can feed two lazy partial sums to one ADDMOD, potentially lowering the reduction count without an extra scalar state or multiplication. Any gain must include actual stack placement and all boundaries.
 
+### 4. Parameter-cache re-entry during the full tree gate
+
+The expanded parallel execution suite stopped making progress before the tree gate completed. A macOS process sample (`astra-tree-stall.sample`) shows a worker inside `generate_params_uncached`, its parallel `check_minpoly_condition`, a stolen width-generation job, and another `generate_params` waiting on a per-width OnceLock. CPU was zero; the sampled test process was terminated, not counted as passing.
+
+A controlled regression re-enters the same cache through a nested Rayon job before the outer derivation is published. Each test runs in its own subprocess with a 30-second timeout and a guard that kills and reaps it on failure. With the original blocking initializer the regression fails at 30.01 seconds (`astra-cache-before.log`). Deriving outside the initializer, then publishing the completed immutable result, passes both the nested request and four concurrent same-width callers in 0.31 seconds (`astra-cache-after.log`). All callers receive the same published Arc and all parameter fields match uncached derivation.
+
+Uncached derivation does not call the parameter cache: it computes round counts, Grain constants and the diagonal/minpoly checks. Only its Rayon scheduling can execute another caller. No parameter algorithm, value or round count changes. Concurrent misses may repeat derivation, at most once per request before publication; the four-caller regression checks one to four derivations, and the controlled nested case exactly two. Cache hits do no work. Rayon and concurrent tests remain enabled.
+
+The cache fix is verified independently of the uncommitted tree code: e1150f9 archived to `astra-cache-source`, with only `round_constants.rs` and its new test module copied in, using a separate `astra-cache-target`. The complete 37-test generator suite passes there, including pinned answers, generator equality and compiled reference/gas gates (`astra-cache-isolated-tests.log`).
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

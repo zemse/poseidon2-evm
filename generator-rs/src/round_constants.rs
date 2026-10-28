@@ -605,15 +605,28 @@ pub fn generate_params_uncached(t: usize) -> Params {
 
 type Cache = Mutex<HashMap<usize, Arc<OnceLock<Arc<Params>>>>>;
 
-/// The parameters of width t, derived once per process.
-pub fn generate_params(t: usize) -> Arc<Params> {
-    static CACHE: OnceLock<Cache> = OnceLock::new();
+fn cached_params(cache: &Cache, t: usize, derive: impl FnOnce() -> Params) -> Arc<Params> {
     let cell = {
-        let mut cache = CACHE
-            .get_or_init(Default::default)
-            .lock()
-            .expect("params cache lock");
+        let mut cache = cache.lock().expect("params cache lock");
         Arc::clone(cache.entry(t).or_default())
     };
-    Arc::clone(cell.get_or_init(|| Arc::new(generate_params_uncached(t))))
+    if let Some(params) = cell.get() {
+        return Arc::clone(params);
+    }
+    // Derivation uses Rayon, which can re-enter this cache on the same worker.
+    // Only publishing the finished value runs inside the OnceLock initializer.
+    let params = Arc::new(derive());
+    Arc::clone(cell.get_or_init(|| params))
 }
+
+/// The parameters of width t, cached per process.
+pub fn generate_params(t: usize) -> Arc<Params> {
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    cached_params(CACHE.get_or_init(Default::default), t, || {
+        generate_params_uncached(t)
+    })
+}
+
+#[cfg(test)]
+#[path = "round_constants_tests.rs"]
+mod tests;
