@@ -85,6 +85,27 @@ Final gates completed:
 
 Logs: `astra-compact-selected-{amsterdam,osaka,paris}.log`, `astra-baseline-paris-wide-isolated.log`, `astra-compact-{unit-tests,all-tests,forge,clippy,generation}.log`. The first attempted Paris baseline reused the candidate's Cargo target and was invalid evidence; only the isolated-target baseline is used. Do not share one target directory between baseline and candidate packages with the same name/version.
 
+### 3. Factored internal state: two compiled regressions
+
+Starting from daf9c7a, two prototypes keep inactive lanes as `a_i + q` modulo PRIME. Lane 0 remains materialized. The first internal round initializes `a_i = d_i*s_i` and q to that round's sum; later rounds compute `q' = x + sum(a_i) + (t-1)*q` and `a_i' = d_i*(a_i+q)`. The last round reconstructs every inactive lane. This uses diagonal-minus-one coefficients, not the full diagonal. Exact emitter bounds and reference outputs are checked throughout.
+
+The existing consuming chains hold the products on the stack. q replaces the backing slot below the state using DUP, SWAP and POP (8 gas); the extra weighted term uses MULMOD, never an unchecked large integer multiplication. Shared-body layouts identify q separately so each call uses its own offset. These prototypes only admit stack-held lanes; legacy memory schedules were not widened.
+
+| Amsterdam entry | daf9c7a | Reduced q prototype | Lazy q prototype | Best regression |
+| --- | ---: | ---: | ---: | ---: |
+| t16 | 44,966 | 46,086 | 45,638 | +672 |
+| t20 | 55,763 | 56,435 | 55,987 | +224 |
+| t24 | 66,431 | 67,267 | 66,819 | +388 |
+| t28 | 79,032 | 79,728 | 79,264 | +232 |
+
+Each prototype compiled and verified 24 full-word/shared-vector calls per changed width with zero gas-model differences. The first invocation also checked unchanged t8/t12, whose selected schedules do not use consuming internal rounds. Runtime sizes of the lazy prototype are 50,467 / 62,432 / 64,753 / 65,468 bytes. t24 needs a shorter body period (22 instead of 23), adding boundary/call costs.
+
+The reduced prototype normalizes the weighted term and adds it with ADDMOD. The lazy variant uses ADD, keeps q below 2P and reconstructs inactive inputs below 3P, saving 8 gas in each later internal round. The remaining arithmetic saving is too small for this storage policy: an existing lazy-input sum reduces roughly every three lanes, not every two; reduced products roughly every five. At t28 the lazy prototype still costs four gas more in each later internal round. Initialization and final reconstruction are charged, not omitted.
+
+The prototypes were removed after saving `astra-factored-lazy.patch`, `astra-factored-first.log` and `astra-factored-lazy.log` in scratch. A fresh all-width Amsterdam verify after restoration reproduces daf9c7a exactly (`astra-after-factored-restore.log`). No production representation change is retained. This rejects these two storage/sum policies, not the algebra or schedules that consume the old q in place at its last use.
+
+Next structural target: tree-shaped rather than serial sum reductions. Balanced ADD/ADDMOD trees can feed two lazy partial sums to one ADDMOD, potentially lowering the reduction count without an extra scalar state or multiplication. Any gain must include actual stack placement and all boundaries.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
