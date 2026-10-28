@@ -6,7 +6,7 @@ This document preserves the starting measurements. See the [final accounting](OS
 
 ## Reproduce
 
-From the repository root, with the existing dependencies, node and cargo:
+From the repository root, with the existing dependencies, node and cargo. At a later commit these print that commit's schedules, not the baseline below (`gas-floor.mjs` did not exist at b7d7125):
 
 ```
 cargo run --release --locked --offline --manifest-path generator-rs/Cargo.toml -- verify --hardfork osaka 2 3 4
