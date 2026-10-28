@@ -75,9 +75,11 @@ SOL
       forge build --use $SOLC --force --sizes 2>&1)
     if echo "$out" | grep -q "Compiler run successful"; then
       size=$(echo "$out" | awk -F'|' '/\| Consumer /{gsub(/[ ,]/, "", $3); print $3}')
-      note=""
-      [ "${size:-0}" -gt 24576 ] && note=", over the 24,576 byte limit"
-      echo "ok   $name $label (consumer runtime $size bytes$note)"
+      if [ "${size:-0}" -gt 24576 ]; then
+        echo "WARN $name $label (consumer runtime $size bytes, over the 24,576 byte limit: compiles, does not deploy before EIP-7954)"
+      else
+        echo "ok   $name $label (consumer runtime $size bytes)"
+      fi
     else
       echo "FAIL $name $label"
       echo "$out" | grep -iE "error" | head -3 | sed 's/^/     /'
