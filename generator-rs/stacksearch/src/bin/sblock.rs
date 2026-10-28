@@ -31,6 +31,8 @@
 // program sooner, not the cheapest).
 //
 // REACH=n: the deepest slot a DUP reaches (16; 235 on Amsterdam).
+// EXCHANGE=1: EIP-8024 exchanges of two non-top working slots (3 gas),
+// with zero-based indices n < m and n + m <= 30. The floor stays fixed.
 // GARBAGE=1: dead values and spare copies may stay (Amsterdam), so a DUP
 // may make one copy beyond the uses left and no POP is needed. ROLL=1, with
 // GARBAGE=1, bounds blocks interleaved with their neighbours: seen from one
@@ -82,6 +84,8 @@ struct Dag {
     /// ROLL=1: the interleaving bound, gas doubled and a SWAP with another
     /// block's value as `roll<d>` / `bury<d>` at half a SWAP
     roll: bool,
+    /// EXCHANGE=1: EIP-8024 exchanges within the working stack
+    exchange: bool,
     /// the deepest slot a DUP reaches (REACH, 16)
     reach: usize,
 }
@@ -150,6 +154,7 @@ impl Dag {
             lanes,
             garbage: std::env::var("GARBAGE").is_ok_and(|v| v == "1"),
             roll: std::env::var("ROLL").is_ok_and(|v| v == "1"),
+            exchange: std::env::var("EXCHANGE").is_ok_and(|v| v == "1"),
             reach: std::env::var("REACH").map_or(16, |v| v.parse().unwrap()),
         }
     }
@@ -329,6 +334,17 @@ impl Dag {
                 out.push((3 * m, format!("swap{k}"), t, computed));
             }
         }
+        if self.exchange {
+            for n in 1..d {
+                for k in n + 1..d {
+                    if exchange_valid(n, k, d) && s[n] != s[k] {
+                        let mut t = s.to_vec();
+                        t.swap(n, k);
+                        out.push((3 * m, format!("exchange{n},{k}"), t, computed));
+                    }
+                }
+            }
+        }
         if self.roll {
             // what a SWAP with a value of another block does to this one's
             // stack: one of its values to the top, or the top down
@@ -384,6 +400,10 @@ impl Dag {
             out.push((self.cost(j), name, t, computed | (1 << j)));
         }
     }
+}
+
+fn exchange_valid(n: usize, m: usize, depth: usize) -> bool {
+    n > 0 && n < m && m < depth && n + m <= 30
 }
 
 fn item(a: &str, nodes: &[Node]) -> u8 {
@@ -515,4 +535,104 @@ fn main() {
     }
     println!("no solution");
     eprintln!("expanded {expanded} nodes, {} states", dist.len());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dag(exchange: bool) -> Dag {
+        let floor = "S0,S1,S2,S3,P,_,_,_,_,x0,x1,x2,x3"
+            .split(',')
+            .map(|a| item(a, &[]))
+            .collect();
+        let mut dag = Dag::build(floor, "kept", 9);
+        dag.exchange = exchange;
+        dag.garbage = false;
+        dag.roll = false;
+        dag.reach = 235;
+        dag
+    }
+
+    fn replay(dag: &Dag, initial: &[u8], program: &str) -> (u32, Vec<u8>, u32) {
+        let (mut gas, mut s, mut computed) = (0, initial.to_vec(), 0);
+        let mut moves = Vec::new();
+        for op in program.split_whitespace() {
+            dag.moves(&s, computed, &mut moves);
+            let (cost, _, next, done) = moves.iter().find(|m| m.1 == op).expect(op);
+            gas += cost;
+            s = next.clone();
+            computed = *done;
+            dag.canon(&mut s, computed);
+        }
+        (gas, s, computed)
+    }
+
+    #[test]
+    fn exchange_pair_limits() {
+        assert!(exchange_valid(1, 2, 3));
+        assert!(exchange_valid(1, 29, 30));
+        assert!(exchange_valid(14, 16, 17));
+        for (n, m, depth) in [(0, 2, 3), (2, 1, 3), (1, 1, 3), (1, 2, 2), (15, 16, 17)] {
+            assert!(!exchange_valid(n, m, depth));
+        }
+    }
+
+    #[test]
+    fn exchange_moves_preserve_floor_and_existing_moves() {
+        let mut enabled = dag(true);
+        let mut disabled = dag(false);
+        for depth in 0..=16 {
+            enabled.max_working = depth;
+            disabled.max_working = depth;
+            let s: Vec<u8> = (N0..N0 + depth as u8).collect();
+            let mut with = Vec::new();
+            let mut without = Vec::new();
+            enabled.moves(&s, 0, &mut with);
+            disabled.moves(&s, 0, &mut without);
+            let mut exchanges = 0;
+            for (cost, name, next, computed) in &with {
+                if let Some(pair) = name.strip_prefix("exchange") {
+                    exchanges += 1;
+                    let (n, m) = pair.split_once(',').unwrap();
+                    let (n, m) = (n.parse().unwrap(), m.parse().unwrap());
+                    assert!(exchange_valid(n, m, depth));
+                    let mut expected = s.clone();
+                    expected.swap(0, n);
+                    expected.swap(0, m);
+                    expected.swap(0, n);
+                    assert_eq!(*next, expected);
+                    assert_eq!(*cost, 3);
+                    assert_eq!(*computed, 0);
+                }
+            }
+            assert_eq!(
+                exchanges,
+                depth.saturating_sub(1) * depth.saturating_sub(2) / 2
+            );
+            with.retain(|m| !m.1.starts_with("exchange"));
+            assert_eq!(with, without);
+        }
+        let mut moves = Vec::new();
+        enabled.moves(&[P, P, P], 0, &mut moves);
+        assert!(!moves.iter().any(|m| m.1.starts_with("exchange")));
+    }
+
+    #[test]
+    fn exchange_replay_cost_and_incumbent() {
+        let enabled = dag(true);
+        let disabled = dag(false);
+        let initial = [N0, P, N0 + 1];
+        let (gas, stack, computed) = replay(&enabled, &initial, "exchange1,2");
+        let (old_gas, old_stack, old_computed) = replay(&disabled, &initial, "swap1 swap2 swap1");
+        assert_eq!((stack, computed), (old_stack, old_computed));
+        assert_eq!((gas, old_gas), (3, 9));
+        let incumbent = "u0 u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 swap6 add=t0 dup5 P dup3 q=q0 dup8 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap7 add=o2 lane=z2 swap4 add=o0 lane=z0";
+        let old = replay(&disabled, &[], incumbent);
+        let new = replay(&enabled, &[], incumbent);
+        assert_eq!(new, old);
+        assert_eq!(new.0, 347);
+        assert!(enabled.is_goal(&new.1, new.2));
+        assert_eq!(enabled.h(&[], 0), 332);
+    }
 }
