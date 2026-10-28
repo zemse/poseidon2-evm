@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     strategy:
@@ -14,34 +18,42 @@ jobs:
 
     name: Foundry project
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: generator-rs
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: nightly
+          # the formatter, the trace format gas-report.sh reads and the Amsterdam gas depend on it
+          version: v1.8.5
 
       - name: Install huff-neo
-        uses: cakevm/huff-neo-toolchain@v1
+        uses: cakevm/huff-neo-toolchain@65b08ca4fdef76e097484d376b4621ae8cc77b21 # v1
         with:
           version: 1.7.1
 
       - name: Check formatting
         run: forge fmt --check
 
+      - name: Run generator tests
+        run: cargo test --release --locked --manifest-path generator-rs/Cargo.toml
+
       - name: Check generated files are in sync
         run: |
           npm run generate:yul
           npm run generate:huff
           git diff --exit-code || (echo "Generated files are out of sync. Run 'npm run generate:yul && npm run generate:huff' and commit the changes." && exit 1)
+
+      - name: Check the Huff against revm (outputs and the gas model)
+        run: npm run verify:huff
 
       - name: Run Forge build
         run: |
@@ -60,8 +72,13 @@ jobs:
 
       - name: Check the EIP-8024 gate (the huff output fails before Amsterdam)
         run: |
-          if forge test --hardfork osaka --match-path test/Poseidon2T16.t.sol; then
+          if out=$(forge test --hardfork osaka --match-path test/Poseidon2T16.t.sol 2>&1); then
+            echo "$out"
             echo "the EIP-8024 output ran on Osaka" && exit 1
+          fi
+          if ! echo "$out" | grep -q "FAIL: permutation call failed" || echo "$out" | grep -q "\[PASS\]"; then
+            echo "$out"
+            echo "the Osaka run failed, but not only by the permutation call failing" && exit 1
           fi
         id: gate
 

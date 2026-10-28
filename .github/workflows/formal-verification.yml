@@ -11,6 +11,9 @@ on:
       - 'generator-rs/**'
       - 'deployed-artifacts/**'
       - 'foundry.toml'
+      - 'constants.ts'
+      - '.gitmodules'
+      - 'lib/**'
       - '.github/workflows/formal-verification.yml'
   pull_request:
     paths:
@@ -20,6 +23,9 @@ on:
       - 'generator-rs/**'
       - 'deployed-artifacts/**'
       - 'foundry.toml'
+      - 'constants.ts'
+      - '.gitmodules'
+      - 'lib/**'
       - '.github/workflows/formal-verification.yml'
   workflow_dispatch:
 
