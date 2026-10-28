@@ -158,6 +158,8 @@ Kernel checks (`decide +kernel`), all 35 artifacts, one at a time, without error
 
 After the compact-input and sum-tree optimisations, the 12 affected Huff artifacts (t = 8, 12, 16, 20, 24, 28 on Amsterdam and Osaka) were exported again; the other 23 exports were unchanged. Their proofs were regenerated, kernel-checked and replayed with `leanchecker`, and replay coverage passed. Every returning case's `G` matches independently measured call-frame gas in the table below.
 
+Adaptive PRIME placement subsequently changed only Osaka t = 16, 20, 24. Those three proofs were regenerated, kernel-checked and replayed with `leanchecker`; replay coverage passed again. Their `G` values match independently measured execution, and a second export reproduces every Osaka bytecode module exactly.
+
 The following size and timing measurements predate those optimisations. They describe the earlier exported bytecode, not the regenerated proofs.
 
 | Artifact | Parts | Bytecode segments | Files | Wall | Peak RSS |
@@ -188,9 +190,9 @@ Every `G` of a returning case equals the measured call-frame gas, on both forks 
 | 4, `hash_1` / `hash_2` / `hash_3` | 11,895, 11,902, 11,975 / the same | 11,895, 11,902, 11,975 / the same |
 | 8 | 23,807 / 23,807 | 24,217 / 24,217 |
 | 12 | 34,145 / 34,145 | 35,047 / 35,047 |
-| 16 | 44,494 / 44,494 | 48,124 / 48,124 |
-| 20 | 54,835 / 54,835 | 62,956 / 62,956 |
-| 24 | 65,489 / 65,489 | 75,942 / 75,942 |
+| 16 | 44,494 / 44,494 | 47,809 / 47,809 |
+| 20 | 54,835 / 54,835 | 61,768 / 61,768 |
+| 24 | 65,489 / 65,489 | 75,843 / 75,843 |
 | 28 | 77,826 / 77,826 | 92,158 / 92,158 |
 
 Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Poseidon2.t.sol` (`hash_1`, `hash_2`, `hash_3` of `Poseidon2Yul_BN254`, the same gas for all three and for calldata below 4 bytes) built as `scripts/export.sh` builds them, on forge's Amsterdam EVM, `G` / measured:
