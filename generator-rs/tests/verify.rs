@@ -105,5 +105,5 @@ fn osaka_t28() {
     let reports = run("osaka", &[28]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 92158);
+    assert_eq!(reports[0].gas.measured, 91920);
 }

@@ -23,6 +23,10 @@ mod sum_tree;
 pub mod templates;
 pub mod verify;
 
+#[cfg(test)]
+#[path = "entry_tests.rs"]
+mod entry_tests;
+
 use std::fs;
 use std::path::Path;
 
@@ -133,11 +137,67 @@ fn part_gas(part: &Part, t: usize) -> u64 {
     o.entry_gas + result.gas + o.tail_gas + memory_gas(result.memory.max(32 * t))
 }
 
+/// Whole permutation entry, with one retry when its actual wrapper frees
+/// bytes for stored diagonals or shared-body rounds. Core-only budgets
+/// (including the folded hash rounds) still use build_best_with directly.
+pub fn build_entry(
+    params: &crate::round_constants::Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+) -> Result<Option<schedule::Best>> {
+    let range = Range {
+        from: 0,
+        to: step_count(params),
+    };
+    entry_with_retry(params.t, fork, |budget| {
+        build_best(params, inputs, budget, fork, range)
+    })
+}
+
+fn entry_with_retry(
+    t: usize,
+    fork: Fork,
+    mut build: impl FnMut(usize) -> Result<Option<schedule::Best>>,
+) -> Result<Option<schedule::Best>> {
+    let reserved = entry_bytes(fork, t, &[], false, MEMORY_UNKNOWN);
+    let Some(budget) = fork.code_size.checked_sub(reserved) else {
+        return Ok(None);
+    };
+    let wrapper = |best: &schedule::Best| {
+        entry_bytes(
+            fork,
+            t,
+            &best.result.input_slots,
+            best.result.state_in_memory,
+            best.result.memory,
+        )
+    };
+    let fits = |best: &schedule::Best| {
+        best.result
+            .bytes
+            .checked_add(wrapper(best))
+            .is_some_and(|bytes| bytes <= fork.code_size)
+    };
+    let mut best = build(budget)?.filter(fits);
+    if let Some(prior) = &best
+        && (prior.opts.shared_body || prior.opts.diag_in_memory)
+    {
+        let actual = wrapper(prior);
+        if actual < reserved
+            && let Ok(Some(candidate)) = build(fork.code_size - actual)
+            && fits(&candidate)
+            && entry_gas(&fork, t, &candidate.result) < entry_gas(&fork, t, &prior.result)
+        {
+            best = Some(candidate);
+        }
+    }
+    Ok(best)
+}
+
 fn generate(t: usize, fork: &Fork) -> Result<Width> {
     let params = generate_params(t);
     let inputs = test_inputs(t);
     let legacy = fork.name == DEFAULT_HARDFORK;
-    let overhead = entry_bytes(*fork, t, &[], false, MEMORY_UNKNOWN);
     let dir = format!("{}/t{t}", huff_dir(fork));
     let utils_path = if legacy {
         "../Utils.huff"
@@ -158,27 +218,7 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
         params.rounds_f, params.rounds_p, fork.name
     );
     let mut actions = Vec::new();
-
-    let range = Range {
-        from: 0,
-        to: step_count(&params),
-    };
-    let mut best = build_best(&params, &inputs, fork.code_size - overhead, *fork, range)?;
-    // the budget leaves room for the entry without shadow slots; with its
-    // own slots it may not fit
-    if best.as_ref().is_some_and(|b| {
-        b.result.bytes
-            + entry_bytes(
-                *fork,
-                t,
-                &b.result.input_slots,
-                b.result.state_in_memory,
-                b.result.memory,
-            )
-            > fork.code_size
-    }) {
-        best = None;
-    }
+    let mut best = build_entry(&params, &inputs, *fork)?;
     // a whole permutation that fits only through the sub-chains of a shorter
     // body pays for the size (the chains, the calls, diag constants in
     // memory), which a split may beat

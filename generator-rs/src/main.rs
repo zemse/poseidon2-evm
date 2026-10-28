@@ -13,8 +13,8 @@ use clap::{Parser, Subcommand};
 use poseidon2_gen::assert_known::assert_known;
 use poseidon2_gen::error::Result;
 use poseidon2_gen::huff::fork::{DEFAULT_HARDFORK, Fork, fork};
-use poseidon2_gen::huff::render::{MEMORY_UNKNOWN, entry_bytes, memory_gas, overhead};
-use poseidon2_gen::huff::schedule::{Range, build_best, describe_options, step_count};
+use poseidon2_gen::huff::render::{memory_gas, overhead};
+use poseidon2_gen::huff::schedule::describe_options;
 use poseidon2_gen::huff::verify::verify;
 use poseidon2_gen::round_constants::generate_params;
 use poseidon2_gen::vectors::test_inputs;
@@ -107,12 +107,7 @@ fn widths(widths: Vec<usize>) -> Result<Vec<usize>> {
 /// wrapper the entry and tail gas around it with the memory it expands.
 fn schedule(fork: &Fork, t: usize) -> Result<String> {
     let params = generate_params(t);
-    let budget = fork.code_size - entry_bytes(*fork, t, &[], false, MEMORY_UNKNOWN);
-    let range = Range {
-        from: 0,
-        to: step_count(&params),
-    };
-    let Some(best) = build_best(&params, &test_inputs(t), budget, *fork, range)? else {
+    let Some(best) = huff::build_entry(&params, &test_inputs(t), *fork)? else {
         bail!("no {} schedule for t = {t}", fork.name);
     };
     let result = &best.result;
@@ -213,6 +208,24 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
+    fn number(json: &str, key: &str) -> u64 {
+        json.split_once(&format!("\"{key}\":"))
+            .unwrap()
+            .1
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn schedule_entry_budget_matches_t28_execution_pin() {
+        let json = schedule(&fork("osaka").unwrap(), 28).unwrap();
+        // Independently compiled call gas is pinned in tests/verify.rs.
+        assert_eq!(number(&json, "gas") + number(&json, "wrapper"), 91920);
+    }
+
     #[test]
     fn schedule_gas_matches_execution() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -222,18 +235,12 @@ mod tests {
             let reports = verify(&root, &fork, &built).unwrap();
             for report in reports {
                 let json = schedule(&fork, report.t).unwrap();
-                let number = |key: &str| -> u64 {
-                    json.split_once(&format!("\"{key}\":"))
-                        .unwrap()
-                        .1
-                        .split(',')
-                        .next()
-                        .unwrap()
-                        .parse()
-                        .unwrap()
-                };
                 let measured = report.permutation.as_ref().unwrap_or(&report.gas).measured;
-                assert_eq!(number("gas") + number("wrapper"), measured, "{report}");
+                assert_eq!(
+                    number(&json, "gas") + number(&json, "wrapper"),
+                    measured,
+                    "{report}"
+                );
             }
         }
     }

@@ -242,6 +242,25 @@ The full 51-test generator suite passes (36 library, one CLI, three EIP, four ge
 
 Logs: `astra-late-prime-{unit,selected-osaka,forced-osaka,family-osaka}.log`, `astra-adaptive-prime-{unit,osaka,final-unit,final-amsterdam,final-osaka,final-paris,all-tests,clippy,generation,forge,search-tests}.log`. `astra-late-prime-uniform.patch` and `astra-adaptive-prime-forced.patch` preserve the intermediate experiments. A separate remaining lead is the conservative wrapper-size budget in mod.rs/split.rs: actual compact entries can be smaller, but no budget-refinement saving has been measured here.
 
+### 11. Actual entry-size budget retry
+
+The whole-permutation search initially reserves the generic entry size without shadow slots or known memory. A selected compact/memory-output wrapper can be smaller, leaving bytes that the body search could not spend. `build_entry` first keeps the existing valid result, then makes at most one retry with its actual wrapper size when shared-body rounds or stored diagonals make sizing relevant. The retry must fit with its own wrapper and have strictly lower complete-frame gas. Error, no result, tie, regression or oversize retains the original. Runtime-size addition and the initial subtraction are checked.
+
+Generation and CLI `schedule` share this whole-entry selector. Core-only `build_best` / `build_best_with` budgets, folded hash rounds and split-part budgeting remain separate. The whole-entry versus split comparison still charges each part's own entry, hand-over and memory costs. This is a bounded retry, not a claim of globally optimal byte allocation.
+
+Before is 92f0819, after is the shared-helper implementation, independently remeasured after refactoring:
+
+| Fork | Entry | Before | After | Saving | Runtime bytes before | After |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Osaka | t28 | 92,158 | 91,920 | 238 | 23,956 | 24,407 |
+| Paris | t28 | 92,527 | 92,100 | 427 | 23,885 | 24,440 |
+
+Every other width and hash arity is unchanged, including every Amsterdam output. All nine widths on all three forks pass reference execution and exact gas-model checks, 864 calls. Five selection tests cover tiny/overflowing budgets, initial failure/absence, failed/missing/tied/slower retries, changed wrappers, body-only improvements that lose in full-frame gas, exact-limit acceptance and bounded retry count. The new Osaka t28 CLI schedule pin agrees with the independently compiled execution pin; existing Paris/Osaka/Amsterdam small-width model checks and core-budget tests remain intact.
+
+All 57 generator tests pass (41 library, two CLI, three EIP, four generator, seven execution), as do 127 Foundry tests, Clippy, formatting, five accounting tests and 39 search tests. Default all-width regeneration is unchanged. No formal-verification file is edited; affected legacy exports/proofs remain coordinator-owned.
+
+Logs: `astra-entry-budget-probe-osaka.log`, `astra-entry-budget-unit.log`, `astra-entry-budget-final-{amsterdam,osaka,paris}.log`, `astra-entry-budget-{all-tests,clippy,generation,forge,search-tests}.log`. The initial probe and final helper used separate verifications. The extra search increases generation work; only EVM call gas is claimed as an improvement.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
@@ -252,7 +271,7 @@ The integration branch is `opt`, not the older local `main`. Coordinator commit 
 
 ## Remaining search
 
-- Actual-wrapper-aware byte budgets for whole and split builds; conservative entry estimates can leave bytes unused.
+- Actual-wrapper-aware budgets for split parts and broader body-period choices; the whole-entry retry does not exhaust either space.
 - Other internal arithmetic DAGs or cross-round layouts, not wider searches of the exhausted fixed t3 low-phase DAG.
 - Cross-kernel code-size changes large enough to buy additional inline rounds, rather than the rejected local byte/leaf-order family.
 - More selective raw calldata entries than the retained all-shadowed compact candidate.
