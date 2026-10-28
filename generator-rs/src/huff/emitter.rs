@@ -33,12 +33,12 @@ use crate::value::{Op, Value, apply_op};
 pub type Id = usize;
 
 /// Text of a DUP of slot n (1-based from the top): the opcode mnemonic up
-/// to 16, the EIP-8024 macro of Eip8024.huff above that.
+/// to 16, EIP-8024 DUPN above that.
 pub fn dup_text(n: usize) -> String {
     if n <= 16 {
         format!("dup{n}")
     } else {
-        format!("DUP{n}()")
+        format!("dupn {n}")
     }
 }
 
@@ -46,7 +46,7 @@ pub fn swap_text(n: usize) -> String {
     if n <= 16 {
         format!("swap{n}")
     } else {
-        format!("SWAP{n}()")
+        format!("swapn {n}")
     }
 }
 

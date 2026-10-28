@@ -81,7 +81,6 @@ fn huff_matches_checked_in() {
     })
     .expect("huff 2 3 4");
     let mut files = vec![
-        "src/bn254/huff/Eip8024.huff".to_string(),
         "src/bn254/huff/t4/Permutation.huff".to_string(),
         "src/bn254/huff/t4/Poseidon2.huff".to_string(),
     ];
@@ -104,8 +103,12 @@ fn yul_tests_match_checked_in() {
     // the libraries in the repository went through forge fmt, the tests are
     // as generated
     for t in [2, 3] {
-        let file = format!("test/Poseidon2YulT{t}.t.sol");
-        same_file(&out.join(&file), &repo().join(&file));
+        for file in [
+            format!("test/Poseidon2YulT{t}.t.sol"),
+            format!("test/wrappers/Poseidon2YulT{t}.sol"),
+        ] {
+            same_file(&out.join(&file), &repo().join(&file));
+        }
     }
     fs::remove_dir_all(out).unwrap();
 }

@@ -18,7 +18,9 @@ use crate::huff::render::Vector;
 use crate::reference::permutation;
 use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
-use render::{library_name, render_array_library, render_forge_test, render_hash_library};
+use render::{
+    library_name, render_array_library, render_forge_test, render_hash_library, render_wrapper,
+};
 use schedule::{Layout, Mode, build_hash_entry, build_permutation};
 
 /// Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
@@ -90,7 +92,6 @@ fn layout_for(t: usize) -> Layout {
 /// The files of one width and its log lines.
 struct Output {
     files: Vec<(String, String)>,
-    mkdir: Option<String>,
     log: Vec<String>,
 }
 
@@ -112,7 +113,6 @@ fn generate(t: usize) -> Result<Output> {
         );
         return Ok(Output {
             files: vec![(path, render_hash_library(&core, &rest, &entries))],
-            mkdir: None,
             log: vec![log],
         });
     }
@@ -128,8 +128,9 @@ fn generate(t: usize) -> Result<Output> {
         })
         .collect();
     let test = format!("test/Poseidon2YulT{t}.t.sol");
+    let wrapper = format!("test/wrappers/Poseidon2YulT{t}.sol");
     let mut log = vec![format!(
-        "t={t} Rf={} Rp={}: {} locals, {} diag constants as locals, {} in the scratch space, {} in memory, wrote {lib}, {test}",
+        "t={t} Rf={} Rp={}: {} locals, {} diag constants as locals, {} in the scratch space, {} in memory, wrote {lib}, {wrapper}, {test}",
         params.rounds_f,
         params.rounds_p,
         layout.stack_elements,
@@ -145,9 +146,9 @@ fn generate(t: usize) -> Result<Output> {
     Ok(Output {
         files: vec![
             (lib, render_array_library(&params, &layout, &result)),
+            (wrapper, render_wrapper(t)),
             (test, render_forge_test(&params, &vectors, t <= 12)),
         ],
-        mkdir: Some(dir),
         log,
     })
 }
@@ -161,11 +162,12 @@ pub fn run(root: &Path, widths: &[usize], check: impl FnOnce() -> Result<()> + S
     checked?;
     for output in built {
         let output = output?;
-        if let Some(dir) = output.mkdir {
-            fs::create_dir_all(root.join(dir))?;
-        }
         for (path, text) in output.files {
-            fs::write(root.join(path), text)?;
+            let path = root.join(path);
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir)?;
+            }
+            fs::write(path, text)?;
         }
         for line in output.log {
             println!("{line}");

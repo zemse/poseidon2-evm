@@ -28,7 +28,7 @@ immediate halts before the gas, and the stack checks come before the gas. Each i
 halt that EVMLean's callers of `Ξ` treat alike (they match on `.error _`), so only the name of the
 exception can differ, and on a run the checker accepts none of them occurs.
 
-The encoding matches `src/bn254/huff/Eip8024.huff` (`DUP17` is `e6 80`, `DUP235` is `e6 5a`)
+The encoding matches huff-neo's `dupn` / `swapn` (`dupn 17` is `e6 80`, `dupn 235` is `e6 5a`)
 and revm 43 (`decode_single`, `decode_pair`, `dupn`, `swapn`, `exchange` in `revm-interpreter`),
 which the repository's tests run.
 -/
@@ -139,8 +139,8 @@ theorem decodeSingle_ends :
     decodeSingle 0x5a = some 235 ∧ decodeSingle 0x5b = none ∧ decodeSingle 0x7f = none := by
   decide
 
-/-- Every macro of `src/bn254/huff/Eip8024.huff`: `DUP<n>` / `SWAP<n>` is the immediate
-`(n - 145) mod 256` (`render_eip8024` in generator-rs), which decodes back to `n`. -/
+/-- Every `dupn n` / `swapn n` the Huff uses (n = 17 .. 235) is the immediate `(n - 145) mod 256`
+(huff-neo, checked by `dupn_swapn_encoding` in generator-rs), which decodes back to `n`. -/
 theorem huff_macros_decode :
     (List.range 219).all (fun i => decodeSingle ((i + 17 + 256 - 145) % 256) == some (i + 17)) =
       true := by

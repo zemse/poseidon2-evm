@@ -29,10 +29,10 @@ jobs:
         with:
           version: nightly
 
-      - name: Install Huff
-        uses: huff-language/huff-toolchain@v3
+      - name: Install huff-neo
+        uses: cakevm/huff-neo-toolchain@v1
         with:
-          version: nightly
+          version: 1.7.1
 
       - name: Check formatting
         run: forge fmt --check

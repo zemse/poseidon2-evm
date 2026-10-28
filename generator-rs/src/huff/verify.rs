@@ -6,7 +6,7 @@
 // DeployParts.sol does, last to first, each initcode but the last with the
 // address of the part after it appended as a 32-byte word.
 //
-// Generated files come from memory, the others (Utils.huff, Eip8024.huff)
+// Generated files come from memory, the others (Utils.huff)
 // from the repository, so nothing needs to be written.
 
 use std::collections::{HashMap, HashSet};
@@ -106,14 +106,14 @@ impl FileProvider for Sources {
     }
 }
 
-/// huff-neo has no Amsterdam; the EIP-8024 opcodes are __VERBATIM bytes
 fn evm_version(fork: &Fork) -> EVMVersion {
     EVMVersion::new(match fork.name {
         "paris" => SupportedEVMVersions::Paris,
         "shanghai" => SupportedEVMVersions::Shanghai,
         "cancun" => SupportedEVMVersions::Cancun,
         "prague" => SupportedEVMVersions::Prague,
-        _ => SupportedEVMVersions::Osaka,
+        "osaka" => SupportedEVMVersions::Osaka,
+        _ => SupportedEVMVersions::Amsterdam,
     })
 }
 
@@ -686,6 +686,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// huff-neo's dupn / swapn n is EIP-8024's 0xe6 / 0xe7 with the immediate
+    /// x encoding n = (x + 145) % 256, for the reach of the emitted code
+    #[test]
+    fn dupn_swapn_encoding() {
+        let amsterdam = fork("amsterdam").unwrap();
+        let mut code = Vec::new();
+        let mut expected = Vec::new();
+        for (op, opcode) in [("dupn", 0xe6u8), ("swapn", 0xe7u8)] {
+            for n in 17..=amsterdam.reach {
+                code.push(format!("{op} {n}"));
+                expected.extend([opcode, ((n + 256 - 145) % 256) as u8]);
+            }
+        }
+        let main = format!(
+            "#define macro MAIN() = takes(0) returns(0) {{\n{}\n}}\n",
+            code.join("\n")
+        );
+        let sources = Arc::new(Sources {
+            root: PathBuf::new(),
+            files: HashMap::from([("main.huff".to_string(), main)]),
+        });
+        let compiled = compile(&sources, "main.huff", &amsterdam).unwrap();
+        assert_eq!(compiled.runtime, expected);
     }
 
     /// the checked-in t = 2 (DUPN / SWAPN) runs on Amsterdam only

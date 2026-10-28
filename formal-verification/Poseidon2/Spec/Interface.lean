@@ -25,7 +25,7 @@ outside the ABI the contracts document, as read from the sources at this commit:
 * `hashV2`: the deployed v2 Huff t = 4 contract of `deployed-artifacts/bn254-huff/v2`, built
   from older sources: as `yulHash` but without the call value check, for calldata of at least 4
   bytes; below 4 bytes one fixed word that is not a Poseidon2 output (`hashV2Short`).
-* `yulPerm` (the `Poseidon2YulT<t>` contracts of `test/Poseidon2YulT<t>.t.sol`, the Foundry
+* `yulPerm` (the `Poseidon2YulT<t>` contracts of `test/wrappers/Poseidon2YulT<t>.sol`, the Foundry
   wrappers that call `LibPoseidon2YulT<t>.permute` on a `uint256[t] memory` and return it):
   a Solidity external function `permute(uint256[t])`. Reverts with empty data when the calldata
   is shorter than 4 bytes, the selector is not `permute(uint256[t])`, the call value is not

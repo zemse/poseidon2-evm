@@ -1620,22 +1620,21 @@ dependencies = [
 
 [[package]]
 name = "huff-neo-codegen"
-version = "1.5.18"
-source = "git+https://github.com/zemse/huff-neo?rev=d4682e4eb6c40b49655e471364d9872df3ce3228#d4682e4eb6c40b49655e471364d9872df3ce3228"
+version = "1.7.1"
+source = "git+https://github.com/cakevm/huff-neo?tag=v1.7.1#2fe1d0c99a6cebd085342ad90415ab09bb71bf7a"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-primitives",
  "huff-neo-utils",
  "indexmap 2.14.2",
- "regex",
  "serde_json",
  "tracing",
 ]
 
 [[package]]
 name = "huff-neo-core"
-version = "1.5.18"
-source = "git+https://github.com/zemse/huff-neo?rev=d4682e4eb6c40b49655e471364d9872df3ce3228#d4682e4eb6c40b49655e471364d9872df3ce3228"
+version = "1.7.1"
+source = "git+https://github.com/cakevm/huff-neo?tag=v1.7.1#2fe1d0c99a6cebd085342ad90415ab09bb71bf7a"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-primitives",
@@ -1653,8 +1652,8 @@ dependencies = [
 
 [[package]]
 name = "huff-neo-lexer"
-version = "1.5.18"
-source = "git+https://github.com/zemse/huff-neo?rev=d4682e4eb6c40b49655e471364d9872df3ce3228#d4682e4eb6c40b49655e471364d9872df3ce3228"
+version = "1.7.1"
+source = "git+https://github.com/cakevm/huff-neo?tag=v1.7.1#2fe1d0c99a6cebd085342ad90415ab09bb71bf7a"
 dependencies = [
  "huff-neo-utils",
  "lazy_static",
@@ -1664,8 +1663,8 @@ dependencies = [
 
 [[package]]
 name = "huff-neo-parser"
-version = "1.5.18"
-source = "git+https://github.com/zemse/huff-neo?rev=d4682e4eb6c40b49655e471364d9872df3ce3228#d4682e4eb6c40b49655e471364d9872df3ce3228"
+version = "1.7.1"
+source = "git+https://github.com/cakevm/huff-neo?tag=v1.7.1#2fe1d0c99a6cebd085342ad90415ab09bb71bf7a"
 dependencies = [
  "alloy-primitives",
  "huff-neo-lexer",
@@ -1676,8 +1675,8 @@ dependencies = [
 
 [[package]]
 name = "huff-neo-utils"
-version = "1.5.18"
-source = "git+https://github.com/zemse/huff-neo?rev=d4682e4eb6c40b49655e471364d9872df3ce3228#d4682e4eb6c40b49655e471364d9872df3ce3228"
+version = "1.7.1"
+source = "git+https://github.com/cakevm/huff-neo?tag=v1.7.1#2fe1d0c99a6cebd085342ad90415ab09bb71bf7a"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-primitives",

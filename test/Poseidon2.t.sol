@@ -7,11 +7,13 @@ import {Poseidon2Yul_BN254} from "../src/bn254/yul/Poseidon2Yul.sol";
 import {LibPoseidon2Yul} from "../src/bn254/yul/LibPoseidon2Yul.sol";
 import {Poseidon2} from "../src/bn254/Poseidon2.sol";
 import {IPoseidon2} from "../src/IPoseidon2.sol";
-import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
+import {HuffNeoDeployer} from "foundry-huff-neo/HuffNeoDeployer.sol";
+import {HuffConfig, HuffNeoConfig} from "foundry-huff-neo/HuffNeoConfig.sol";
 
 contract Poseidon2Test is Test {
     using Field for *;
     using LibPoseidon2 for *;
+    using HuffNeoConfig for HuffConfig;
 
     Poseidon2_BN254 private poseidon2;
     IPoseidon2 private poseidon2Yul;
@@ -20,7 +22,9 @@ contract Poseidon2Test is Test {
     function setUp() public {
         poseidon2 = new Poseidon2_BN254();
         poseidon2Yul = IPoseidon2(address(new Poseidon2Yul_BN254()));
-        poseidon2Huff = IPoseidon2(HuffDeployer.deploy("bn254/huff/t4/Poseidon2"));
+        poseidon2Huff = IPoseidon2(
+            HuffNeoDeployer.config().with_evm_version("amsterdam").deploy("src/bn254/huff/t4/Poseidon2.huff")
+        );
         vm.label(address(poseidon2Huff), "Poseidon2Huff_BN254");
 
         // Deploy bytecode at library constant addresses for testing

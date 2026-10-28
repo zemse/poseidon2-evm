@@ -268,13 +268,13 @@ pub fn yul_artifacts(dir: &Path, label: &str) -> Result<Vec<Artifact>> {
     });
     for t in YUL_WIDTHS {
         let (code, settings) =
-            read(dir.join(format!("Poseidon2YulT{t}.t.sol/Poseidon2YulT{t}.json")))?;
+            read(dir.join(format!("Poseidon2YulT{t}.sol/Poseidon2YulT{t}.json")))?;
         out.push(Artifact {
             module: vec!["Yul".into(), capitalize(label), format!("T{t}")],
             t,
             kind: Kind::YulPerm,
             source: format!(
-                "Yul t = {t} ({label}): the wrapper `Poseidon2YulT{t}` of test/Poseidon2YulT{t}.t.sol around `LibPoseidon2YulT{t}.permute`, the deployed bytecode of `Poseidon2YulT{t}.t.sol/Poseidon2YulT{t}.json` in a forge `out/`. solc settings: `{settings}`."
+                "Yul t = {t} ({label}): the wrapper `Poseidon2YulT{t}` of test/wrappers/Poseidon2YulT{t}.sol around `LibPoseidon2YulT{t}.permute`, the deployed bytecode of `Poseidon2YulT{t}.sol/Poseidon2YulT{t}.json` in a forge `out/`. solc settings: `{settings}`."
             ),
             code,
         });

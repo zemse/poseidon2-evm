@@ -35,8 +35,8 @@ use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
     MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead,
-    render_deploy_parts, render_eip8024, render_entry, render_forge_test, render_hash_entry,
-    render_hash_test, render_part, render_permutation, render_zero, test_dir,
+    render_deploy_parts, render_entry, render_forge_test, render_hash_entry, render_hash_test,
+    render_part, render_permutation, render_zero, test_dir,
 };
 use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
@@ -363,12 +363,6 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
 
 /// the opcode macros a fork needs next to its width directories
 fn fork_files(actions: &mut Vec<Action>, fork: &Fork) {
-    if fork.reach > 16 {
-        actions.push(Action::Write(
-            format!("{}/Eip8024.huff", huff_dir(fork)),
-            render_eip8024(fork.reach),
-        ));
-    }
     if !fork.push0 {
         actions.push(Action::Write(
             format!("{}/Zero.huff", huff_dir(fork)),
