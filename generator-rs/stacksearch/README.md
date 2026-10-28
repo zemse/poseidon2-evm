@@ -32,6 +32,12 @@ The binaries, run from this directory after `cargo build --release`:
   t3dag [window=8] [upper_bound=56]
   ```
 
+- `target/release/sheardag` (`src/bin/sheardag.rs`) uses the same fixed-DAG engine for the inactive shear u = b + c, v = c: q = x + u, s = q + v, a' = q + x, v' = s + v, h = s + q, u' = h + u. Bit i of the mask selects ADDMOD at node i. Inclusive bounds in units of P-1 must fit uint256 and leave room for the next active constant. The boundary is `[x,v,u]` to `[a',P,v',u']`, with at most one trailing garbage slot. `EXCHANGE` and `REPLAY` work as above. These are post-S-box model costs, not full-call gas. Portable programs and the compiled whole-chain rejection are in `results/astra-shear.program`, `shear_probe.rs` and ASTRA-OPTIMISATION.md.
+
+  ```
+  sheardag <mask> <u_bound> <v_bound> [window=12] [upper_bound=funded+10]
+  ```
+
 - `target/release/cycle` (`src/bin/cycle.rs`) bounds the steady internal rounds of t = 3 and t = 4 with no layout fixed between rounds: the least mean cost per round over every cycle of rounds, the next round allowed to start before this one ends. It counts only the copies, SWAPs and POPs of the values of the linear layer; PRIME copies and constants are left out, so a SWAP that moved one becomes a move of a value to or from the top, 3 gas. Every layout a round can end in starts at 0, and value iteration over k rounds brackets the cycle mean between the least and largest change of D_k. Layers 0 prints one round from `s0,s1,...` back to it instead. Environment variables relax the model: `SBOX` (the S-box as three MULMODs on values of its own, linear-layer moves allowed between them), `SPLIT` (the S-box input consumed and x made later, intermediates left out), `SHL` (t = 3: 2 s2 as PUSH1 1 SHL), `COMP` (t = 4: s_i' = mu_i s_i + the sum of the other lanes).
 
   ```

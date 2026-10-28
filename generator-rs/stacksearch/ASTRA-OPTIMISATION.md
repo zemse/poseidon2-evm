@@ -261,11 +261,49 @@ All 57 generator tests pass (41 library, two CLI, three EIP, four generator, sev
 
 Logs: `astra-entry-budget-probe-osaka.log`, `astra-entry-budget-unit.log`, `astra-entry-budget-final-{amsterdam,osaka,paris}.log`, `astra-entry-budget-{all-tests,clippy,generation,forge,search-tests}.log`. The initial probe and final helper used separate verifications. The extra search increases generation work; only EVM call gas is claimed as an improvement.
 
+### 12. Retained-garbage shear schedules: compiled 82-gas regression
+
+The t3 shear uses the previously checked inactive coordinates u = b + c, v = c and six-node DAG from OSAKA-OPTIMISATION.md. `fixed_dag.rs` extracts the existing t3 low-phase search engine without changing its move set. `sheardag` validates a reduction mask and inclusive input/output bounds before searching the same once-only-node grammar. The boundary is now `[a,P,v,u]` with one retained garbage value per round, not the rejected clean-boundary transport policy.
+
+Seven serial search records use window 12 and an upper bound ten gas above the funded root bound. Each returned a replayable candidate; none was an exhaustion run. The inherited records do not encode the EXCHANGE flag, so these counts are not used to exclude either move family. Their model costs are not unrestricted schedule minima:
+
+| Mask | Input bounds u,v | Post-S-box funded bound | Scheduled gas | Expanded | Retained states |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 10 | 1,4 | 55 | 64 | 545,741 | 5,944,262 |
+| 33 | 4,1 | 55 | 64 | 326,567 | 3,690,199 |
+| 24 | 1,3 | 55 | 64 | 801,017 | 9,487,990 |
+| 1 | 2,1 | 47 | 56 | 91,890 | 938,146 |
+| 41 | 5,3 | 63 | 72 | 926,391 | 10,680,190 |
+| 32 | 1,1 | 47 | 56 | 283,826 | 3,402,136 |
+| 40 | 1,1 | 55 | 64 | 836,391 | 10,118,377 |
+
+The largest sampled RSS among the seven runs was 2,923,120 KiB; no recorded resource stop fired. No host wall-time comparison is used. `results/astra-shear.program` preserves all seven programs, and tests replay their moves and every suffix bound with EXCHANGE disabled and enabled.
+
+The 56-round policy repeats masks 10,33,24,1,41,32 through round index 52, then ends with 40,40,32. It uses 103 ADDMODs in the linear layer. The old funded linear inventory is 2,840 gas; the post-S-box root bounds total 3,008 because they also fund the outgoing PRIME slot. The actual constant-plus-S-box prefix costs 45 gas, consuming the incoming PRIME. Thus the unchanged funded round total is 3,008 + 56 * 45 = 5,528, not an extra 48 gas on top of the post-S-box bounds. Actual schedules total 3,512 linear gas and 2,520 prefix gas, or 6,032 for all rounds.
+
+Entry consumes b and computes reduced u with `P dup4 dup6 addmod swap4 pop`, costing 22 gas. Exit computes b = (u + (4P - v)) mod P with `P dup4 4P sub dup6 addmod swap4 pop`, costing 28. Both preserve the original `[a,P,c,b]` boundary and underlying tail. Final v is at most 4(P-1), so SUB is nonnegative and 4P fits uint256. The complete candidate is 6,082 against the incumbent's 6,000 internal-chain gas.
+
+`shear_probe.rs` independently replays all operations and inclusive intervals over the real BN254 field on 64 complete chains, including zero, maximum and half-bound inputs and maximal constants. It checks every ADD overflow, SUB order and bound, exact modular operand, stack reach/limit, per-round original-basis parity, retained tail and external re-entry bounds. Each round adds exactly one garbage slot, as does the incumbent. Negative tests reject unsafe entry ADD, wrong PRIME, reversed SUB and invalid reach.
+
+A test-only replacement of the entire internal region then compiles and executes both baseline and candidate with the real constants, wrappers and surrounding external rounds:
+
+| Fork | Baseline t3 call gas | Shear call gas | Regression |
+| --- | ---: | ---: | ---: |
+| Amsterdam | 7,653 | 7,735 | +82 |
+| Osaka | 7,653 | 7,735 | +82 |
+| Paris | 7,655 | 7,737 | +82 |
+
+All 144 full-word/shared-vector calls match the independent permutation reference, and each measured difference equals the 82-gas chain model. No production schedule or generated Huff is changed. This rejects these seven schedules composed under this policy, not all shear DAGs or cross-round layouts.
+
+Final gates: the full generator suite exits successfully with 60 tests (44 library, two CLI, three EIP, four generator and seven execution), including checked-in Huff equality. All 43 stacksearch tests and five accounting tests pass. Generator all-target Clippy, targeted t3dag/sheardag Clippy, both Rust format checks and whitespace checks pass. Foundry and formal verification are not rerun for this test/search-only unit; no Solidity, production generator, generated output, dependency or lockfile changes are included.
+
+Evidence: `astra-shear-search-results.json`, `astra-shear-mask*.log`, `astra-shear-full-chain-tests.log`, `astra-shear-all-generator-tests.log`, `astra-shear-final-search-tests.log`, `astra-shear-{generator,final-search}-clippy.log`, `astra-shear-floor-tests.log`, and the portable program/test sources above.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
 
-`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 39 tests with the t3int and t3dag extensions. Formatting and targeted Clippy pass for those tools. Their search-only commits do not change the production generator or Huff.
+`cargo test --release --locked --offline --manifest-path generator-rs/stacksearch/Cargo.toml` passes all 43 tests with the t3int, t3dag and sheardag extensions. Formatting and targeted Clippy pass for the changed tools. Their search-only commits do not change the production generator or Huff.
 
 The integration branch is `opt`, not the older local `main`. Coordinator commit a433745 corrects the diagnostic `schedule` wrapper-memory accounting; core floors and compiled baseline measurements above are unaffected. The old diagnostic small-width call totals were two to four gas too high. Subsequent experiments use `opt` as their base.
 
