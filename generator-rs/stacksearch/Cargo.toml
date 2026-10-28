@@ -2,6 +2,7 @@
 name = "stacksearch"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 # profiling, off unless the features below are on

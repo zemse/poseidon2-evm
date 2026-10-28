@@ -1,4 +1,5 @@
-// Compiled checks for the finite Python probe, not production opcode support.
+// Compiled checks of the finite linear-layer candidates in
+// results/lane3-linear.program, not production opcode support.
 use super::*;
 use crate::field::PRIME;
 use crate::huff::fork::fork;

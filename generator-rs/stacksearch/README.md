@@ -2,7 +2,7 @@
 
 The offline search behind the stack programs of `generator-rs/src/huff/templates.rs`: an A\* over the EVM stack programs that compute one Poseidon2 external round (or the M4 of a block of the `externalD` layer) from a given stack layout to a given layout, with the S-box of a lane as one move. Values are linear forms over the S-box outputs with a bound in units of P, so an `ADD` is allowed only while the bound stays below 2^256 and the result otherwise takes an `ADDMOD`; only the forms the linear layer needs are allowed (`build` in `src/bin/macro.rs`).
 
-Two binaries, run from this directory after `cargo build --release`:
+The binaries, run from this directory after `cargo build --release`:
 
 - `target/release/macro` (`src/bin/macro.rs`) searches over macro moves: the next arithmetic op together with which of its operands are consumed in place (brought to the top by a swap sequence from a precomputed table, at most 3 swaps) and which are DUPed, a chain pre-placing the operands of the op that consumes the result, the S-box of a lane as one move, standalone `PUSH P` / `POP` / `SWAP1..4` for the goal layout. This is the one that found the programs in the repository.
 

@@ -2,6 +2,8 @@
 name = "poseidon2-gen"
 version = "0.1.0"
 edition = "2024"
+# huff-neo 1.7 needs 1.98
+rust-version = "1.98"
 description = "The poseidon2-evm Huff and Yul generators"
 license = "MIT"
 publish = false

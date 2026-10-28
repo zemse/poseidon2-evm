@@ -332,7 +332,7 @@ fn stats(result: &BuildResult) -> String {
 }
 
 /// the round constants of the shared body's calls as code tables, which
-/// huffc appends to the runtime code behind the macro
+/// huff-neo appends to the runtime code behind the macro
 fn tables(result: &BuildResult) -> String {
     result
         .tables
@@ -703,7 +703,7 @@ pub fn render_part(
         hand_over(&mut code, t, part, result.memory);
     }
     // a 32-byte literal with its top byte set is a PUSH32 (a zero would be
-    // PUSH0, and huffc drops the zeros of a __VERBATIM)
+    // PUSH0)
     let mut next = Code::new(*fork);
     next.op(&format!("0x{}", "ff".repeat(32)), 0, 0);
     next.end("[next]");

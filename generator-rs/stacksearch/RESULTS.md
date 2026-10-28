@@ -1,5 +1,7 @@
 # Stacksearch measurements
 
+The Python scripts this record names (`*.py`) were removed in 93ee033; their outputs stay in `results/` and the measurements below.
+
 ## Method
 
 Apple Mac14,6, 96 GiB RAM, eight performance cores and four efficiency cores. The comparison suites run searches serially. Release builds use the existing lockfile and no new dependencies. Native RSS comes from `/usr/bin/time -l`; heap numbers come from separate `dhat-heap` builds with line information. Profiling overhead is not presented as native search time. This report reads the saved artifacts, without rerunning benchmarks.

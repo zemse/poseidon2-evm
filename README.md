@@ -59,13 +59,15 @@ contract MyContract {
 
 ## Development
 
+Needs [Foundry](https://getfoundry.sh), [huff-neo](https://github.com/cakevm/huff-neo) `hnc` 1.7.1 or later on the PATH (the tests compile the Huff through it) and Rust 1.98 or later for the generators.
+
 - Run tests: forge test
 - Generate gas report: ./gas-report.sh
 - Check the yul libraries compile for consumers with every compiler mode: ./compat-check.sh
 - Generate yul code: npm run generate:yul (or `cargo run --release --manifest-path generator-rs/Cargo.toml -- yul <t>` for one state width)
 - Generate huff code: npm run generate:huff (or `cargo run --release --manifest-path generator-rs/Cargo.toml -- huff <t>` for one state width)
 
-Both generators derive the Poseidon2 parameters for any supported state width t (2, 3, 4, 8, 12) the same way as the reference sage script, then emit code whose every lazy addition is proven by exact bounds and which is simulated against a reference permutation before anything is written. The t = 4 Yul is `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3`); the other widths are `src/bn254/yul/t<t>/LibPoseidon2YulT<t>.sol` with `permute(uint256[t] memory)`. See [src/bn254/README.md](src/bn254/README.md#huff-generator).
+Both generators derive the Poseidon2 parameters for any supported state width t (Yul 2, 3, 4, 8, 12; Huff also 16, 20, 24, 28) the same way as the reference sage script, then emit code whose every lazy addition is proven by exact bounds and which is simulated against a reference permutation before anything is written. The t = 4 Yul is `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3`); the other widths are `src/bn254/yul/t<t>/LibPoseidon2YulT<t>.sol` with `permute(uint256[t] memory)`. See [src/bn254/README.md](src/bn254/README.md#huff-generator).
 
 Tests include correctness vectors, fuzz testing against the reference Solidity implementation, and overflow safety checks for the ADDMOD optimization.
 

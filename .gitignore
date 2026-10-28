@@ -16,7 +16,6 @@ docs/
 # Dependencies
 node_modules/
 
-archive
 # Lean build output
 formal-verification/.lake/
 

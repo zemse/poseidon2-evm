@@ -260,7 +260,7 @@ All 19 Rust tests, nine Node tests, seven Python regressions and the 64-chain pr
 
 Rust uses cargo fmt; JSON/Markdown use the existing Prettier. No production generator changes require regeneration or new TS/Rust parity. No dependency, lockfile, search heuristic or opcode-accounting guard changes. No broad search, installation, Foundry invocation, merge or push was performed.
 
-Portable evidence: [model and DSL records](results/lane3-linear.json), [compiled corpus](results/lane3-linear.program), `linear_probe.py`, `linear_probe_test.py` and test-only `linear_probe.rs`. Transient logs: `/tmp/poseidon2-lane3-baseline-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane3-rust.log`, `/tmp/poseidon2-lane3-t3-periodic.json`.
+Portable evidence: [model and DSL records](results/lane3-linear.json), [compiled corpus](results/lane3-linear.program) and test-only `linear_probe.rs` (the Python probe and its tests were removed in 93ee033). Transient logs: `/tmp/poseidon2-lane3-baseline-{osaka,amsterdam}.log`, `/tmp/poseidon2-lane3-rust.log`, `/tmp/poseidon2-lane3-t3-periodic.json`.
 
 ### Handoff to lane 4
 
@@ -303,7 +303,7 @@ ROOT=/absolute/path/to/this/worktree
 SEARCH="$ROOT/generator-rs/stacksearch"
 ```
 
-Seven Python regressions regenerate [the portable evidence](results/lane4-inactive.json), check all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. The boundary regression ties both original-coordinate endpoints to all four production INTERNAL3_PERIODIC layouts and a matching next external template. Python uses the installed standard library and existing Node, with no dependency or lockfile changes. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy follow-up is recorded below.
+Seven Python regressions (removed in 93ee033) regenerated [the portable evidence](results/lane4-inactive.json) and checked all finite inverses and policies, charged full-chain totals, unsafe entry ADD and reversed SUB rejection, and the scoped t=4 inventory. The boundary regression ties both original-coordinate endpoints to all four production INTERNAL3_PERIODIC layouts and a matching next external template. The [Poseidon2 paper](https://eprint.iacr.org/2023/323) supplies the linear-layer prior art; the actual constants and arithmetic are checked locally, not inferred from search snippets. The t=2 PRIME backing-copy follow-up is recorded below.
 
 ## Lane 4: t = 2 optional PRIME backing
 
@@ -433,7 +433,7 @@ Before fast-forward integration, the coordinator rebuilt the candidate and indep
 - Serial TS/Rust generation parity for both forks: byte-identical source, tests and stdout. Rust/TS formatting, scoped diffs, signed noreply commits and clean candidate status.
 - 29 Foundry tests across `Poseidon2Test`, `Poseidon2T2Test` and `Poseidon2T3Test`. These run from a non-Git archive of committed 5d2d521 with a symlink to the existing main `lib`, using `forge test --offline --match-contract '^Poseidon2(T[23])?Test$' --threads 1`. No dependency installation or lockfile change was needed.
 
-Fresh accounting is reproducible with `node generator-rs/stacksearch/gas-floor.mjs`. Coordinator artifacts are `/tmp/poseidon2-final-candidate-{rust,node,python,osaka,amsterdam,compact}.log`, `/tmp/poseidon2-final-search-rust.log`, `/tmp/poseidon2-final-floor.json`, `/tmp/poseidon2-final-t3-periodic.json`, `/tmp/poseidon2-serial-parity.RuK1gT` and `/tmp/poseidon2-final-foundry.log`. The committed non-Git Foundry snapshot is `/tmp/poseidon2-final-foundry.4CBwgQ`. These logs are transient; the tests, probes, corpus and generated code are committed.
+Fresh accounting is reproducible with `node generator-rs/stacksearch/gas-floor.mjs`. Coordinator artifacts are `/tmp/poseidon2-final-candidate-{rust,node,python,osaka,amsterdam,compact}.log`, `/tmp/poseidon2-final-search-rust.log`, `/tmp/poseidon2-final-floor.json`, `/tmp/poseidon2-final-t3-periodic.json`, `/tmp/poseidon2-serial-parity.RuK1gT` and `/tmp/poseidon2-final-foundry.log`. The committed non-Git Foundry snapshot is `/tmp/poseidon2-final-foundry.4CBwgQ`. These logs are transient; the tests, corpus and generated code are committed (the Python probes were removed in 93ee033).
 
 After integration, the main checkout independently passes the same 20 Rust, 11 Node and 28 Python tests, both-fork compiled verification and serial TS/Rust parity again. Its regenerated accounting is byte-identical to the reviewed candidate's JSON. The final main logs use `/tmp/poseidon2-final-main-{rust,node,python,osaka,amsterdam}.log`; parity artifacts are `/tmp/poseidon2-serial-parity.r2ncRg`. Subsequent source edits only correct scheduler comments; no generated opcode or parameter changes accompany the final documentation.
 
@@ -445,7 +445,7 @@ Baseline 3a4db26, 2026-10-11. From t = 16 the `DUP16` reach cannot hold the stat
 ### Changes
 
 - 2b3db1e: every reduction of the sum chain is an `ADDMOD`. The copy goes under its operand where the later `DUP`s keep their reach; copies under elements loaded from memory cost none, so they are counted per step from the top instead of from the deepest slot. Otherwise the copy is `DUP`ed on top and `SWAP2`ed under the partial sum: the same 11 gas as the `MOD`, but it absorbs an element (three per reduction).
-- 91aa2b8: `consumeSlots`. With shadow, the option search also tries 13 and 14 stack elements for the `primeStack` + `sharedBody` schedules. Each element more saves its loads and store and takes a slot from the sum chain's PRIME copies. t = 16 takes 14, t = 20 and t = 28 13, t = 24 stays at 12. The Osaka search does about twice the builds (Rust `verify` of t = 16 to 28: 578 to 1,025 CPU s; the TS Osaka generation of `parity.sh` takes 64 min).
+- 91aa2b8: `consumeSlots`. With shadow, the option search also tries 13 and 14 stack elements for the `primeStack` + `sharedBody` schedules. Each element more saves its loads and store and takes a slot from the sum chain's PRIME copies. t = 16 takes 14, t = 20 and t = 28 13, t = 24 stays at 12. The Osaka search does about twice the builds (Rust `verify` of t = 16 to 28: 578 to 1,025 CPU s; the TS Osaka generation of `parity.sh` took 64 min).
 
 | Fork  | Width |  Before | After (2b3db1e) | After (91aa2b8) | Saving | Runtime bytes after |
 | ----- | ----: | ------: | --------------: | --------------: | -----: | ------------------: |
@@ -533,7 +533,7 @@ Baseline d8a8bac, 2026-10-11. Each block of a streamed layer ran `u = x + S`, th
 ### Changes
 
 - `sblock` (stacksearch) searches a whole block from `[S0, S1, S2, S3, P]` and the inputs, with the M4 DAG of the template fixed and the lane (constant, S-box, store) as one move from `[s_i', P]`. Best: stored 365 (none below within a working stack of 10), loaded 377, kept 359 (none below within 10). RESULTS.md has the growth curve (peak 7.1 GB, 621 s).
-- `stream_blocks` (templates.rs / templates.ts) holds the programs: two stored ones (the inputs deep or shallow on the stack, or loaded) and two kept ones (inputs loaded 359, on the stack 347, the first layer only); the first whose DUPs reach the stack as it is runs, else the template. `P` DUPs the nearest PRIME copy, so one program serves every floor.
+- `stream_blocks` (templates.rs) holds the programs: two stored ones (the inputs deep or shallow on the stack, or loaded) and two kept ones (inputs loaded 359, on the stack 347, the first layer only); the first whose DUPs reach the stack as it is runs, else the template. `P` DUPs the nearest PRIME copy, so one program serves every floor.
 
 | Fork  | Width | Before | After  | Saving | Runtime bytes after |
 | ----- | ----: | -----: | -----: | -----: | ------------------: |
@@ -582,7 +582,7 @@ Baseline ac591e5, 2026-10-12. The layer before the internal rounds and the last 
 ### Changes
 
 - `sblock` goals `exit` (outputs `[o0, o1, o2, o3]` on top), `exit0` (`[o0, P, o1, o2, o3]`, block 0 before the internal rounds) and `final` (the reduced M4). Best: exit 152 (none below within a working stack of 10), exit0 155 (none below within 9), final 184 (none below within 11). RESULTS.md has the growth curves.
-- `ordered_blocks` (templates.rs / templates.ts) holds the three programs; `ordered_block` runs the first whose DUPs reach the stack, else the template, in schedules with streamed rounds only (Osaka t = 8 costs 323 gas more with them: 24,822).
+- `ordered_blocks` (templates.rs) holds the three programs; `ordered_block` runs the first whose DUPs reach the stack, else the template, in schedules with streamed rounds only (Osaka t = 8 costs 323 gas more with them: 24,822).
 
 | Fork      | Width | Before | After  | Saving | Runtime bytes before / after |
 | --------- | ----: | -----: | -----: | -----: | ---------------------------: |

@@ -1,6 +1,7 @@
 target/
-__pycache__/
 *.json
-!results/programs.json
-!results/lane1-internal.json
-*.dsl.txt
+!results/*.json
+# outputs of the run*.sh scripts
+/t23.txt
+/entry.txt
+/block*.txt

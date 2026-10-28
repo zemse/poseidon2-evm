@@ -5,3 +5,9 @@ lib/
 out/
 cache/
 generator-rs/target/
+generator-rs/stacksearch/target/
+
+# Records read byte for byte (lean-export matches their compact JSON) or written by tools
+deployed-artifacts/
+formal-verification/lake-manifest.json
+formal-verification/.lake/
