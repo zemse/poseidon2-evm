@@ -154,7 +154,11 @@ Measured on an Apple M2 Max with 96 GB, `/usr/bin/time -l`, one at a time:
 
 Checker results (`scripts/Dev.lean`, `#eval`): every case of the 33 artifacts built from the current sources passes (148 cases), the deployed Yul v2 passes its 6, the deployed Huff v2 passes its 5. Below 4 bytes the deployed Huff v2 adds its capacity word, which wrapped below zero, to another word unreduced and returns the fixed word `0x0fcc8f62…82d5` (`hashV2Short`; anvil returns the same), where the deployed Yul v2 returns the permutation of its capacity word; its four short cases expect that word (`Expect.words`). `Mutations.lean` checks that one-byte mutations are rejected.
 
-Kernel checks (`decide +kernel`), all 35 artifacts, one at a time, without error. The 17 small ones (Huff t = 2, 3, 4 on both forks; Yul t = 2, 3, 4 at all three optimizer settings; both deployed v2 contracts) need no checkpoint (segments of 8,000 instructions, the spec side in one declaration); their files are a few KB, committed, and audited together by `Proofs/Audit.lean`. The 18 large ones are written by `scripts/proof.sh` with segments of 1,000 instructions and 10 rounds and three kernel checks per part file; their files are 1.3 to 9.9 MB each (80 MB in all), so they are not committed. `Emit.lean` is deterministic (two runs give the same bytes), so the committed tree and the scripts regenerate them, and CI checks every one (below). Each generated file ends with `#assert_standard_axioms_here`, and the last file of an artifact also audits its parts.
+Kernel checks (`decide +kernel`), all 35 artifacts, one at a time, without error. The 17 small ones (Huff t = 2, 3, 4 on both forks; Yul t = 2, 3, 4 at all three optimizer settings; both deployed v2 contracts) need no checkpoint (segments of 8,000 instructions, the spec side in one declaration); their files are a few KB, committed, and audited together by `Proofs/Audit.lean`. The 18 large ones are written by `scripts/proof.sh` with segments of 1,000 instructions and 10 rounds and three kernel checks per part file; their files were 1.3 to 9.9 MB each (80 MB in all) in the measurements below, so they are not committed. `Emit.lean` is deterministic (two runs give the same bytes), so the committed tree and the scripts regenerate them, and CI checks every one (below). Each generated file ends with `#assert_standard_axioms_here`, and the last file of an artifact also audits its parts.
+
+After the compact-input and sum-tree optimisations, the 12 affected Huff artifacts (t = 8, 12, 16, 20, 24, 28 on Amsterdam and Osaka) were exported again; the other 23 exports were unchanged. Their proofs were regenerated, kernel-checked and replayed with `leanchecker`, and replay coverage passed. Every returning case's `G` matches independently measured call-frame gas in the table below.
+
+The following size and timing measurements predate those optimisations. They describe the earlier exported bytecode, not the regenerated proofs.
 
 | Artifact | Parts | Bytecode segments | Files | Wall | Peak RSS |
 | -------- | ----- | ----------------- | ----- | ---- | -------- |
@@ -182,12 +186,12 @@ Every `G` of a returning case equals the measured call-frame gas, on both forks 
 | 2 | 5,912 / 5,912 | 5,912 / 5,912 |
 | 3 | 7,653 / 7,653 | 7,653 / 7,653 |
 | 4, `hash_1` / `hash_2` / `hash_3` | 11,895, 11,902, 11,975 / the same | 11,895, 11,902, 11,975 / the same |
-| 8 | 23,933 / 23,933 | 24,499 / 24,499 |
-| 12 | 34,288 / 34,288 | 35,696 / 35,696 |
-| 16 | 44,966 / 44,966 | 48,635 / 48,635 |
-| 20 | 55,763 / 55,763 | 63,188 / 63,188 |
-| 24 | 66,431 / 66,431 | 77,045 / 77,045 |
-| 28 | 79,032 / 79,032 | 94,502 / 94,502 |
+| 8 | 23,807 / 23,807 | 24,217 / 24,217 |
+| 12 | 34,145 / 34,145 | 35,047 / 35,047 |
+| 16 | 44,494 / 44,494 | 48,124 / 48,124 |
+| 20 | 54,835 / 54,835 | 62,956 / 62,956 |
+| 24 | 65,489 / 65,489 | 75,942 / 75,942 |
+| 28 | 77,826 / 77,826 | 92,158 / 92,158 |
 
 Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Poseidon2.t.sol` (`hash_1`, `hash_2`, `hash_3` of `Poseidon2Yul_BN254`, the same gas for all three and for calldata below 4 bytes) built as `scripts/export.sh` builds them, on forge's Amsterdam EVM, `G` / measured:
 
