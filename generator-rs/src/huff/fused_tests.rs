@@ -3,6 +3,7 @@ use crate::field;
 use crate::huff::fork::fork;
 use crate::huff::sum_tree;
 use crate::round_constants::generate_params;
+use crate::vectors::test_inputs;
 
 #[test]
 fn streamed_fused_trees_preserve_outputs_slots_and_caller_tail() {
@@ -115,6 +116,115 @@ fn streamed_fused_trees_preserve_outputs_slots_and_caller_tail() {
                         assert_eq!(b.e.from_top(), tail);
                     }
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn fused_alternatives_require_a_fusable_memory_region() {
+    let opts = BuildOptions {
+        internal_consume: true,
+        prime_stack: true,
+        consume_slots: 14,
+        ..DEFAULT_OPTIONS
+    };
+    assert_eq!(DEFAULT_OPTIONS.fused_tree, FusedTree::Serial);
+    for name in ["paris", "osaka", "amsterdam"] {
+        let reach = fork(name).unwrap().reach;
+        for t in [2, 3, 4, 8, 12, 16, 20] {
+            assert!(fused_candidates(t, reach, opts).is_empty());
+        }
+        for t in [24, 28] {
+            let modes = fused_candidates(t, reach, opts);
+            assert_eq!(modes.len(), 4);
+            for mode in modes {
+                assert_ne!(mode.fused_tree, FusedTree::Serial);
+                assert_eq!(
+                    BuildOptions {
+                        fused_tree: FusedTree::Serial,
+                        ..mode
+                    },
+                    opts
+                );
+            }
+            if reach > 16 {
+                assert!(
+                    fused_candidates(
+                        t,
+                        reach,
+                        BuildOptions {
+                            consume_slots: 0,
+                            ..opts
+                        }
+                    )
+                    .is_empty()
+                );
+            }
+        }
+    }
+    for off in [
+        BuildOptions {
+            internal_consume: false,
+            ..opts
+        },
+        BuildOptions {
+            prime_stack: false,
+            ..opts
+        },
+    ] {
+        assert!(fused_candidates(28, 16, off).is_empty());
+    }
+}
+
+#[test]
+fn fused_modes_do_not_change_below_threshold_bodies() {
+    for name in ["paris", "osaka"] {
+        let fork = fork(name).unwrap();
+        for t in [16, 20] {
+            let params = generate_params(t);
+            let inputs = test_inputs(t);
+            let range = Range {
+                from: 0,
+                to: step_count(&params),
+            };
+            let opts = BuildOptions {
+                external_d: true,
+                prime_under_external: false,
+                internal_consume: true,
+                prime_stack: true,
+                shadow: true,
+                shared_body: true,
+                body_inline: if t == 16 { 2 } else { 1 },
+                consume_group: if t == 16 { 0 } else { 7 },
+                consume_slots: 14,
+                external_template: true,
+                external_stream: true,
+                tree_sums: true,
+                tree_adaptive_prime: true,
+                ..DEFAULT_OPTIONS
+            };
+            let serial = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            for fused_tree in [
+                FusedTree::Preplaced,
+                FusedTree::PreplacedBounded,
+                FusedTree::Late,
+                FusedTree::LateBounded,
+            ] {
+                let candidate = build_permutation(
+                    &params,
+                    &inputs,
+                    &BuildOptions { fused_tree, ..opts },
+                    fork,
+                    range,
+                    true,
+                )
+                .unwrap();
+                assert_eq!(candidate.lines, serial.lines);
+                assert_eq!(
+                    (candidate.gas, candidate.bytes, candidate.memory),
+                    (serial.gas, serial.bytes, serial.memory)
+                );
             }
         }
     }

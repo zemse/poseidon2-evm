@@ -131,11 +131,10 @@ pub struct BuildOptions {
     pub tree_late_prime: bool,
     /// choose tree PRIME placement using current leaf depths
     pub tree_adaptive_prime: bool,
-    #[cfg(test)]
+    /// stream memory-held internal outputs into a planned sum tree
     pub fused_tree: FusedTree,
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FusedTree {
     #[default]
@@ -176,7 +175,6 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     tree_peak: false,
     tree_late_prime: false,
     tree_adaptive_prime: false,
-    #[cfg(test)]
     fused_tree: FusedTree::Serial,
 };
 
@@ -317,7 +315,6 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.tree_adaptive_prime {
         enabled.push("treeAdaptivePrime".to_string());
     }
-    #[cfg(test)]
     if opts.fused_tree != FusedTree::Serial {
         enabled.push(format!("fusedTree={:?}", opts.fused_tree));
     }
@@ -858,7 +855,6 @@ impl<'a> Builder<'a> {
         }
     }
 
-    #[cfg(test)]
     fn emit_fused_tree(
         &mut self,
         plan: &super::sum_tree::Plan,
@@ -2538,7 +2534,6 @@ impl<'a> Builder<'a> {
         let mut out = vec![0; t];
         if fuse {
             let mut acc: Option<Id> = None;
-            #[cfg(test)]
             if self.opts.fused_tree != FusedTree::Serial {
                 let bounds = vec![p1() * u256(2); mem];
                 let cap = if matches!(
@@ -3583,7 +3578,6 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         tree_peak: false,
                                                                         tree_late_prime: false,
                                                                         tree_adaptive_prime: false,
-                                                                        #[cfg(test)]
                                                                         fused_tree:
                                                                             FusedTree::Serial,
                                                                     });
@@ -3673,6 +3667,50 @@ fn frame_cost(params: &Params, result: &BuildResult, fork: Fork, boundary: &Boun
         + memory_gas(result.memory.max(32 * outputs))
 }
 
+fn fused_candidates(t: usize, reach: usize, opts: BuildOptions) -> Vec<BuildOptions> {
+    if t < 8
+        || !opts.internal_consume
+        || !opts.prime_stack
+        || t - 1 - held_slots(t, reach, opts.consume_slots) < FUSE_MIN
+    {
+        return Vec::new();
+    }
+    [
+        FusedTree::Preplaced,
+        FusedTree::PreplacedBounded,
+        FusedTree::Late,
+        FusedTree::LateBounded,
+    ]
+    .into_iter()
+    .map(|fused_tree| BuildOptions { fused_tree, ..opts })
+    .collect()
+}
+
+/// Fused alternatives to an already selected whole-entry layout.
+pub fn build_fused_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
+    if fused_candidates(params.t, fork.reach, opts).is_empty() {
+        return Ok(None);
+    }
+    build_best_with_seed(
+        params,
+        inputs,
+        max_bytes,
+        fork,
+        Range {
+            from: 0,
+            to: step_count(params),
+        },
+        &Boundary::default(),
+        Some(opts),
+    )
+}
+
 /// build_best from lazy inputs and for the outputs the caller reads.
 pub fn build_best_with(
     params: &Params,
@@ -3682,6 +3720,18 @@ pub fn build_best_with(
     range: Range,
     boundary: &Boundary,
 ) -> Result<Option<Best>> {
+    build_best_with_seed(params, inputs, max_bytes, fork, range, boundary, None)
+}
+
+fn build_best_with_seed(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    range: Range,
+    boundary: &Boundary,
+    fused_seed: Option<BuildOptions>,
+) -> Result<Option<Best>> {
     let expected = expected_outputs(params, inputs, range);
     let build = |opts: &BuildOptions| {
         build_checked(
@@ -3690,6 +3740,22 @@ pub fn build_best_with(
     };
     let attempt = |opts: &BuildOptions| build(opts).ok();
     let cost = |result: &BuildResult| frame_cost(params, result, fork, boundary);
+    let render = |best: Option<(BuildOptions, u64)>| -> Result<Option<Best>> {
+        match best {
+            Some((opts, gas)) => {
+                let result = build_checked(
+                    params, inputs, &expected, &opts, fork, range, true, boundary,
+                )?;
+                assert_eq!(
+                    cost(&result),
+                    gas,
+                    "the rebuilt winner costs what the search measured"
+                );
+                Ok(Some(Best { result, opts }))
+            }
+            None => Ok(None),
+        }
+    };
     let evaluate = |opts: &BuildOptions| -> Outcome {
         let mut opts = *opts;
         let mut first = build(&opts);
@@ -3837,6 +3903,9 @@ pub fn build_best_with(
             if result.bytes > max_bytes {
                 return Err(format!("{} bytes", result.bytes));
             }
+            if fused_seed.is_some() && !super::entry_fits(params.t, fork, &result) {
+                return Err("too many entry bytes".to_string());
+            }
             Ok((opts, cost(&result)))
         };
         let plain = finish(opts, result);
@@ -3894,6 +3963,14 @@ pub fn build_best_with(
         }
         built
     };
+    if let Some(opts) = fused_seed {
+        search(
+            fused_candidates(params.t, fork.reach, opts),
+            &mut best,
+            &mut failures,
+        );
+        return render(best);
+    }
     let mut built = search(
         candidates(params.t, false, fork.reach),
         &mut best,
@@ -3999,20 +4076,7 @@ pub fn build_best_with(
             });
         }
     }
-    match best {
-        Some((opts, gas)) => {
-            let result = build_checked(
-                params, inputs, &expected, &opts, fork, range, true, boundary,
-            )?;
-            assert_eq!(
-                cost(&result),
-                gas,
-                "the rebuilt winner costs what the search measured"
-            );
-            Ok(Some(Best { result, opts }))
-        }
-        None => Ok(None),
-    }
+    render(best)
 }
 
 #[cfg(test)]

@@ -149,35 +149,76 @@ pub fn build_entry(
         from: 0,
         to: step_count(params),
     };
-    entry_with_retry(params.t, fork, |budget| {
+    let serial = entry_with_retry(params.t, fork, |budget| {
         build_best(params, inputs, budget, fork, range)
-    })
+    })?;
+    Ok(improve_entry(params.t, fork, serial, |budget, prior| {
+        schedule::build_fused_entry(params, inputs, budget, fork, prior.opts)
+    }))
+}
+
+fn entry_wrapper(t: usize, fork: Fork, result: &BuildResult) -> usize {
+    entry_bytes(
+        fork,
+        t,
+        &result.input_slots,
+        result.state_in_memory,
+        result.memory,
+    )
+}
+
+fn entry_fits(t: usize, fork: Fork, result: &BuildResult) -> bool {
+    result.max_depth <= 1000
+        && result
+            .bytes
+            .checked_add(entry_wrapper(t, fork, result))
+            .is_some_and(|bytes| bytes <= fork.code_size)
+}
+
+// Keep the completed serial retry, even when an alternative's wrapper or
+// body changes the budget its own retry can use.
+fn improve_entry(
+    t: usize,
+    fork: Fork,
+    prior: Option<schedule::Best>,
+    mut build: impl FnMut(usize, &schedule::Best) -> Result<Option<schedule::Best>>,
+) -> Option<schedule::Best> {
+    let prior = prior?;
+    let reserved = entry_wrapper(t, fork, &prior.result);
+    if let Ok(Some(candidate)) =
+        entry_with_retry_from(t, fork, reserved, |budget| build(budget, &prior))
+        && entry_gas(&fork, t, &candidate.result) < entry_gas(&fork, t, &prior.result)
+    {
+        Some(candidate)
+    } else {
+        Some(prior)
+    }
 }
 
 fn entry_with_retry(
     t: usize,
     fork: Fork,
+    build: impl FnMut(usize) -> Result<Option<schedule::Best>>,
+) -> Result<Option<schedule::Best>> {
+    entry_with_retry_from(
+        t,
+        fork,
+        entry_bytes(fork, t, &[], false, MEMORY_UNKNOWN),
+        build,
+    )
+}
+
+fn entry_with_retry_from(
+    t: usize,
+    fork: Fork,
+    reserved: usize,
     mut build: impl FnMut(usize) -> Result<Option<schedule::Best>>,
 ) -> Result<Option<schedule::Best>> {
-    let reserved = entry_bytes(fork, t, &[], false, MEMORY_UNKNOWN);
     let Some(budget) = fork.code_size.checked_sub(reserved) else {
         return Ok(None);
     };
-    let wrapper = |best: &schedule::Best| {
-        entry_bytes(
-            fork,
-            t,
-            &best.result.input_slots,
-            best.result.state_in_memory,
-            best.result.memory,
-        )
-    };
-    let fits = |best: &schedule::Best| {
-        best.result
-            .bytes
-            .checked_add(wrapper(best))
-            .is_some_and(|bytes| bytes <= fork.code_size)
-    };
+    let wrapper = |best: &schedule::Best| entry_wrapper(t, fork, &best.result);
+    let fits = |best: &schedule::Best| entry_fits(t, fork, &best.result);
     let mut best = build(budget)?.filter(fits);
     if let Some(prior) = &best
         && (prior.opts.shared_body || prior.opts.diag_in_memory)

@@ -386,6 +386,36 @@ The complete generator suite passes 64 tests with two expensive probes ignored, 
 
 Reproduce the required fixed-body gate with `cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib streaming_fused_replays_fixed_legacy_bodies`. The ignored comparison accepts `GRID_WIDTH=24 GRID_FORK=osaka FUSED_CAP=serial`, or width 28 with `FUSED_CAP=word`, using `streaming_fused_candidates -- --ignored --nocapture`. Evidence in worker scratch: `astra-fused-review-{osaka,paris}-t{24,28}.log`, `astra-fused-focused.log`, `astra-fused-review-all-tests.log`, `astra-fused-review-clippy.log` and their resource JSONs. These are credible candidates, not production-selected or independently integrated savings. Next is full-frame production selection with serial failure/tie/regression fallback, below-threshold checks, all-width fork verification, regeneration and the existing Forge gate before a runtime commit.
 
+### 17. Production fused-tree selection with the serial entry retained
+
+The verified prototype from section 16 is now available to production whole-entry selection. The original serial families and their actual-wrapper retry finish first. Their completed winner is retained while a separate seeded search tries preplaced/late PRIME, each with unrestricted/serial-bounded roots. Eligibility requires consuming internal rounds, stacked PRIME and at least six memory lanes; no width or fork is hardcoded. Default options and all original families still use Serial.
+
+Each alternative runs the existing body-period, inline-round and PRIME-storage evaluation under its own core-byte budget. Before comparison it must satisfy maximum depth and its own full entry size, including its actual wrapper. The alternative entry starts with the serial winner's actual wrapper reservation and may reclaim further bytes once if its own wrapper is smaller. Only strictly lower complete entry gas replaces the serial result. An error, missing build, excess size/depth, tie or regression retains the completed serial winner, including the saving from its original retry. This avoids losing that winner when a new candidate changes the wrapper used to derive a retry budget.
+
+Core-only `build_best`/`build_best_with`, folded hash rounds and split-part search still use the original serial families and their existing caller-supplied budgets. Whole-entry retry logic is not applied to those paths. The arithmetic emitter, exact bound equality and shared-body replay are unchanged from the verified prototype; no round, constant, input reduction or public EVM interface changes.
+
+| Fork | Width | Before call gas | Selected call gas | Saving | Selected runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 24 | 75,843 | 75,348 | 495 | 23,720 |
+| Paris | 24 | 76,017 | 75,522 | 495 | 23,771 |
+| Osaka | 28 | 91,920 | 90,780 | 1,140 | 24,392 |
+| Paris | 28 | 92,100 | 90,960 | 1,140 | 24,425 |
+
+These are production `verify` results, not forced-option measurements. All Amsterdam widths, all small permutation/hash entries and legacy t8/t12/t16/t20 retain their previous gas. All widths remain single-contract entries. Default Amsterdam regeneration is byte-identical to the checked-in Huff and test files. The unrestricted t24 fixed-layout replay failure and oversized inline1 variants in section 16 remain rejected measurements, not additional savings; the production bounded result does not bypass those checks.
+
+New regression tests preserve the completed serial retry after failed/missing/tied/slower alternatives, reject a cheaper core with a dearer wrapper, oversized wrappers, excessive depth and byte-count overflow, and exercise an alternative's smaller-wrapper retry followed by an invalid result. Eligibility tests cover absent consuming/PRIME modes and below-threshold layouts. Forced tree modes leave both text and model unchanged for selected t16/t20 bodies on Paris and Osaka. Existing hash/split frame-cost, fixed legacy body, full-word and caller-tail checks remain enabled.
+
+Final worker gates pass:
+
+- All nine widths on Amsterdam, Osaka and Paris: 864 compiled reference calls, exact runtime bytes and zero gas-model differences, including every t4 hash arity.
+- Complete Rust suite in bounded serial invocations: 68 passed, two exploratory probes ignored (52 library, two CLI, three EIP, four generator and seven execution tests). No correctness assertion or tolerance was relaxed. Three gas pins were updated only after the compiled measurements above.
+- Forge offline with existing local dependency remappings: 127 passed, no failures/skips. All three t4 fuzz tests ran 10,000 cases; existing Yul cross-check overrides ran 1,000 each. No dependency installation or lockfile change.
+- All-target Clippy with warnings denied, Rust/Solidity formatting, whitespace checks and default all-width regeneration pass. No generated or formal file changes in this unit.
+
+Evidence in worker scratch: `astra-fused-production-verify-{amsterdam,osaka,paris}.log`, `astra-fused-production-rust-core.log`, seven `astra-fused-production-test-*.log` files, `astra-fused-production-doc-tests.log`, `astra-fused-production-forge.log`, `astra-fused-production-clippy.log`, `astra-fused-production-regeneration.log` and resource JSONs. Every completed run stayed below the 20-minute/4 GiB guard; full Osaka/Paris verification took 993/1,027 seconds, while each separate execution test stayed below 367 seconds. Host durations are not the optimisation metric. Independent coordinator review and formal export/proof synchronization follow the fixed runtime commit.
+
+Next headroom is t24's initial non-streamed fused sum versus the steady streaming tree. Aligning their sound root-bound policy may admit the cheaper unrestricted body without an extra oversized inline round. Another finite body/inline search on the new fused family is also distinct from section 15's exhausted serial-family grid. Neither lead is a measured saving yet.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

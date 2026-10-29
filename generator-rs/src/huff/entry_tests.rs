@@ -119,6 +119,72 @@ fn retry_is_not_needed_without_binding_or_freed_bytes() {
 }
 
 #[test]
+fn alternatives_keep_the_completed_serial_retry_on_failure_or_regression() {
+    let f = small_fork();
+    let initial = result("initial", 400, 600);
+    let prior = result(
+        "serial retry",
+        f.code_size - entry_wrapper(2, f, &initial.result),
+        500,
+    );
+    let (serial, _) = choose(vec![Ok(Some(initial)), Ok(Some(prior.clone()))]);
+    let mut oversized = result("larger wrapper", prior.result.bytes, 0);
+    oversized.result.state_in_memory = false;
+    oversized.result.memory = 0;
+    let mut deep = result("too deep", 400, 0);
+    deep.result.max_depth = 1001;
+    let mut dearer = result("cheaper core", 400, 499);
+    dearer.result.state_in_memory = false;
+    dearer.result.memory = 0;
+    assert!(entry_gas(&f, 2, &dearer.result) > entry_gas(&f, 2, &prior.result));
+    for alternative in [
+        Err(Error("failed alternative".to_string())),
+        Ok(None),
+        Ok(Some(result("tie", 400, 500))),
+        Ok(Some(result("slower", 400, 501))),
+        Ok(Some(oversized)),
+        Ok(Some(deep)),
+        Ok(Some(dearer)),
+        Ok(Some(result("overflow", usize::MAX, 0))),
+    ] {
+        let mut alternative = Some(alternative);
+        let chosen = improve_entry(2, f, serial.clone(), |budget, seed| {
+            assert_eq!(seed.result.lines, ["serial retry"]);
+            assert_eq!(budget, f.code_size - entry_wrapper(2, f, &seed.result));
+            alternative.take().expect("one attempt")
+        })
+        .unwrap();
+        assert_eq!(chosen.result.lines, ["serial retry"]);
+        assert!(alternative.is_none());
+    }
+    assert!(improve_entry(2, f, None, |_, _| panic!("no serial seed")).is_none());
+}
+
+#[test]
+fn alternative_retry_uses_its_own_wrapper_and_keeps_a_valid_improvement() {
+    let f = small_fork();
+    let mut prior = result("serial", 350, 600);
+    prior.result.state_in_memory = false;
+    prior.result.memory = 0;
+    let candidate = result("fused", 400, 500);
+    let actual = entry_wrapper(2, f, &candidate.result);
+    let mut oversized = result("bad retry", f.code_size - actual, 0);
+    oversized.result.state_in_memory = false;
+    oversized.result.memory = 0;
+    let mut results = VecDeque::from([Ok(Some(candidate)), Ok(Some(oversized))]);
+    let mut budgets = Vec::new();
+    let reserved = entry_wrapper(2, f, &prior.result);
+    let chosen = improve_entry(2, f, Some(prior), |budget, _| {
+        budgets.push(budget);
+        results.pop_front().expect("no extra retry")
+    })
+    .unwrap();
+    assert_eq!(budgets, [f.code_size - reserved, f.code_size - actual]);
+    assert!(results.is_empty());
+    assert_eq!(chosen.result.lines, ["fused"]);
+}
+
+#[test]
 fn impossible_initial_budgets_do_not_wrap_or_retry() {
     let mut f = small_fork();
     f.code_size = 0;
