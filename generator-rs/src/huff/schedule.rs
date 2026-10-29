@@ -143,6 +143,8 @@ pub enum FusedTree {
     Late,
     PreplacedBounded,
     LateBounded,
+    #[cfg(test)]
+    PreplacedSeeded,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -905,6 +907,24 @@ impl<'a> Builder<'a> {
                 }
             }
         }
+    }
+
+    #[cfg(test)]
+    fn seed_fused_tree(&mut self, values: &[Id]) -> Result<Id> {
+        let bounds: Vec<_> = values.iter().map(|&v| self.bound(v)).collect();
+        let plan = if self.opts.tree_peak {
+            super::sum_tree::plan_peak(&bounds, UINT256_MAX)
+        } else {
+            super::sum_tree::plan(&bounds, UINT256_MAX)
+        };
+        let Some(plan) = plan else {
+            bail!("no seeded fused sum tree");
+        };
+        let acc = self.emit_sum_tree(&plan, values, "fused")?;
+        if self.bound(acc) != plan.bound {
+            bail!("seeded fused tree bound differs from the plan");
+        }
+        Ok(acc)
     }
 
     /// Without tree_sums, every operand is DUPed in advance, deepest value
@@ -2717,6 +2737,13 @@ impl<'a> Builder<'a> {
         if fusing && !fuse {
             // the elements went to memory out of order: their sum for the
             // next round from their slots
+            #[cfg(test)]
+            let acc = if self.opts.fused_tree == FusedTree::PreplacedSeeded {
+                self.seed_fused_tree(&out[1..=mem])?
+            } else {
+                self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?
+            };
+            #[cfg(not(test))]
             let acc = self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?;
             self.e.spill(acc)?;
             self.e.end_line();

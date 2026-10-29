@@ -122,6 +122,114 @@ fn streamed_fused_trees_preserve_outputs_slots_and_caller_tail() {
 }
 
 #[test]
+fn seeded_fused_trees_preserve_bounds_slots_and_caller_tail() {
+    let params = generate_params(16);
+    let leaf_bound = p1() * u256(2);
+    let inputs = vec![
+        vec![U256::ZERO; params.t],
+        vec![p1(); params.t],
+        vec![leaf_bound; params.t],
+        (0..params.t)
+            .map(|i| leaf_bound / u256(i as u64 + 1))
+            .collect(),
+    ];
+    let boundary = Boundary {
+        bounds: Some(vec![leaf_bound; params.t]),
+        ..Boundary::default()
+    };
+    for name in [
+        "paris",
+        "shanghai",
+        "cancun",
+        "prague",
+        "osaka",
+        "amsterdam",
+    ] {
+        let fork = fork(name).unwrap();
+        for mem in FUSE_MIN..=14 {
+            for peak in [false, true] {
+                for supply in 0..3 {
+                    let opts = BuildOptions {
+                        tree_peak: peak,
+                        prime_in_memory: supply == 2,
+                        fused_tree: FusedTree::PreplacedSeeded,
+                        ..DEFAULT_OPTIONS
+                    };
+                    let mut b = Builder::new(
+                        &params,
+                        &inputs,
+                        opts,
+                        fork,
+                        Range {
+                            from: 0,
+                            to: step_count(&params),
+                        },
+                        HashSet::new(),
+                        false,
+                        true,
+                        &boundary,
+                    )
+                    .unwrap();
+                    let values = b.state[1..=mem].to_vec();
+                    if supply == 2 {
+                        let slot = b.e.slot_base - 32;
+                        b.e.mstore_const(PRIME, slot).unwrap();
+                        b.e.prime_slot = Some(slot);
+                    }
+                    let mut tail = vec![b.state[15]];
+                    if supply > 0 {
+                        tail.extend(vec![b.state[15]; fork.reach]);
+                    }
+                    tail.push(b.p());
+                    b.e.set_stack(&tail);
+                    let slots: Vec<_> = values
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &v)| {
+                            b.e.last_load.insert(Key::In(i + 1), 3);
+                            b.e.declare(v)
+                        })
+                        .collect();
+                    let bounds = vec![leaf_bound; mem];
+                    let plan = if peak {
+                        sum_tree::plan_peak(&bounds, UINT256_MAX)
+                    } else {
+                        sum_tree::plan(&bounds, UINT256_MAX)
+                    }
+                    .unwrap();
+                    let stores = b.e.stores;
+                    let acc = b.seed_fused_tree(&values).unwrap();
+                    assert_eq!(b.e.bound(acc), plan.bound);
+                    assert_eq!(b.e.stores, stores);
+                    assert_eq!(&b.e.from_top()[1..], tail);
+                    assert!(b.e.max_dup <= fork.reach);
+                    for (&v, &slot) in values.iter().zip(&slots) {
+                        assert_eq!(b.e.slot_of(v), Some(slot));
+                        assert_eq!(b.e.bound(v), leaf_bound);
+                        b.e.dup(v).unwrap();
+                        b.e.pop().unwrap();
+                    }
+                    for (k, input) in inputs.iter().enumerate() {
+                        let expected = input[1..=mem].iter().copied().fold(U256::ZERO, field::add);
+                        assert_eq!(field::reduce(b.e.value(acc).vals[k]), expected);
+                    }
+                    b.e.spill(acc).unwrap();
+                    assert_eq!(b.e.from_top(), tail);
+                    for (&v, &slot) in values.iter().zip(&slots) {
+                        assert_eq!(b.e.slot_of(v), Some(slot));
+                        assert_ne!(b.e.slot_of(acc), Some(slot));
+                        b.e.dup(v).unwrap();
+                        b.e.pop().unwrap();
+                        assert_eq!(b.e.slot_of(v), None);
+                    }
+                    assert_eq!(b.e.from_top(), tail);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn fused_alternatives_require_a_fusable_memory_region() {
     let opts = BuildOptions {
         internal_consume: true,

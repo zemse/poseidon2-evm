@@ -263,6 +263,88 @@ fn streaming_fused_replays_fixed_legacy_bodies() {
 }
 
 #[test]
+fn seeded_fused_replays_fixed_legacy_bodies() {
+    use crate::huff::schedule::{DEFAULT_OPTIONS, FusedTree};
+    for name in ["paris", "shanghai", "cancun", "prague", "osaka"] {
+        let fork = fork(name).unwrap();
+        for t in [24, 28] {
+            let params = generate_params(t);
+            let inputs = test_inputs(t);
+            let range = Range {
+                from: 0,
+                to: step_count(&params),
+            };
+            let opts = BuildOptions {
+                external_d: true,
+                prime_under_external: false,
+                internal_consume: true,
+                prime_stack: true,
+                shadow: true,
+                shared_body: true,
+                consume_group: if t == 24 { 6 } else { 3 },
+                consume_slots: if t == 24 { 14 } else { 13 },
+                external_template: true,
+                prime_in_memory: t == 24,
+                external_stream: true,
+                compact_inputs: true,
+                tree_sums: true,
+                tree_peak: true,
+                tree_adaptive_prime: t == 24,
+                fused_tree: if t == 24 {
+                    FusedTree::PreplacedBounded
+                } else {
+                    FusedTree::Preplaced
+                },
+                ..DEFAULT_OPTIONS
+            };
+            let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            let baseline = Best { opts, result };
+            let before = compiled(&params, fork, &baseline);
+            assert_eq!(
+                before,
+                match (name, t) {
+                    ("paris", 24) => 75522,
+                    ("paris", 28) => 90960,
+                    (_, 24) => 75348,
+                    (_, 28) => 90780,
+                    _ => unreachable!(),
+                }
+            );
+            let opts = BuildOptions {
+                fused_tree: FusedTree::PreplacedSeeded,
+                ..opts
+            };
+            let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            let model = build_permutation(&params, &inputs, &opts, fork, range, false).unwrap();
+            assert_eq!(
+                (result.gas, result.bytes, result.memory),
+                (model.gas, model.bytes, model.memory)
+            );
+            assert_eq!(result.loads, baseline.result.loads);
+            assert_eq!(result.stores, baseline.result.stores);
+            assert_eq!(result.max_depth, baseline.result.max_depth);
+            assert!(result.max_depth <= 1000);
+            assert!(runtime_bytes(&params, fork, &result) <= fork.code_size);
+            assert_eq!(
+                runtime_bytes(&params, fork, &result),
+                match (name, t) {
+                    ("paris", 24) => 23771,
+                    ("paris", 28) => 24424,
+                    (_, 24) => 23720,
+                    (_, 28) => 24391,
+                    _ => unreachable!(),
+                }
+            );
+            let candidate = Best { opts, result };
+            assert_eq!(
+                compiled(&params, fork, &candidate),
+                before - if t == 24 { 280 } else { 8 }
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "forced streaming fused-sum experiment"]
 fn streaming_fused_candidates() {
     use crate::huff::schedule::FusedTree;
@@ -295,9 +377,10 @@ fn streaming_fused_candidates() {
     println!("FUSED_INLINE {body_inline}");
     let cap = std::env::var("FUSED_CAP").unwrap_or_else(|_| "word".into());
     let modes = match cap.as_str() {
-        "word" => [FusedTree::Preplaced, FusedTree::Late],
-        "serial" => [FusedTree::PreplacedBounded, FusedTree::LateBounded],
-        _ => panic!("FUSED_CAP must be word or serial"),
+        "word" => vec![FusedTree::Preplaced, FusedTree::Late],
+        "serial" => vec![FusedTree::PreplacedBounded, FusedTree::LateBounded],
+        "seeded" => vec![FusedTree::PreplacedSeeded],
+        _ => panic!("FUSED_CAP must be word, serial or seeded"),
     };
     println!("FUSED_CAP {cap}");
     for fused_tree in modes {

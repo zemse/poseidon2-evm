@@ -416,6 +416,29 @@ Evidence in worker scratch: `astra-fused-production-verify-{amsterdam,osaka,pari
 
 Next headroom is t24's initial non-streamed fused sum versus the steady streaming tree. Aligning their sound root-bound policy may admit the cheaper unrestricted body without an extra oversized inline round. Another finite body/inline search on the new fused family is also distinct from section 15's exhausted serial-family grid. Neither lead is a measured saving yet.
 
+### 18. Aligned initial fused seed: verified test-only candidate
+
+`PreplacedSeeded` keeps the unrestricted streaming tree but builds the first fused sum with an ordered tree too. That first round has stored its outputs out of order, so the seed copies them from their existing slots in lane order. The planner receives their actual inclusive bounds, each `2(P-1)`, and the same word cap and peak policy as the steady tree. The emitter checks the resulting root bound against the plan. No value bound is overwritten, no reduction is omitted by assumption, and no extra inline round is needed.
+
+Both seed and steady trees preserve the sum modulo P: each leaf appears once, ADD requires a checked inclusive child-bound sum, and ADDMOD has bound P-1. The seed does not consume or overwrite the stored outputs, which subsequent rounds still need. Matching the emitted seed root to the steady root removes the first-call/steady-call schedule difference that rejected the earlier unrestricted t24 body. All body calls still replay through the existing opcode checks.
+
+This candidate is under `cfg(test)` only. The four production modes from section 17, their selection and the completed serial fallback are unchanged. The following savings are additional to that section's 495/1,140 gas, not replacements for those figures or independently integrated results:
+
+| Fork | Width | Section 17 call gas | Seeded candidate | Extra saving | Runtime bytes before | Candidate bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 24 | 75,348 | 75,068 | 280 | 23,720 | 23,720 |
+| Paris | 24 | 75,522 | 75,242 | 280 | 23,771 | 23,771 |
+| Osaka | 28 | 90,780 | 90,772 | 8 | 24,392 | 24,391 |
+| Paris | 28 | 90,960 | 90,952 | 8 | 24,425 | 24,424 |
+
+The required `seeded_fused_replays_fixed_legacy_bodies` regression compiles both fixed baseline and candidate on Paris, Shanghai, Cancun, Prague and Osaka at both widths: 480 full-word/shared-vector calls, exact gas/model and text/model agreement, unchanged loads/stores/maximum depth, and checked full runtime bytes. Shanghai through Osaka give the Osaka rows. Three separate selected-baseline probes reproduce Osaka24/28 and Paris24 with another 144 compiled calls. No failing or oversized candidate is silently accepted by the required regression.
+
+The seed emitter test covers 324 layout cases with four input vectors each: all six forks, six through fourteen memory lanes, both tree-frontier policies and shallow/deep-literal/deep-memory PRIME supply. It checks exact root and leaf bounds, preserved caller tail, reachable DUPs, slots retained through future loads and freed on the declared last load, and no overwrite when the seed is spilled. The initial fixture incorrectly declared the seed's read as each leaf's last load; it was corrected to the three actual reads and now checks final release explicitly. An earlier compile error used an unavailable error macro; it was replaced with the existing `bail!`. Neither failed run is passing evidence.
+
+Focused tests, the complete library suite (54 passed, two exploratory probes ignored), four generator tests, all-target Clippy with warnings denied, Rust formatting and whitespace checks pass. This test-only unit does not claim a new full production fork/Forge gate or formal refresh. Logs: `astra-seeded-{osaka-t24-v2,osaka-t28,paris-t24,focused-v2,library,generators,clippy}.log` and their resource JSONs in worker scratch. All completed runs stayed within the 20-minute/4 GiB guard.
+
+Next is a separate production alternative evaluated after the completed section 17 winner, retaining it on failure, missing build, tie, regression, excessive depth or actual-wrapper budget failure. Independent fixed-commit prototype review, final all-width production gates and coordinator-owned formal synchronization remain required.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
