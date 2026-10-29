@@ -155,3 +155,182 @@ fn joint_entry_budget_grid() {
         describe_options(&best.opts)
     );
 }
+
+#[test]
+fn fused_accumulation_inventory() {
+    use crate::field::{PRIME, UINT256_MAX, u256};
+    use crate::huff::sum_tree;
+    let leaf = (PRIME - u256(1)) * u256(2);
+    for n in 6..=14 {
+        let bounds = vec![leaf; n];
+        let pre = sum_tree::plan_peak(&bounds, UINT256_MAX).unwrap();
+        let late = sum_tree::plan_late(&bounds, UINT256_MAX, true).unwrap();
+        let mut bound = leaf;
+        let mut serial = 0;
+        for _ in 1..n {
+            if let Some(next) = bound.checked_add(leaf) {
+                bound = next;
+                serial += 3;
+            } else {
+                bound = PRIME - u256(1);
+                serial += 14;
+            }
+        }
+        let leaf_copies = 3 * n as u64;
+        assert!(pre.gas <= late.gas);
+        assert!(late.gas - leaf_copies <= serial);
+        let bounded = sum_tree::plan_peak(&bounds, bound).unwrap();
+        assert!(bounded.bound <= bound);
+        assert!(bounded.gas - leaf_copies <= serial);
+        println!(
+            "FUSED_BOUNDED_INVENTORY n {n} gas {} cap {bound:#x}",
+            bounded.gas - leaf_copies
+        );
+        println!(
+            "FUSED_INVENTORY n {n} serial {serial} pre {} late {} pre_peak {} late_peak {}",
+            pre.gas - leaf_copies,
+            late.gas - leaf_copies,
+            pre.peak,
+            late.peak
+        );
+    }
+}
+
+#[test]
+fn streaming_fused_replays_fixed_legacy_bodies() {
+    use crate::huff::schedule::{DEFAULT_OPTIONS, FusedTree};
+    for name in ["paris", "shanghai", "cancun", "prague", "osaka"] {
+        let fork = fork(name).unwrap();
+        for t in [24, 28] {
+            let params = generate_params(t);
+            let inputs = test_inputs(t);
+            let range = Range {
+                from: 0,
+                to: step_count(&params),
+            };
+            let opts = BuildOptions {
+                external_d: true,
+                prime_under_external: false,
+                internal_consume: true,
+                prime_stack: true,
+                shadow: true,
+                shared_body: true,
+                consume_group: if t == 24 { 6 } else { 3 },
+                consume_slots: if t == 24 { 14 } else { 13 },
+                external_template: true,
+                prime_in_memory: t == 24,
+                external_stream: true,
+                compact_inputs: true,
+                tree_sums: true,
+                tree_peak: true,
+                tree_adaptive_prime: t == 24,
+                ..DEFAULT_OPTIONS
+            };
+            let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            let baseline = Best { opts, result };
+            let before = compiled(&params, fork, &baseline);
+            assert_eq!(
+                before,
+                match (name, t) {
+                    ("paris", 24) => 76017,
+                    ("paris", 28) => 92100,
+                    (_, 24) => 75843,
+                    (_, 28) => 91920,
+                    _ => unreachable!(),
+                }
+            );
+            let (fused_tree, saving) = if t == 24 {
+                (FusedTree::PreplacedBounded, 495)
+            } else {
+                (FusedTree::Preplaced, 1140)
+            };
+            let opts = BuildOptions { fused_tree, ..opts };
+            let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            let model = build_permutation(&params, &inputs, &opts, fork, range, false).unwrap();
+            assert_eq!(
+                (result.gas, result.bytes, result.memory),
+                (model.gas, model.bytes, model.memory)
+            );
+            assert_eq!(result.loads, baseline.result.loads);
+            assert_eq!(result.stores, baseline.result.stores);
+            assert_eq!(result.max_depth, baseline.result.max_depth);
+            assert!(result.max_depth <= 1000);
+            assert!(runtime_bytes(&params, fork, &result) <= fork.code_size);
+            let candidate = Best { opts, result };
+            assert_eq!(compiled(&params, fork, &candidate), before - saving);
+        }
+    }
+}
+
+#[test]
+#[ignore = "forced streaming fused-sum experiment"]
+fn streaming_fused_candidates() {
+    use crate::huff::schedule::FusedTree;
+    let t: usize = std::env::var("GRID_WIDTH")
+        .unwrap_or_else(|_| "28".into())
+        .parse()
+        .unwrap();
+    assert!([16, 20, 24, 28].contains(&t));
+    let name = std::env::var("GRID_FORK").unwrap_or_else(|_| "osaka".into());
+    let fork = fork(&name).unwrap();
+    let params = generate_params(t);
+    let inputs = test_inputs(t);
+    let range = Range {
+        from: 0,
+        to: step_count(&params),
+    };
+    let baseline = super::super::build_entry(&params, &inputs, fork)
+        .unwrap()
+        .unwrap();
+    let baseline_gas = compiled(&params, fork, &baseline);
+    println!(
+        "FUSED_BASELINE {name} t{t} gas {baseline_gas} bytes {} opts {}",
+        runtime_bytes(&params, fork, &baseline.result),
+        describe_options(&baseline.opts)
+    );
+    let body_inline = std::env::var("FUSED_INLINE")
+        .map(|v| v.parse::<usize>().unwrap())
+        .unwrap_or(baseline.opts.body_inline);
+    assert!(body_inline <= steady_rounds(&params, range).1);
+    println!("FUSED_INLINE {body_inline}");
+    let cap = std::env::var("FUSED_CAP").unwrap_or_else(|_| "word".into());
+    let modes = match cap.as_str() {
+        "word" => [FusedTree::Preplaced, FusedTree::Late],
+        "serial" => [FusedTree::PreplacedBounded, FusedTree::LateBounded],
+        _ => panic!("FUSED_CAP must be word or serial"),
+    };
+    println!("FUSED_CAP {cap}");
+    for fused_tree in modes {
+        let opts = BuildOptions {
+            fused_tree,
+            body_inline,
+            ..baseline.opts
+        };
+        let result = match build_permutation(&params, &inputs, &opts, fork, range, true) {
+            Ok(result) => result,
+            Err(err) => {
+                println!("FUSED_FAILURE {name} t{t} {fused_tree:?}: {err}");
+                continue;
+            }
+        };
+        let gas = super::super::entry_gas(&fork, t, &result);
+        let bytes = runtime_bytes(&params, fork, &result);
+        if bytes > fork.code_size || result.max_depth > 1000 {
+            println!(
+                "FUSED_OVERSIZE {name} t{t} {fused_tree:?}: model gas {gas}, bytes {bytes}, depth {}",
+                result.max_depth
+            );
+            continue;
+        }
+        let candidate = Best { opts, result };
+        assert_eq!(compiled(&params, fork, &candidate), gas);
+        println!(
+            "FUSED_COMPILED {name} t{t} {fused_tree:?} gas {gas} saving {} bytes {bytes} depth {} loads {} stores {}",
+            baseline_gas as i64 - gas as i64,
+            candidate.result.max_depth,
+            candidate.result.loads,
+            candidate.result.stores
+        );
+    }
+    println!("FUSED_DONE {name} t{t}");
+}

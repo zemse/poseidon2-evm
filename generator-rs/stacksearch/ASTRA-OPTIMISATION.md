@@ -363,6 +363,29 @@ Reproduce from the repository root with `GRID_WIDTH=28 GRID_FORK=osaka cargo tes
 
 The next structural target is the fused sum of memory-held internal outputs. `internal_round_consume` still accumulates those outputs serially and uses late PRIME plus SWAP2 on overflow, even when the incoming sum uses a planned tree. A streaming tree may save reductions and placement there, but its pending values, reach, fused bounds, body size and complete-call selection must all be measured before claiming a benefit.
 
+### 16. Streaming fused-memory trees: verified test-only candidates
+
+The memory-held outputs of a consuming internal round are computed and stored in lane order. Each is `d_i * s_i mod P + sum`, with inclusive bound `2(P-1)`. The serial fused accumulator uses ADD until that would overflow, then supplies PRIME late and uses SWAP2 plus ADDMOD. A streaming tree instead leaves pending subtrees on the stack while each leaf computes and stores its output. It introduces no scalar state, changes no diagonal or round constant, and preserves every output store.
+
+This prototype remains under `cfg(test)`. `FUSE_MIN` stays 6, production selection and defaults remain serial, and no generated Huff or formal file changes. The existing ordered sum-tree planner supplies the arithmetic choices; the emitter independently checks all ADD bounds, operands, PRIME supply, memory loads/stores and shared-body opcode replay. The final emitted inclusive bound must equal the plan's bound. No value bound is weakened or overwritten.
+
+For nine memory lanes, the unrestricted tree changes the following incoming-sum schedule between shared-body calls and is rejected by replay. Forcing an extra inline round builds an oversized entry. The bounded alternative caps the tree at the serial accumulator's inclusive output bound, P-1 for nine lanes, without changing any primitive bound. This emits a stable body. Fourteen lanes admit the unrestricted tree without this extra reduction.
+
+| Fork | Width | Serial call gas | Preplaced candidate | Saving | Runtime bytes before | Candidate bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 24 | 75,843 | 75,348 | 495 | 23,738 | 23,720 |
+| Paris | 24 | 76,017 | 75,522 | 495 | 23,789 | 23,771 |
+| Osaka | 28 | 91,920 | 90,780 | 1,140 | 24,407 | 24,392 |
+| Paris | 28 | 92,100 | 90,960 | 1,140 | 24,440 | 24,425 |
+
+The t24 rows use `PreplacedBounded`; t28 uses `Preplaced`. Late-PRIME bounded t24 ties the serial baseline, while late-PRIME t28 saves 627 gas on each fork. The accumulation-only model excludes leaf generation/storage: nine lanes cost 57 gas serial, 40 unrestricted preplaced and 48 bounded preplaced; fourteen cost 83 serial and 63 preplaced. Actual full calls above include leaf computation, pending-stack effects, wrappers, memory expansion, boundaries and all shared-body calls. Fixed-body tests confirm unchanged load/store counts and maximum depth for the winning candidates.
+
+The fresh serial reruns compile and check 288 full-word/shared-vector calls across four baselines and eight candidates. A required, non-ignored fixed-body test separately checks 480 compiled calls across Paris, Shanghai, Cancun, Prague and Osaka at both widths; it asserts the exact before/after gas, runtime-size limits and text/model agreement rather than silently skipping failed builds. Shanghai through Osaka give the same listed gas. Focused emitter tests check 432 tree/layout cases on all six forks, each with four boundary-value vectors, including full-word inactive inputs, inclusive root/output bounds, slot reuse, reloads, caller-tail preservation, deep PRIME from memory and rejection of an unsafe output ADD even when all concrete inputs are zero.
+
+The complete generator suite passes 64 tests with two expensive probes ignored, including checked-in Huff/vector equality and the seven execution integration tests. All-target Clippy with warnings denied, Rust formatting and whitespace checks pass. The guarded suite finished in 1,139 seconds with sampled peak aggregate RSS 1,732,928 KiB, below the 20-minute/4 GiB limits; this is resource evidence, not an EVM speed measurement. The separate four prototype reruns also completed normally. No fresh Forge or formal gate is claimed for this test-only unit.
+
+Reproduce the required fixed-body gate with `cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib streaming_fused_replays_fixed_legacy_bodies`. The ignored comparison accepts `GRID_WIDTH=24 GRID_FORK=osaka FUSED_CAP=serial`, or width 28 with `FUSED_CAP=word`, using `streaming_fused_candidates -- --ignored --nocapture`. Evidence in worker scratch: `astra-fused-review-{osaka,paris}-t{24,28}.log`, `astra-fused-focused.log`, `astra-fused-review-all-tests.log`, `astra-fused-review-clippy.log` and their resource JSONs. These are credible candidates, not production-selected or independently integrated savings. Next is full-frame production selection with serial failure/tie/regression fallback, below-threshold checks, all-width fork verification, regeneration and the existing Forge gate before a runtime commit.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

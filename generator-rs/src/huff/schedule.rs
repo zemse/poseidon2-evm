@@ -131,6 +131,19 @@ pub struct BuildOptions {
     pub tree_late_prime: bool,
     /// choose tree PRIME placement using current leaf depths
     pub tree_adaptive_prime: bool,
+    #[cfg(test)]
+    pub fused_tree: FusedTree,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FusedTree {
+    #[default]
+    Serial,
+    Preplaced,
+    Late,
+    PreplacedBounded,
+    LateBounded,
 }
 
 pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
@@ -163,6 +176,8 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     tree_peak: false,
     tree_late_prime: false,
     tree_adaptive_prime: false,
+    #[cfg(test)]
+    fused_tree: FusedTree::Serial,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -301,6 +316,10 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.tree_adaptive_prime {
         enabled.push("treeAdaptivePrime".to_string());
+    }
+    #[cfg(test)]
+    if opts.fused_tree != FusedTree::Serial {
+        enabled.push(format!("fusedTree={:?}", opts.fused_tree));
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -834,6 +853,59 @@ impl<'a> Builder<'a> {
                 } else {
                     self.e
                         .compute(Op::Add, &[inplace(right), inplace(left)], name)
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn emit_fused_tree(
+        &mut self,
+        plan: &super::sum_tree::Plan,
+        old: &[Id],
+        sum: Id,
+        out: &mut [Id],
+    ) -> Result<Id> {
+        match &plan.node {
+            super::sum_tree::Node::Leaf(i) => {
+                let j = i + 1;
+                let s = old[j];
+                let slot = self.e.slot_of(s);
+                self.e.push_prime()?;
+                self.e.dup(s)?;
+                let o = self.consume_out(j, s, sum, out)?;
+                self.e.store_at(o, slot)?;
+                self.e.end_line();
+                Ok(o)
+            }
+            super::sum_tree::Node::Pair {
+                left,
+                right,
+                reduce,
+                late_prime,
+            } => {
+                if *reduce && !late_prime {
+                    self.e.push_prime()?;
+                }
+                let left = self.emit_fused_tree(left, old, sum, out)?;
+                let right = self.emit_fused_tree(right, old, sum, out)?;
+                if *reduce {
+                    let p = self.p();
+                    let (top, next) = if *late_prime {
+                        self.e.push_prime()?;
+                        self.e.swap(2)?;
+                        (left, right)
+                    } else {
+                        (right, left)
+                    };
+                    self.e.compute(
+                        Op::Addmod,
+                        &[inplace(top), inplace(next), inplace(p)],
+                        "fused",
+                    )
+                } else {
+                    self.e
+                        .compute(Op::Add, &[inplace(right), inplace(left)], "fused")
                 }
             }
         }
@@ -2466,29 +2538,65 @@ impl<'a> Builder<'a> {
         let mut out = vec![0; t];
         if fuse {
             let mut acc: Option<Id> = None;
-            for (j, &s) in old.iter().enumerate().take(mem + 1).skip(1) {
-                let slot = self.e.slot_of(s);
-                self.e.push_prime()?;
-                self.e.dup(s)?;
-                let o = self.consume_out(j, s, sum, &mut out)?;
-                self.e.store_at(o, slot)?;
-                acc = Some(match acc {
-                    None => o,
-                    Some(a) if self.fits(a, o) => {
-                        self.e
-                            .compute(Op::Add, &[inplace(o), inplace(a)], "fused")?
-                    }
-                    Some(a) => {
-                        self.e.push_prime()?;
-                        self.e.swap(2)?;
-                        self.e.compute(
-                            Op::Addmod,
-                            &[inplace(a), inplace(o), inplace(p)],
-                            "fused",
-                        )?
-                    }
-                });
-                self.e.end_line();
+            #[cfg(test)]
+            if self.opts.fused_tree != FusedTree::Serial {
+                let bounds = vec![p1() * u256(2); mem];
+                let cap = if matches!(
+                    self.opts.fused_tree,
+                    FusedTree::PreplacedBounded | FusedTree::LateBounded
+                ) {
+                    bounds
+                        .iter()
+                        .copied()
+                        .reduce(|a, b| a.checked_add(b).unwrap_or(p1()))
+                        .expect("mem > 0")
+                } else {
+                    UINT256_MAX
+                };
+                let plan = if matches!(
+                    self.opts.fused_tree,
+                    FusedTree::Late | FusedTree::LateBounded
+                ) {
+                    super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+                } else if self.opts.tree_peak {
+                    super::sum_tree::plan_peak(&bounds, cap)
+                } else {
+                    super::sum_tree::plan(&bounds, cap)
+                };
+                let Some(plan) = plan else {
+                    bail!("no fused sum tree")
+                };
+                let value = self.emit_fused_tree(&plan, &old, sum, &mut out)?;
+                if self.bound(value) != plan.bound {
+                    bail!("fused tree bound differs from the plan");
+                }
+                acc = Some(value);
+            }
+            if acc.is_none() {
+                for (j, &s) in old.iter().enumerate().take(mem + 1).skip(1) {
+                    let slot = self.e.slot_of(s);
+                    self.e.push_prime()?;
+                    self.e.dup(s)?;
+                    let o = self.consume_out(j, s, sum, &mut out)?;
+                    self.e.store_at(o, slot)?;
+                    acc = Some(match acc {
+                        None => o,
+                        Some(a) if self.fits(a, o) => {
+                            self.e
+                                .compute(Op::Add, &[inplace(o), inplace(a)], "fused")?
+                        }
+                        Some(a) => {
+                            self.e.push_prime()?;
+                            self.e.swap(2)?;
+                            self.e.compute(
+                                Op::Addmod,
+                                &[inplace(a), inplace(o), inplace(p)],
+                                "fused",
+                            )?
+                        }
+                    });
+                    self.e.end_line();
+                }
             }
             let acc = acc.expect("mem > 0");
             self.e.spill_at(acc, fused_slot)?;
@@ -3475,6 +3583,9 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         tree_peak: false,
                                                                         tree_late_prime: false,
                                                                         tree_adaptive_prime: false,
+                                                                        #[cfg(test)]
+                                                                        fused_tree:
+                                                                            FusedTree::Serial,
                                                                     });
                                                                 }
                                                             }
@@ -3903,6 +4014,10 @@ pub fn build_best_with(
         None => Ok(None),
     }
 }
+
+#[cfg(test)]
+#[path = "fused_tests.rs"]
+mod fused_tests;
 
 #[cfg(test)]
 mod tests {
