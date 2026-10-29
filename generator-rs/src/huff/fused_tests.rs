@@ -318,6 +318,7 @@ fn fused_modes_do_not_change_below_threshold_bodies() {
                 FusedTree::PreplacedBounded,
                 FusedTree::Late,
                 FusedTree::LateBounded,
+                FusedTree::PreplacedSeeded,
             ] {
                 let candidate = build_permutation(
                     &params,

@@ -439,6 +439,34 @@ Focused tests, the complete library suite (54 passed, two exploratory probes ign
 
 Next is a separate production alternative evaluated after the completed section 17 winner, retaining it on failure, missing build, tie, regression, excessive depth or actual-wrapper budget failure. Independent fixed-commit prototype review, final all-width production gates and coordinator-owned formal synchronization remain required.
 
+### 19. Production aligned seed with the completed fused winner retained
+
+The section 18 seed is now a separate production alternative. The original serial search and its actual-wrapper retry finish first, followed by all four section 17 fused alternatives and their retry. Only then does `build_seeded_entry` evaluate `PreplacedSeeded` from the completed winner. An error, missing build, tie, regression, excessive depth or actual-wrapper budget failure retains that winner. Selection compares complete entry gas, not just the core. Eligibility remains consuming internal rounds, stacked PRIME and at least six memory lanes, with no width or fork special case.
+
+Core-only, folded hash and split-part searches still use the original families. The seed emitter and its exact inclusive root-bound check are unchanged from the reviewed prototype. Round constants, rounds, full-word input reduction, caller tail, memory-slot lifetimes and public interfaces are unchanged. A new fallback test preserves a completed fused retry through failed and invalid seeded alternatives; below-threshold body equality now includes the seeded mode.
+
+| Fork | Width | Section 17 gas | Production gas | Extra saving | Runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 24 | 75,348 | 75,068 | 280 | 23,720 |
+| Paris | 24 | 75,522 | 75,242 | 280 | 23,771 |
+| Osaka | 28 | 90,780 | 90,772 | 8 | 24,391 |
+| Paris | 28 | 90,960 | 90,952 | 8 | 24,424 |
+
+These are production-selected compiled calls. The total savings versus the pre-fused section 15 schedules are 775 gas at t24 and 1,148 at t28 on both legacy forks. All other width/fork reports, including t4 hash arities, exactly match section 17. Every width still fits a single contract.
+
+Final worker gates pass:
+
+- All nine widths on Amsterdam, Osaka and Paris: 864 compiled full-word/reference calls, exact runtime bytes and zero gas-model differences. The final batch contributes 816 calls; the earlier successful single-width Osaka24/28 gates contribute 48.
+- Complete Rust suite in serial shards: 71 passed (55 library, two CLI, three EIP, four generator and seven exact execution tests), two exploratory probes ignored, and the doc-test target passes with zero tests. The three production gas pins were updated after compiled measurement; no assertion or tolerance was relaxed.
+- Forge offline using clean existing pinned local dependencies: 127 passed, none failed or skipped. All three t4 fuzz tests ran 10,000 cases; existing Yul cross-check overrides ran 1,000 each.
+- All-nine default Amsterdam regeneration is byte-identical. Final all-target Clippy with warnings denied, Rust/Solidity formatting and whitespace checks pass. No generated, formal, dependency or lockfile changes.
+
+The initial combined Osaka24/28 run reached its 20-minute wall guard while CPU-active and is not passing evidence. Separate retries passed. The remaining 28 serial gate shards used a 30-minute wall/4 GiB sampled aggregate RSS guard, with no CPU cap or cutoff. The longest shard took 1,018.63 seconds; maximum sampled RSS was 847,376 KiB. Host duration measures resource health, not EVM runtime gas. A batch wrapper initially stopped before any native gate because it inherited the old scratch path; the explicit script-local path fixed that setup error.
+
+Evidence: parent scratch `astra-seeded-production-batch.log`, `astra-seeded-production-verify-*.log`, `astra-seeded-production-rust-*.log`, seven `astra-seeded-production-test-*.log` files, doc-tests, Forge, regeneration, format/Clippy logs and resource JSONs. The earlier Osaka24/28 logs remain in the original worker scratch. Native batch 95 exited zero and was collected. This production unit still needs its own independent coordinator review and affected formal synchronization; the accepted section 17 proofs are not proofs of these new gas figures.
+
+Next is the finite body-period/inline grid around the newly selected fused family. Section 15 exhausted the old serial family only; neither this selection nor the prototype establishes a global optimum.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

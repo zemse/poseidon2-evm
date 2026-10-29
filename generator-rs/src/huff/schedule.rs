@@ -143,7 +143,6 @@ pub enum FusedTree {
     Late,
     PreplacedBounded,
     LateBounded,
-    #[cfg(test)]
     PreplacedSeeded,
 }
 
@@ -909,7 +908,6 @@ impl<'a> Builder<'a> {
         }
     }
 
-    #[cfg(test)]
     fn seed_fused_tree(&mut self, values: &[Id]) -> Result<Id> {
         let bounds: Vec<_> = values.iter().map(|&v| self.bound(v)).collect();
         let plan = if self.opts.tree_peak {
@@ -2737,14 +2735,11 @@ impl<'a> Builder<'a> {
         if fusing && !fuse {
             // the elements went to memory out of order: their sum for the
             // next round from their slots
-            #[cfg(test)]
             let acc = if self.opts.fused_tree == FusedTree::PreplacedSeeded {
                 self.seed_fused_tree(&out[1..=mem])?
             } else {
                 self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?
             };
-            #[cfg(not(test))]
-            let acc = self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?;
             self.e.spill(acc)?;
             self.e.end_line();
             self.fused = Some(acc);
@@ -3721,10 +3716,44 @@ pub fn build_fused_entry(
     fork: Fork,
     opts: BuildOptions,
 ) -> Result<Option<Best>> {
+    let candidates = fused_candidates(params.t, fork.reach, opts);
+    build_entry_candidates(params, inputs, max_bytes, fork, candidates)
+}
+
+/// Aligned fused seed after the original fused entry search completes.
+pub fn build_seeded_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
     if fused_candidates(params.t, fork.reach, opts).is_empty() {
         return Ok(None);
     }
-    build_best_with_seed(
+    build_entry_candidates(
+        params,
+        inputs,
+        max_bytes,
+        fork,
+        vec![BuildOptions {
+            fused_tree: FusedTree::PreplacedSeeded,
+            ..opts
+        }],
+    )
+}
+
+fn build_entry_candidates(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    candidates: Vec<BuildOptions>,
+) -> Result<Option<Best>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    build_best_with_candidates(
         params,
         inputs,
         max_bytes,
@@ -3734,7 +3763,7 @@ pub fn build_fused_entry(
             to: step_count(params),
         },
         &Boundary::default(),
-        Some(opts),
+        Some(candidates),
     )
 }
 
@@ -3747,18 +3776,19 @@ pub fn build_best_with(
     range: Range,
     boundary: &Boundary,
 ) -> Result<Option<Best>> {
-    build_best_with_seed(params, inputs, max_bytes, fork, range, boundary, None)
+    build_best_with_candidates(params, inputs, max_bytes, fork, range, boundary, None)
 }
 
-fn build_best_with_seed(
+fn build_best_with_candidates(
     params: &Params,
     inputs: &[Vec<U256>],
     max_bytes: usize,
     fork: Fork,
     range: Range,
     boundary: &Boundary,
-    fused_seed: Option<BuildOptions>,
+    entry_candidates: Option<Vec<BuildOptions>>,
 ) -> Result<Option<Best>> {
+    let whole_entry = entry_candidates.is_some();
     let expected = expected_outputs(params, inputs, range);
     let build = |opts: &BuildOptions| {
         build_checked(
@@ -3930,7 +3960,7 @@ fn build_best_with_seed(
             if result.bytes > max_bytes {
                 return Err(format!("{} bytes", result.bytes));
             }
-            if fused_seed.is_some() && !super::entry_fits(params.t, fork, &result) {
+            if whole_entry && !super::entry_fits(params.t, fork, &result) {
                 return Err("too many entry bytes".to_string());
             }
             Ok((opts, cost(&result)))
@@ -3990,12 +4020,8 @@ fn build_best_with_seed(
         }
         built
     };
-    if let Some(opts) = fused_seed {
-        search(
-            fused_candidates(params.t, fork.reach, opts),
-            &mut best,
-            &mut failures,
-        );
+    if let Some(candidates) = entry_candidates {
+        search(candidates, &mut best, &mut failures);
         return render(best);
     }
     let mut built = search(

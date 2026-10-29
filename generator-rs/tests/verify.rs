@@ -96,7 +96,7 @@ fn osaka_t24() {
     let reports = run("osaka", &[24]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 75348);
+    assert_eq!(reports[0].gas.measured, 75068);
 }
 
 /// t = 28 fits one contract once the external rounds stream
@@ -105,5 +105,5 @@ fn osaka_t28() {
     let reports = run("osaka", &[28]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 90780);
+    assert_eq!(reports[0].gas.measured, 90772);
 }

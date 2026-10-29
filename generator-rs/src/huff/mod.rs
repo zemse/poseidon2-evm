@@ -152,8 +152,11 @@ pub fn build_entry(
     let serial = entry_with_retry(params.t, fork, |budget| {
         build_best(params, inputs, budget, fork, range)
     })?;
-    Ok(improve_entry(params.t, fork, serial, |budget, prior| {
+    let fused = improve_entry(params.t, fork, serial, |budget, prior| {
         schedule::build_fused_entry(params, inputs, budget, fork, prior.opts)
+    });
+    Ok(improve_entry(params.t, fork, fused, |budget, prior| {
+        schedule::build_seeded_entry(params, inputs, budget, fork, prior.opts)
     }))
 }
 

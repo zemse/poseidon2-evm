@@ -185,6 +185,60 @@ fn alternative_retry_uses_its_own_wrapper_and_keeps_a_valid_improvement() {
 }
 
 #[test]
+fn seeded_alternatives_keep_the_completed_fused_retry() {
+    let f = small_fork();
+    let mut serial = result("serial", 350, 600);
+    serial.result.state_in_memory = false;
+    serial.result.memory = 0;
+    let initial = result("fused initial", 400, 500);
+    let mut retry = result(
+        "fused retry",
+        f.code_size - entry_wrapper(2, f, &initial.result),
+        490,
+    );
+    retry.opts.fused_tree = schedule::FusedTree::PreplacedBounded;
+    let mut results = VecDeque::from([Ok(Some(initial)), Ok(Some(retry.clone()))]);
+    let completed = improve_entry(2, f, Some(serial), |_, _| {
+        results.pop_front().expect("no extra retry")
+    });
+    assert!(results.is_empty());
+    assert_eq!(completed.as_ref().unwrap().result.lines, ["fused retry"]);
+    let mut oversized = result("larger wrapper", retry.result.bytes, 0);
+    oversized.result.state_in_memory = false;
+    oversized.result.memory = 0;
+    let mut deep = result("too deep", 400, 0);
+    deep.result.max_depth = 1001;
+    let mut dearer = result("cheaper core", 400, 489);
+    dearer.result.state_in_memory = false;
+    dearer.result.memory = 0;
+    assert!(entry_gas(&f, 2, &dearer.result) > entry_gas(&f, 2, &retry.result));
+    for alternative in [
+        Err(Error("failed seed".to_string())),
+        Ok(None),
+        Ok(Some(result("tie", 400, 490))),
+        Ok(Some(result("slower", 400, 491))),
+        Ok(Some(oversized)),
+        Ok(Some(deep)),
+        Ok(Some(dearer)),
+        Ok(Some(result("overflow", usize::MAX, 0))),
+    ] {
+        let mut alternative = Some(alternative);
+        let chosen = improve_entry(2, f, completed.clone(), |budget, prior| {
+            assert_eq!(prior.result.lines, ["fused retry"]);
+            assert_eq!(prior.opts, retry.opts);
+            assert_eq!(budget, f.code_size - entry_wrapper(2, f, &prior.result));
+            alternative.take().expect("one attempt")
+        })
+        .unwrap();
+        assert_eq!(chosen.result.lines, ["fused retry"]);
+        assert!(alternative.is_none());
+    }
+    let chosen =
+        improve_entry(2, f, completed, |_, _| Ok(Some(result("seeded", 400, 489)))).unwrap();
+    assert_eq!(chosen.result.lines, ["seeded"]);
+}
+
+#[test]
 fn impossible_initial_budgets_do_not_wrap_or_retry() {
     let mut f = small_fork();
     f.code_size = 0;
