@@ -4179,6 +4179,10 @@ fn build_best_with_candidates(
 mod fused_tests;
 
 #[cfg(test)]
+#[path = "t3_seam_tests.rs"]
+pub(crate) mod t3_seam_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::field;

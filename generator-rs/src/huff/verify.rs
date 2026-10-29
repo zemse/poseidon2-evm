@@ -597,6 +597,124 @@ mod tests {
         assert!(inputs(2).iter().flatten().any(|&x| x >= PRIME));
     }
 
+    fn check_t3_external_seam_compiled(name: &str) {
+        use crate::huff::render::{
+            huff_name, memory_gas, overhead, render_entry, render_permutation,
+        };
+        use crate::huff::schedule::t3_seam_tests::{OPTIONS, build_fixture};
+        use crate::huff::schedule::{Range, build_permutation, step_count};
+
+        let fork = fork(name).unwrap();
+        let params = generate_params(3);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut raw = inputs(3);
+        assert_eq!(raw.len(), 24);
+        let p1 = PRIME - U256::from(1);
+        raw.extend([vec![U256::MAX; 3], vec![PRIME; 3], vec![p1; 3]]);
+        let mut mixed = vec![U256::MAX, PRIME, p1];
+        for _ in 0..3 {
+            raw.push(mixed.clone());
+            mixed.rotate_left(1);
+        }
+        assert_eq!(raw.len(), 30);
+        let clean: Vec<Vec<U256>> = raw
+            .iter()
+            .map(|state| state.iter().map(|&x| reduce(x)).collect())
+            .collect();
+        let expected: Vec<Vec<U256>> = raw
+            .iter()
+            .map(|state| permutation(&params, state))
+            .collect();
+        let baseline = build_permutation(
+            &params,
+            &clean,
+            &OPTIONS,
+            fork,
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            true,
+        )
+        .unwrap();
+        let candidate = build_fixture(&params, &clean, fork).unwrap();
+        assert_eq!(baseline.gas, 7581);
+        assert_eq!(candidate.gas, 7578);
+        assert_eq!(candidate.swaps + 1, baseline.swaps);
+        let baseline_gas = if name == "paris" { 7655 } else { 7653 };
+        let path = huff_name(&fork, 3, "Poseidon2");
+        let permutation_path = huff_name(&fork, 3, "Permutation");
+        let utils = if name == "amsterdam" {
+            "../Utils.huff"
+        } else {
+            "../../Utils.huff"
+        };
+        let mut measured = Vec::new();
+        for (label, result, expected_gas) in [
+            ("baseline", &baseline, baseline_gas),
+            ("candidate", &candidate, baseline_gas - 3),
+        ] {
+            assert!(!result.state_in_memory);
+            assert_eq!(
+                (result.memory, result.loads, result.stores, result.pops),
+                (0, 0, 0, 0)
+            );
+            assert!(result.max_depth <= 1000);
+            assert!(result.max_dup <= fork.reach);
+            let wrapper = overhead(fork, 3, &result.input_slots, false, false, false, 0);
+            let model = result.gas + wrapper.entry_gas + wrapper.tail_gas + memory_gas(96);
+            assert_eq!(model, expected_gas);
+            let sources = Arc::new(Sources {
+                root: root.clone(),
+                files: HashMap::from([
+                    (
+                        permutation_path.clone(),
+                        render_permutation(&params, result, &OPTIONS, utils, &fork),
+                    ),
+                    (path.clone(), render_entry(&params, &fork, result)),
+                ]),
+            });
+            let code = compile(&sources, &path, &fork).unwrap();
+            assert_eq!(code.runtime.len(), result.bytes + wrapper.bytes);
+            assert!(code.runtime.len() <= fork.code_size);
+            assert!(code.initcode.len() <= fork.initcode_size);
+            let mut chain = Chain::new(&fork);
+            let to = chain.deploy(code.initcode).unwrap();
+            let mut gas = Vec::new();
+            for (i, input) in raw.iter().enumerate() {
+                let (out, g) = chain.call(to, words(input), &[]).unwrap();
+                assert_eq!(out.len(), 96, "{name} {label} case {i}");
+                assert_eq!(from_words(&out), expected[i], "{name} {label} case {i}");
+                assert_eq!(g, model, "{name} {label} case {i}");
+                gas.push(g);
+            }
+            let actual = same_gas(&gas, label).unwrap();
+            assert_eq!(actual, expected_gas);
+            measured.push(actual);
+            println!(
+                "t3 seam {name} {label}: {} reference-checked calls, {actual} gas (model {model}), {} runtime bytes",
+                gas.len(),
+                code.runtime.len(),
+            );
+        }
+        assert_eq!(measured[0] - measured[1], 3);
+    }
+
+    #[test]
+    fn t3_external_seam_compiled_paris() {
+        check_t3_external_seam_compiled("paris");
+    }
+
+    #[test]
+    fn t3_external_seam_compiled_osaka() {
+        check_t3_external_seam_compiled("osaka");
+    }
+
+    #[test]
+    fn t3_external_seam_compiled_amsterdam() {
+        check_t3_external_seam_compiled("amsterdam");
+    }
+
     #[test]
     fn t2_omitted_backing_and_compact_budget() {
         use crate::huff::render::{MEMORY_UNKNOWN, entry_bytes, render_entry, render_permutation};
