@@ -579,6 +579,10 @@ mod shear_probe;
 mod entry_grid_probe;
 
 #[cfg(test)]
+#[path = "t8_entry_tests.rs"]
+mod t8_entry_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::PRIME;

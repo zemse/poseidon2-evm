@@ -1758,7 +1758,7 @@ impl<'a> Builder<'a> {
                 let kept = n + keep >= k;
                 let program = stream_blocks(kept, on_stack(b, &self.e))
                     .iter()
-                    .find(|p| self.stream_block_fits(p, b, &x, &sums));
+                    .find(|p| self.stream_block_fits(p, b, &x, &sums, kept));
                 if let Some(program) = program {
                     self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
                     continue;
@@ -1810,7 +1810,7 @@ impl<'a> Builder<'a> {
         };
         let program = programs
             .iter()
-            .find(|p| self.stream_block_fits(p, b, x, sums));
+            .find(|p| self.stream_block_fits(p, b, x, sums, true));
         if let Some(program) = program {
             let o = self.stream_block(program, b, x, sums, None, true, &mut [])?;
             return Ok(o.to_vec());
@@ -1826,8 +1826,16 @@ impl<'a> Builder<'a> {
 
     /// Whether a program of stream_blocks reaches every value it DUPs from
     /// the stack as it is: the inputs of block b and the column sums for
-    /// the u<i>, the moves' slots within reach.
-    fn stream_block_fits(&self, program: &str, b: usize, x: &[Id], sums: &[Id; 4]) -> bool {
+    /// the u<i>, the moves' slots within reach. Kept lanes leave their
+    /// S-box output on top; spilled lanes consume it.
+    fn stream_block_fits(
+        &self,
+        program: &str,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+        kept: bool,
+    ) -> bool {
         let reach = self.e.max_reach;
         let mut s: Vec<Option<Id>> = self.e.from_top().into_iter().map(Some).collect();
         let find = |s: &[Option<Id>], v: Id| s.iter().position(|&y| y == Some(v)).map(|k| k + 1);
@@ -1871,10 +1879,10 @@ impl<'a> Builder<'a> {
                 }
                 s.swap(0, k);
             } else {
-                let (arity, kept) = match mv.split_once('=') {
+                let (arity, retained) = match mv.split_once('=') {
                     Some(("add", _)) | Some(("q", _)) => (2, true),
                     Some(("addmod", _)) => (3, true),
-                    Some(("lane", _)) => (2, false),
+                    Some(("lane", _)) => (2, kept),
                     _ if mv == "pop" => (1, false),
                     _ => return false,
                 };
@@ -1882,7 +1890,7 @@ impl<'a> Builder<'a> {
                     return false;
                 }
                 s.drain(..arity);
-                if kept {
+                if retained {
                     s.insert(0, None);
                 }
             }
@@ -4264,6 +4272,10 @@ mod fused_tests;
 #[cfg(test)]
 #[path = "t3_seam_tests.rs"]
 pub(crate) mod t3_seam_tests;
+
+#[cfg(test)]
+#[path = "t8_stream_tests.rs"]
+mod t8_stream_tests;
 
 #[cfg(test)]
 mod tests {
