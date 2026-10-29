@@ -467,6 +467,23 @@ Evidence: parent scratch `astra-seeded-production-batch.log`, `astra-seeded-prod
 
 Next is the finite body-period/inline grid around the newly selected fused family. Section 15 exhausted the old serial family only; neither this selection nor the prototype establishes a global optimum.
 
+### 20. Seeded-family body/inline grids: no additional saving
+
+The existing `joint_entry_budget_grid` now runs around the production `PreplacedSeeded` winner from section 19. This is a different family from section 15's serial grids. It crosses every `group_candidates` period plus the ungrouped body with all legal inline counts. Other options stay fixed: consume slots, PRIME storage, external scheduling and tree policy. All four schedules use PUSH32 diagonals rather than stored diagonals.
+
+| Fork | Width | Attempts | Successful builds | Fit runtime/depth limits | Baseline and best gas | Runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 24 | 448 | 389 | 14 | 75,068 | 23,720 |
+| Osaka | 28 | 406 | 365 | 4 | 90,772 | 24,391 |
+| Paris | 24 | 448 | 389 | 14 | 75,242 | 23,771 |
+| Paris | 28 | 406 | 365 | 4 | 90,952 | 24,424 |
+
+All 1,708 attempts completed, with 1,508 successful reference-checked builds and 36 fitting entries. No strict improvement occurred. Each process independently compiled its production baseline and checked 24 full-word/reference calls, 96 compiled calls total, with exact runtime bytes and gas/model agreement. Every strict improvement would also be compiled before acceptance. Failed builds and oversized/deep entries are rejected, not counted as valid alternatives.
+
+The four serial ignored-test invocations passed under the 30-minute/4 GiB guard with no cutoff; maximum sampled aggregate RSS was 991,760 KiB, including compilation. Native batch 102 exited zero and was collected. Evidence: parent scratch `astra-seeded-grid-{osaka,paris}-t{24,28}.log`, resource JSONs and `astra-seeded-grid-results.json`. No production, generated or formal files changed, and no additional runtime saving or global optimum is claimed. The section 19 full gates remain applicable; this documentation-only result does not claim another full gate run.
+
+Reproduce with `GRID_WIDTH=24 GRID_FORK=osaka cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_entry_budget_grid -- --ignored --nocapture`, substituting the listed width/fork. A distinct next grid can change PRIME storage while crossing body periods and inline counts. The current grid holds that choice fixed; replacing each deep PUSH32 with a memory read trades 30 code bytes for three runtime gas, so whole-frame byte allocation must decide whether it pays.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
