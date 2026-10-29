@@ -172,6 +172,217 @@ pub(crate) fn build_fixture(
 }
 
 #[test]
+fn t3_external_seam_production_replay_and_guards() {
+    let params = generate_params_uncached(3);
+    let bounds = vec![p1() * u256(2), p1() * u256(3), p1() * u256(2)];
+    let inputs: Vec<Vec<U256>> = (0..8)
+        .map(|mask| {
+            (0..3)
+                .map(|i| {
+                    if mask & (1 << i) == 0 {
+                        U256::ZERO
+                    } else {
+                        bounds[i]
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    for name in ["paris", "osaka", "amsterdam"] {
+        let fork = fork(name).unwrap();
+        for backing_prime in [false, true] {
+            let mut b = builder(&params, &inputs, bounds.clone(), fork).unwrap();
+            b.opts.external_seam = true;
+            let mut tail: Vec<Id> = (0..24)
+                .map(|i| {
+                    b.e.alloc(
+                        Value::new(
+                            format!("caller{i}"),
+                            u256(i + 1),
+                            vec![u256(i + 1); inputs.len()],
+                            None,
+                        )
+                        .unwrap(),
+                    )
+                })
+                .collect();
+            if backing_prime {
+                tail.insert(0, b.p());
+            }
+            internal_layout(&mut b, &tail);
+            assert!(b.internal_external3(59).unwrap());
+            assert_eq!(b.e.gas, 295);
+            assert_eq!(b.step_bytes.len(), 1);
+            assert!(b.step_bytes[0] < b.e.bytes);
+            check_values(&b, &inputs, 60, 62);
+            assert_eq!(&b.e.from_top()[5..], tail);
+            assert_eq!(b.e.top(1).unwrap(), b.p());
+            assert_eq!(b.e.max_depth, tail.len() + 13);
+            b.external_template(TemplateKind::Round, Some(61)).unwrap();
+            check_values(&b, &inputs, 60, 63);
+            assert_eq!(&b.e.from_top()[7..], tail);
+        }
+        for guard in 0..12 {
+            let inputs = vec![vec![U256::ZERO; 3]];
+            let mut limits = bounds.clone();
+            match guard {
+                0 => limits[0] = UINT256_MAX - params.round_constants[59][0] + u256(1),
+                1 => limits[1] += u256(1),
+                2 => limits[2] += u256(1),
+                _ => {}
+            }
+            let mut b = builder(&params, &inputs, limits, fork).unwrap();
+            b.opts.external_seam = true;
+            internal_layout(&mut b, &[]);
+            let round = if guard == 11 { 58 } else { 59 };
+            match guard {
+                3 => b.e.max_reach = 8,
+                4 => b.range.to = 62,
+                5 => b.opts.external_template = false,
+                6 => b.opts.internal_template = false,
+                7 => b.opts.shadow = true,
+                8 => b.opts.prime_in_memory = true,
+                9 => b.e.swap(2).unwrap(),
+                10 => {
+                    let wrong = b.e.alloc(
+                        Value::new("not_prime".to_string(), PRIME, vec![PRIME], None).unwrap(),
+                    );
+                    b.e.set_stack(&[b.state[0], wrong, b.state[2], b.state[1]]);
+                }
+                _ => {}
+            }
+            let stack = b.e.from_top();
+            let state = b.state.clone();
+            let before = (b.e.gas, b.e.bytes, b.e.lines.clone());
+            assert!(
+                !b.internal_external3(round).unwrap(),
+                "{name} guard {guard}"
+            );
+            assert_eq!(b.e.from_top(), stack);
+            assert_eq!(b.state, state);
+            assert_eq!((b.e.gas, b.e.bytes, b.e.lines), before);
+            assert!(b.step_bytes.is_empty());
+        }
+    }
+}
+
+#[test]
+fn t3_external_seam_production_ranges_and_step_bytes() {
+    let params = generate_params_uncached(3);
+    let inputs = crate::vectors::test_inputs(3);
+    let options = BuildOptions {
+        external_seam: true,
+        ..OPTIONS
+    };
+    for name in ["paris", "osaka", "amsterdam"] {
+        let fork = fork(name).unwrap();
+        for from in [0, 57, 58, 59, 60] {
+            for to in 60..=65 {
+                if from >= to {
+                    continue;
+                }
+                let range = Range { from, to };
+                let boundary = part_boundary(3, from);
+                let baseline = build_permutation_with(
+                    &params, &inputs, &OPTIONS, fork, range, true, &boundary,
+                );
+                let candidate = build_permutation_with(
+                    &params, &inputs, &options, fork, range, true, &boundary,
+                );
+                let baseline = match baseline {
+                    Ok(baseline) => baseline,
+                    Err(error) => {
+                        // Some part-entry layouts need a non-template schedule.
+                        assert_eq!(candidate.unwrap_err().to_string(), error.to_string());
+                        let selected = build_best_with(
+                            &params,
+                            &inputs,
+                            fork.code_size,
+                            fork,
+                            range,
+                            &boundary,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        assert_eq!(selected.result.step_bytes.len(), to - from);
+                        assert!(selected.result.step_bytes.windows(2).all(|w| w[0] < w[1]));
+                        println!(
+                            "{name} range {from}..{to}: unchanged template rejection, checked selector fallback"
+                        );
+                        continue;
+                    }
+                };
+                let candidate = candidate.unwrap();
+                let numeric = build_permutation_with(
+                    &params, &inputs, &options, fork, range, false, &boundary,
+                )
+                .unwrap();
+                assert_eq!(candidate.step_bytes.len(), to - from);
+                assert!(candidate.step_bytes.windows(2).all(|w| w[0] < w[1]));
+                assert!(*candidate.step_bytes.last().unwrap() <= candidate.bytes);
+                assert_eq!(candidate.step_bytes, numeric.step_bytes);
+                assert_eq!(
+                    (
+                        candidate.gas,
+                        candidate.bytes,
+                        candidate.max_depth,
+                        candidate.max_dup
+                    ),
+                    (
+                        numeric.gas,
+                        numeric.bytes,
+                        numeric.max_depth,
+                        numeric.max_dup
+                    )
+                );
+                if to <= 62 || from == 60 {
+                    assert_eq!(candidate.lines, baseline.lines);
+                    assert_eq!(candidate.step_bytes, baseline.step_bytes);
+                }
+                if from == 0 && to == 65 {
+                    assert_eq!(candidate.gas + 3, baseline.gas);
+                    assert_eq!(candidate.bytes, baseline.bytes + 31);
+                    assert_eq!(&candidate.step_bytes[..60], &baseline.step_bytes[..60]);
+                    assert_eq!(*candidate.step_bytes.last().unwrap(), candidate.bytes);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn t3_external_seam_production_exact_byte_budget() {
+    let params = generate_params_uncached(3);
+    let inputs = crate::vectors::test_inputs(3);
+    let range = Range {
+        from: 0,
+        to: step_count(&params),
+    };
+    for name in ["paris", "osaka", "amsterdam"] {
+        let fork = fork(name).unwrap();
+        let baseline = build_permutation(&params, &inputs, &OPTIONS, fork, range, true).unwrap();
+        let fixture = build_fixture(&params, &inputs, fork).unwrap();
+        for budget in [baseline.bytes, fixture.bytes - 1, fixture.bytes] {
+            let best = build_best(&params, &inputs, budget, fork, range)
+                .unwrap()
+                .unwrap();
+            let fused = budget == fixture.bytes;
+            assert_eq!(best.opts.external_seam, fused, "{name} budget {budget}");
+            assert_eq!(
+                best.result.gas,
+                if fused { fixture.gas } else { baseline.gas }
+            );
+            assert_eq!(
+                best.result.bytes,
+                if fused { fixture.bytes } else { baseline.bytes }
+            );
+            assert!(best.result.bytes <= budget);
+            assert_eq!(best.result.step_bytes.len(), step_count(&params));
+        }
+    }
+}
+
+#[test]
 fn t3_external_seam_round_constants() {
     let params = generate_params_uncached(3);
     for (round, lane, expected) in [

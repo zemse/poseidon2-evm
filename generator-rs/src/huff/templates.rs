@@ -8,7 +8,8 @@
 // addmod=NAME, mulmod=NAME (the op on the top of the stack, its result named
 // NAME; addmod and mulmod take the PRIME copy at slot 3), sboxI (lane I: s_I
 // + c on top of a PRIME copy, both consumed by the S-box), sboxIn (lane I
-// without the PRIME copy under it) and dI (the internal diag constant I).
+// without the PRIME copy under it), cI (the round constant of lane I) and
+// dI (the internal diag constant I).
 // `init` is the layout the program expects on top: the elements of the state
 // by index and PRIME copies; the programs of a kind are tried in order, the
 // first whose layout matches is replayed.
@@ -188,6 +189,22 @@ pub fn internal3() -> &'static [Template] {
             init: "s0,P,s2,s1",
             ops: "sbox0 P P dup5 dup5 dup5 add=x+s2 addmod=sum P P dup3 dup8 addmod=s1' swap5 dup1 dup4 add=sum+s2 addmod=s2' swap3 add=s0'",
         },
+    ]
+}
+
+/// The last t = 3 internal S-box and sum, then its outputs streamed into
+/// the next external round in lane order 1, 2, 0. The second program takes
+/// [sum,P,x,s2,s1] and leaves [s0',P,s1',s2',s1].
+pub fn internal3_seam() -> [&'static [Template]; 2] {
+    [
+        &[Template {
+            init: "s0,P,s2,s1",
+            ops: "sbox0 P P dup4 dup6 dup5 add=x+s1 addmod=sum",
+        }],
+        &[Template {
+            init: "s0,P,s1,s2,s3",
+            ops: "P P P dup4 dup9 add=sum+s1 c1 add=y1 dup2 dup1 dup3 dup1 mulmod=x1^2 dup1 mulmod=x1^4 mulmod=x1 swap6 dup1 dup5 add=sum+s2 c2 add=y2 addmod=2s2+sum+c2 dup2 dup1 dup3 dup1 mulmod=x2^2 dup1 mulmod=x2^4 mulmod=x2 swap3 add=sum+x c0 add=y0 dup2 dup1 dup3 dup1 mulmod=x0^2 dup1 mulmod=x0^4 mulmod=x0 P swap1 dup3 dup2 dup6 add=x0+x2 add=sum swap4 dup5 add=s1' swap3 dup5 add=s2' swap4 add=s0'",
+        }],
     ]
 }
 

@@ -76,15 +76,19 @@ fn huff_matches_checked_in() {
     let out = scratch("huff");
     fs::create_dir_all(out.join("src/bn254/huff/t4")).unwrap();
     fs::create_dir_all(out.join("test")).unwrap();
-    huff::run(&out, &fork("amsterdam").unwrap(), &[2, 3, 4], true, || {
-        Ok(())
-    })
-    .expect("huff 2 3 4");
+    huff::run(
+        &out,
+        &fork("amsterdam").unwrap(),
+        &[2, 3, 4, 8, 12, 16, 20, 24, 28],
+        true,
+        || Ok(()),
+    )
+    .expect("all default Huff widths");
     let mut files = vec![
         "src/bn254/huff/t4/Permutation.huff".to_string(),
         "src/bn254/huff/t4/Poseidon2.huff".to_string(),
     ];
-    for t in [2, 3] {
+    for t in [2, 3, 8, 12, 16, 20, 24, 28] {
         files.push(format!("src/bn254/huff/t{t}/Permutation.huff"));
         files.push(format!("src/bn254/huff/t{t}/Poseidon2.huff"));
         files.push(format!("test/Poseidon2T{t}.t.sol"));

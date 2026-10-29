@@ -32,7 +32,8 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
-    internal3_periodic, internal4, linear_final4, ordered_blocks, round4, stream_blocks, templates,
+    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4,
+    stream_blocks, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -108,6 +109,8 @@ pub struct BuildOptions {
     /// (internal4): one dead value a round instead of five, for three SWAPs;
     /// t = 3 uses periodic bound-checked reductions, with internal3 fallbacks
     pub internal_template: bool,
+    /// t = 3: stream the last internal outputs into the next external round
+    pub external_seam: bool,
     /// t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
     /// s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
     /// (one op less per round, after the first generic bridge)
@@ -168,6 +171,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     consume_slots: 0,
     external_template: false,
     internal_template: false,
+    external_seam: false,
     internal_mul3: false,
     prime_in_memory: false,
     external_stream: false,
@@ -292,6 +296,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     if opts.internal_template {
         enabled.push("internalTemplate".to_string());
     }
+    if opts.external_seam {
+        enabled.push("externalSeam".to_string());
+    }
     if opts.internal_mul3 {
         enabled.push("internalMul3".to_string());
     }
@@ -343,7 +350,8 @@ pub struct BuildResult {
     pub state_in_memory: bool,
     /// memory slot of each input the entry must shadow, by index
     pub input_slots: Vec<Option<usize>>,
-    /// code bytes at the end of each step of the range
+    /// cumulative bytes emitted for each step of the range; streamed steps
+    /// may overlap round work, so a split rebuilds both ranges independently
     pub step_bytes: Vec<usize>,
     pub memory: usize,
     /// the round constants of the shared body's calls
@@ -1159,6 +1167,12 @@ impl<'a> Builder<'a> {
                 } else {
                     self.e.push(d, Some(&format!("d{i}")))?;
                 }
+            } else if let Some(i) = mv.strip_prefix('c').and_then(|i| i.parse::<usize>().ok()) {
+                let Some(round) = round else {
+                    bail!("constant needs a round");
+                };
+                self.e
+                    .push(self.params.round_constants[round][i], Some(mv))?;
             } else if mv == "4" {
                 self.e.push(u256(4), None)?;
             } else if mv == "pop" {
@@ -2178,6 +2192,65 @@ impl<'a> Builder<'a> {
         Ok(x5)
     }
 
+    /// Fuse the last internal round with external re-entry when both and
+    /// the following layout adapter belong to this range.
+    fn internal_external3(&mut self, round: usize) -> Result<bool> {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        let total = self.params.rounds_f + self.params.rounds_p;
+        if self.t != 3
+            || !self.opts.external_seam
+            || !self.opts.external_template
+            || !self.opts.internal_template
+            || self.opts.internal_consume
+            || self.opts.shadow
+            || self.opts.prime_in_memory
+            || self.opts.shared_body
+            || self.lane_constants.is_some()
+            || round + 1 != p_end
+            || round + 3 >= self.range.to
+            || round + 3 >= total
+            || self.e.max_reach < 9
+            || self.params.internal_diag_minus_one != [u256(1), u256(1), u256(2)]
+        {
+            return Ok(false);
+        }
+        let [start, end] = internal3_seam();
+        let state = self.state.clone();
+        // The final periodic layout, with all three constant ADDs safe.
+        let l = wide(p1());
+        let constants = &self.params.round_constants[round + 1];
+        if self.template(start, &state).is_none()
+            || !self
+                .e
+                .fits_add(self.bound(state[0]), self.params.round_constants[round][0])
+            || wide(self.bound(state[1])) > l * U512::from(3u64)
+            || wide(self.bound(state[2])) > l * U512::from(2u64)
+            || l + wide(self.bound(state[1])) + wide(constants[1]) > wmax()
+            || l + wide(self.bound(state[2])) + wide(constants[2]) > wmax()
+            || l * U512::from(2u64) + wide(constants[0]) > wmax()
+        {
+            return Ok(false);
+        }
+        self.run_template(start, &state, &[], Some(round))?;
+        self.e.comment("");
+        self.step_bytes.push(self.e.bytes);
+        self.e.next_round();
+        self.e.comment(&format!(
+            "Round {} (external, streamed internal outputs)",
+            round + 1
+        ));
+        let inputs = vec![
+            self.e.top(0)?,
+            self.e.top(2)?,
+            self.e.top(3)?,
+            self.e.top(4)?,
+        ];
+        let names: Vec<String> = (0..3).map(|i| format!("s{i}'")).collect();
+        self.state = self.run_template(end, &inputs, &names, Some(round + 1))?;
+        self.dead.clear();
+        Ok(true)
+    }
+
     /// Expects s0 on top with a PRIME copy under it (placed by the previous
     /// round) so that s0 + c lands in place for the S-box.
     fn internal_round(&mut self, round: usize, next_internal: bool) -> Result<()> {
@@ -3127,7 +3200,9 @@ impl<'a> Builder<'a> {
                 // s0 as well
                 let prime_under =
                     (r < p_end - 1 || (self.opts.external_template && self.t <= 3)) && next;
-                if self.opts.internal_consume {
+                if self.internal_external3(r)? {
+                    r += 1;
+                } else if self.opts.internal_consume {
                     self.internal_round_consume(r, next_internal, None)?;
                 } else {
                     self.internal_round(r, prime_under)?;
@@ -3592,6 +3667,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                         consume_slots: 0,
                                                                         external_template,
                                                                         internal_template,
+                                                                        external_seam: false,
                                                                         internal_mul3,
                                                                         prime_in_memory: false,
                                                                         external_stream,
@@ -3621,6 +3697,13 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
     }
     let extra: Vec<usize> = (reach - 3..=reach - 2).filter(|&n| n < t).collect();
     list.into_iter()
+        .flat_map(|opts| {
+            let seam = t == 3 && opts.external_template && opts.internal_template && !shadow;
+            std::iter::once(opts).chain(seam.then_some(BuildOptions {
+                external_seam: true,
+                ..opts
+            }))
+        })
         .flat_map(|opts| {
             let more: &[usize] = if shadow && opts.prime_stack && opts.shared_body {
                 &extra

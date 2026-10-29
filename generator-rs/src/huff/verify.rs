@@ -638,6 +638,29 @@ mod tests {
         )
         .unwrap();
         let candidate = build_fixture(&params, &clean, fork).unwrap();
+        let selected = super::super::build_entry(&params, &clean, fork)
+            .unwrap()
+            .unwrap();
+        assert!(selected.opts.external_seam);
+        let production = &selected.result;
+        assert_eq!(production.step_bytes.len(), step_count(&params));
+        assert_eq!(production.step_bytes.last(), Some(&production.bytes));
+        assert_eq!(
+            (
+                production.gas,
+                production.bytes,
+                production.max_depth,
+                production.max_dup,
+                production.swaps
+            ),
+            (
+                candidate.gas,
+                candidate.bytes,
+                candidate.max_depth,
+                candidate.max_dup,
+                candidate.swaps
+            )
+        );
         assert_eq!(baseline.gas, 7581);
         assert_eq!(candidate.gas, 7578);
         assert_eq!(candidate.swaps + 1, baseline.swaps);
@@ -650,9 +673,10 @@ mod tests {
             "../../Utils.huff"
         };
         let mut measured = Vec::new();
-        for (label, result, expected_gas) in [
-            ("baseline", &baseline, baseline_gas),
-            ("candidate", &candidate, baseline_gas - 3),
+        for (label, result, options, expected_gas) in [
+            ("baseline", &baseline, &OPTIONS, baseline_gas),
+            ("candidate", &candidate, &OPTIONS, baseline_gas - 3),
+            ("production", production, &selected.opts, baseline_gas - 3),
         ] {
             assert!(!result.state_in_memory);
             assert_eq!(
@@ -669,7 +693,7 @@ mod tests {
                 files: HashMap::from([
                     (
                         permutation_path.clone(),
-                        render_permutation(&params, result, &OPTIONS, utils, &fork),
+                        render_permutation(&params, result, options, utils, &fork),
                     ),
                     (path.clone(), render_entry(&params, &fork, result)),
                 ]),

@@ -283,7 +283,35 @@ fn shear_compiled_whole_call_regression() {
             .find(|path| path.ends_with("/Permutation.huff"))
             .unwrap()
             .clone();
-        let original = &files[&path];
+        // Replacing the internal chain needs an unfused external boundary.
+        let options = crate::huff::schedule::BuildOptions {
+            external_template: true,
+            internal_template: true,
+            ..crate::huff::schedule::DEFAULT_OPTIONS
+        };
+        let baseline = crate::huff::schedule::build_permutation(
+            &params,
+            &crate::vectors::test_inputs(3),
+            &options,
+            fork,
+            crate::huff::schedule::Range {
+                from: 0,
+                to: crate::huff::schedule::step_count(&params),
+            },
+            true,
+        )
+        .unwrap();
+        let original = &crate::huff::render::render_permutation(
+            &params,
+            &baseline,
+            &options,
+            if name == "amsterdam" {
+                "../Utils.huff"
+            } else {
+                "../../Utils.huff"
+            },
+            &fork,
+        );
         let (prefix, rest) = original.split_once("// Round 4 (internal)").unwrap();
         let (_, suffix) = rest.split_once("// Round 60 (external)").unwrap();
         let candidate = format!("{prefix}{body}// Round 60 (external){suffix}");
