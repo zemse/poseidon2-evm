@@ -164,6 +164,8 @@ The actual-entry budget retry changed only Osaka t = 28. Its proof was regenerat
 
 The fused memory sums changed only Osaka t = 24, 28. Both proofs were regenerated, kernel-checked and replayed with `leanchecker`, and replay coverage passed for all 12 wide Huff artifacts. Their `G` values match independently measured execution; the other 33 exports were unchanged, and a second export reproduces every Osaka bytecode module exactly.
 
+The aligned initial fused sum subsequently changed only Osaka t = 24, 28. Both proofs were regenerated, kernel-checked and replayed with `leanchecker`; replay coverage passed for all 12 wide Huff artifacts. Their `G` values match independently measured execution, the other 33 exports were unchanged, and a second export reproduces every Osaka bytecode module exactly.
+
 The following size and timing measurements predate those optimisations. They describe the earlier exported bytecode, not the regenerated proofs.
 
 | Artifact | Parts | Bytecode segments | Files | Wall | Peak RSS |
@@ -196,8 +198,8 @@ Every `G` of a returning case equals the measured call-frame gas, on both forks 
 | 12 | 34,145 / 34,145 | 35,047 / 35,047 |
 | 16 | 44,494 / 44,494 | 47,809 / 47,809 |
 | 20 | 54,835 / 54,835 | 61,768 / 61,768 |
-| 24 | 65,489 / 65,489 | 75,348 / 75,348 |
-| 28 | 77,826 / 77,826 | 90,780 / 90,780 |
+| 24 | 65,489 / 65,489 | 75,068 / 75,068 |
+| 28 | 77,826 / 77,826 | 90,772 / 90,772 |
 
 Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Poseidon2.t.sol` (`hash_1`, `hash_2`, `hash_3` of `Poseidon2Yul_BN254`, the same gas for all three and for calldata below 4 bytes) built as `scripts/export.sh` builds them, on forge's Amsterdam EVM, `G` / measured:
 
