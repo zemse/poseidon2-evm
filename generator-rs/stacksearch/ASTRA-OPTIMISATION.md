@@ -484,6 +484,23 @@ The four serial ignored-test invocations passed under the 30-minute/4 GiB guard 
 
 Reproduce with `GRID_WIDTH=24 GRID_FORK=osaka cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_entry_budget_grid -- --ignored --nocapture`, substituting the listed width/fork. A distinct next grid can change PRIME storage while crossing body periods and inline counts. The current grid holds that choice fixed; replacing each deep PUSH32 with a memory read trades 30 code bytes for three runtime gas, so whole-frame byte allocation must decide whether it pays.
 
+### 21. Opposite PRIME storage with seeded body grids: no additional saving
+
+A separate ignored `joint_seeded_prime_budget_grid` reuses the section 20 grid with the opposite PRIME-storage policy: t24 supplies deep PRIME as PUSH32 instead of reading memory, while t28 reads it from memory instead of PUSH32. The test asserts that the selected baseline is `PreplacedSeeded`, compiles it, and retains it unless an alternative has strictly lower complete call gas. Only PRIME storage, body period and inline count vary. Consume slots, tree policy, diagonals and external scheduling remain fixed.
+
+| Fork | Width | Candidate PRIME | Attempts | Successful builds | Fit runtime/depth limits | Retained call gas |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| Osaka | 24 | PUSH32 | 448 | 389 | 11 | 75,068 |
+| Osaka | 28 | Memory | 406 | 365 | 5 | 90,772 |
+| Paris | 24 | PUSH32 | 448 | 389 | 10 | 75,242 |
+| Paris | 28 | Memory | 406 | 365 | 5 | 90,952 |
+
+All 1,708 distinct attempts completed: 1,508 reference-checked builds, 31 fitting entries and no strict improvement. The four baselines contribute 96 compiled full-word/reference calls with exact byte and gas-model agreement. The original Osaka24 grid was rerun as a control after extracting the shared helper: its 448 attempts, 389 builds, 14 fitting entries and 75,068 gas match section 20 exactly, with another 24 compiled calls. The old grid still requires a fitting candidate; only the new opposite-policy search can legitimately return none. All candidate bound/replay, depth, wrapper-size and text/model checks remain in place.
+
+The four new probes and original control pass, as do 55 library tests (three exploratory probes ignored), four generator tests, all-target Clippy with warnings denied, Rust formatting and whitespace checks. Native batch 104 exited zero and was collected. Every guarded run finished below 30 minutes and 4 GiB RSS; the largest sampled aggregate RSS was 1,210,256 KiB during the generator-test build. Evidence: parent scratch `astra-seeded-prime-grid-*.log`, resource JSONs and `astra-seeded-prime-grid-results.json`. This test-only unit changes no production selection, generated Huff, formal source, dependency or lockfile.
+
+Reproduce with `GRID_WIDTH=24 GRID_FORK=osaka cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_seeded_prime_budget_grid -- --ignored --nocapture`. Sections 20 and 21 cover both PRIME-storage choices only within their fixed seeded layout family. Neighbouring consume-slot layouts, other fused policies and their joint budget interactions remain unsearched; no global minimum is claimed.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

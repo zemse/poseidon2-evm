@@ -57,8 +57,19 @@ fn compiled(params: &Params, fork: Fork, best: &Best) -> u64 {
 #[test]
 #[ignore = "finite wide schedule experiment"]
 fn joint_entry_budget_grid() {
+    entry_budget_grid(false);
+}
+
+#[test]
+#[ignore = "finite seeded PRIME-storage experiment"]
+fn joint_seeded_prime_budget_grid() {
+    entry_budget_grid(true);
+}
+
+fn entry_budget_grid(opposite_prime: bool) {
+    let default_width = if opposite_prime { "24" } else { "16" };
     let t: usize = std::env::var("GRID_WIDTH")
-        .unwrap_or_else(|_| "16".into())
+        .unwrap_or_else(|_| default_width.into())
         .parse()
         .unwrap();
     assert!([16, 20, 24, 28].contains(&t));
@@ -80,20 +91,25 @@ fn joint_entry_budget_grid() {
         describe_options(&baseline.opts)
     );
     assert!(baseline.opts.shared_body);
+    let mut grid_opts = baseline.opts;
+    if opposite_prime {
+        assert_eq!(
+            grid_opts.fused_tree,
+            crate::huff::schedule::FusedTree::PreplacedSeeded
+        );
+        grid_opts.prime_in_memory = !grid_opts.prime_in_memory;
+    }
+    println!("GRID_POLICY primeInMemory={}", grid_opts.prime_in_memory);
     let (_, steady) = steady_rounds(&params, range);
     let mut groups = vec![0];
-    groups.extend(group_candidates(
-        &params,
-        &fork,
-        baseline.opts.consume_slots,
-    ));
-    if !groups.contains(&baseline.opts.consume_group) {
-        groups.push(baseline.opts.consume_group);
+    groups.extend(group_candidates(&params, &fork, grid_opts.consume_slots));
+    if !groups.contains(&grid_opts.consume_group) {
+        groups.push(grid_opts.consume_group);
     }
-    let diagonals: Vec<_> = if baseline.opts.diag_in_memory {
+    let diagonals: Vec<_> = if grid_opts.diag_in_memory {
         (0..=t).collect()
     } else {
-        vec![baseline.opts.diag_push32]
+        vec![grid_opts.diag_push32]
     };
     let total = groups.len() * diagonals.len() * (steady + 1);
     println!(
@@ -110,7 +126,7 @@ fn joint_entry_budget_grid() {
                     consume_group: group,
                     diag_push32: diag,
                     body_inline: inline,
-                    ..baseline.opts
+                    ..grid_opts
                 };
                 let Ok(result) = build_permutation(&params, &inputs, &opts, fork, range, false)
                 else {
@@ -146,7 +162,9 @@ fn joint_entry_budget_grid() {
         }
     }
     assert_eq!(attempted, total);
-    assert!(fitting > 0);
+    if !opposite_prime {
+        assert!(fitting > 0);
+    }
     assert!(best_gas <= baseline_gas);
     println!(
         "GRID_DONE {name} t{t} baseline {baseline_gas} best {best_gas} saving {} attempts {attempted} built {built} fitting {fitting} bytes {} opts {}",
