@@ -57,17 +57,36 @@ fn compiled(params: &Params, fork: Fork, best: &Best) -> u64 {
 #[test]
 #[ignore = "finite wide schedule experiment"]
 fn joint_entry_budget_grid() {
-    entry_budget_grid(false);
+    entry_budget_grid(false, None);
 }
 
 #[test]
 #[ignore = "finite seeded PRIME-storage experiment"]
 fn joint_seeded_prime_budget_grid() {
-    entry_budget_grid(true);
+    entry_budget_grid(true, None);
 }
 
-fn entry_budget_grid(opposite_prime: bool) {
-    let default_width = if opposite_prime { "24" } else { "16" };
+#[test]
+#[ignore = "finite seeded consume-slot experiment"]
+fn joint_seeded_slots_budget_grid() {
+    let slots = std::env::var("GRID_SLOTS")
+        .unwrap_or_else(|_| "13".into())
+        .parse()
+        .unwrap();
+    let opposite_prime = match std::env::var("GRID_PRIME").as_deref() {
+        Ok("selected") | Err(_) => false,
+        Ok("opposite") => true,
+        Ok(other) => panic!("unknown GRID_PRIME {other}"),
+    };
+    entry_budget_grid(opposite_prime, Some(slots));
+}
+
+fn entry_budget_grid(opposite_prime: bool, slots: Option<usize>) {
+    let default_width = if opposite_prime || slots.is_some() {
+        "24"
+    } else {
+        "16"
+    };
     let t: usize = std::env::var("GRID_WIDTH")
         .unwrap_or_else(|_| default_width.into())
         .parse()
@@ -92,14 +111,27 @@ fn entry_budget_grid(opposite_prime: bool) {
     );
     assert!(baseline.opts.shared_body);
     let mut grid_opts = baseline.opts;
-    if opposite_prime {
+    if opposite_prime || slots.is_some() {
         assert_eq!(
             grid_opts.fused_tree,
             crate::huff::schedule::FusedTree::PreplacedSeeded
         );
+    }
+    if opposite_prime {
         grid_opts.prime_in_memory = !grid_opts.prime_in_memory;
     }
-    println!("GRID_POLICY primeInMemory={}", grid_opts.prime_in_memory);
+    if let Some(slots) = slots {
+        assert!(slots <= fork.reach - 2);
+        assert_ne!(
+            crate::huff::schedule::held_slots(t, fork.reach, slots),
+            crate::huff::schedule::held_slots(t, fork.reach, baseline.opts.consume_slots)
+        );
+        grid_opts.consume_slots = slots;
+    }
+    println!(
+        "GRID_POLICY primeInMemory={} consumeSlots={}",
+        grid_opts.prime_in_memory, grid_opts.consume_slots
+    );
     let (_, steady) = steady_rounds(&params, range);
     let mut groups = vec![0];
     groups.extend(group_candidates(&params, &fork, grid_opts.consume_slots));
@@ -162,7 +194,7 @@ fn entry_budget_grid(opposite_prime: bool) {
         }
     }
     assert_eq!(attempted, total);
-    if !opposite_prime {
+    if !opposite_prime && slots.is_none() {
         assert!(fitting > 0);
     }
     assert!(best_gas <= baseline_gas);
@@ -357,6 +389,77 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
             assert_eq!(
                 compiled(&params, fork, &candidate),
                 before - if t == 24 { 280 } else { 8 }
+            );
+        }
+    }
+}
+
+#[test]
+fn seeded_slots_replays_fixed_legacy_bodies() {
+    use crate::huff::schedule::{DEFAULT_OPTIONS, FusedTree};
+    for name in ["paris", "shanghai", "cancun", "prague", "osaka"] {
+        let fork = fork(name).unwrap();
+        let params = generate_params(24);
+        let inputs = test_inputs(params.t);
+        let range = Range {
+            from: 0,
+            to: step_count(&params),
+        };
+        let opts = BuildOptions {
+            external_d: true,
+            prime_under_external: false,
+            internal_consume: true,
+            prime_stack: true,
+            shadow: true,
+            shared_body: true,
+            consume_group: 6,
+            consume_slots: 14,
+            external_template: true,
+            prime_in_memory: true,
+            external_stream: true,
+            compact_inputs: true,
+            tree_sums: true,
+            tree_peak: true,
+            tree_adaptive_prime: true,
+            fused_tree: FusedTree::PreplacedSeeded,
+            ..DEFAULT_OPTIONS
+        };
+        let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+        let baseline = Best { opts, result };
+        let before = compiled(&params, fork, &baseline);
+        assert_eq!(before, if name == "paris" { 75242 } else { 75068 });
+        for prime_in_memory in [true, false] {
+            let opts = BuildOptions {
+                consume_slots: 13,
+                prime_in_memory,
+                ..opts
+            };
+            let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
+            let model = build_permutation(&params, &inputs, &opts, fork, range, false).unwrap();
+            assert_eq!(
+                (result.gas, result.bytes, result.memory),
+                (model.gas, model.bytes, model.memory)
+            );
+            assert!(result.max_depth <= 1000);
+            assert!(runtime_bytes(&params, fork, &result) <= fork.code_size);
+            let candidate = Best { opts, result };
+            let gas = compiled(&params, fork, &candidate);
+            assert_eq!(gas, before - if prime_in_memory { 48 } else { 87 });
+            assert_eq!(
+                runtime_bytes(&params, fork, &candidate.result),
+                match (name, prime_in_memory) {
+                    ("paris", true) => 23741,
+                    ("paris", false) => 23997,
+                    (_, true) => 23690,
+                    (_, false) => 23946,
+                }
+            );
+            println!(
+                "SLOTS_COMPILED {name} t24 primeInMemory={prime_in_memory} baseline {before} gas {gas} bytes {} depth {} loads {} stores {}",
+                runtime_bytes(&params, fork, &candidate.result),
+                candidate.result.max_depth,
+                candidate.result.loads,
+                candidate.result.stores
             );
         }
     }

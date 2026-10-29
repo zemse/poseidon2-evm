@@ -501,6 +501,25 @@ The four new probes and original control pass, as do 55 library tests (three exp
 
 Reproduce with `GRID_WIDTH=24 GRID_FORK=osaka cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_seeded_prime_budget_grid -- --ignored --nocapture`. Sections 20 and 21 cover both PRIME-storage choices only within their fixed seeded layout family. Neighbouring consume-slot layouts, other fused policies and their joint budget interactions remain unsearched; no global minimum is claimed.
 
+### 22. Neighbouring consume slots: verified test-only t24 candidate
+
+The ignored `joint_seeded_slots_budget_grid` varies the held state count before crossing body periods and every legal inline count. Osaka t24 holds 13 rather than 14 lanes, leaving ten memory lanes; t28 holds 14 rather than 13, leaving thirteen memory lanes. Each layout is checked with selected and opposite PRIME storage. The previous body group is included even when it is not a candidate for the new layout. Fused policy, arithmetic, bounds and external scheduling are unchanged.
+
+| Width | Held lanes | Deep PRIME | Attempts | Successful builds | Fit runtime/depth limits | Baseline gas | Best gas | Runtime bytes |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 24 | 13 | Memory | 392 | 351 | 19 | 75,068 | 75,020 | 23,690 |
+| 24 | 13 | PUSH32 | 392 | 351 | 18 | 75,068 | 74,981 | 23,946 |
+| 28 | 14 | PUSH32 | 522 | 448 | 1 | 90,772 | 90,772 | 24,391 |
+| 28 | 14 | Memory | 522 | 448 | 2 | 90,772 | 90,772 | 24,391 |
+
+All 1,828 attempts completed, with 1,598 reference-checked builds and 40 fitting alternatives. Each of the two t24 grids found one strict improvement, at group 6 with no inline rounds. Four baselines and two improvements contribute 144 compiled full-word/reference calls, with exact runtime-byte and gas-model agreement. The t28 rows retain the original 13-held baseline, not the more expensive 14-held alternatives. This does not exhaust other held counts or tree policies.
+
+The required `seeded_slots_replays_fixed_legacy_bodies` test separately compiles the baseline and both t24 candidates on Paris, Shanghai, Cancun, Prague and Osaka: 360 calls with full-word inputs, shared-body replay, exact gas and runtime-byte pins, and independent text/model builds. The memory-PRIME variant saves 48 gas; PUSH32 saves 87. Paris measures 75,194/75,155 gas and 23,741/23,997 bytes, respectively. Shanghai through Osaka match the table. All candidates stay within maximum depth and their actual full-entry code-size limit. Existing emitter bound, slot-lifetime, caller-tail and word-cap tests remain enabled; no bound or assertion is relaxed.
+
+Native batch 110 exited zero and was collected. Its seven guarded grid/check runs stayed below 30 minutes and 4 GiB RSS, with maximum sampled aggregate RSS 222,592 KiB. After adding the fixed-body regression, 56 library tests pass (four exploratory probes ignored), as do four generator tests, all-target Clippy with warnings denied, Rust formatting and whitespace checks. This is a test-only unit: production selection, generated Huff, formal files, dependencies and lockfiles are unchanged. The frozen section 19 production candidate and its independent proof wave still use 75,068/90,772 gas on Osaka.
+
+Reproduce one grid with `GRID_WIDTH=24 GRID_FORK=osaka GRID_SLOTS=13 GRID_PRIME=opposite cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_seeded_slots_budget_grid -- --ignored --nocapture`. Evidence: parent scratch `astra-seeded-slots-grid-*.log`, `astra-seeded-slots-grid-results.json`, `astra-slots-fixed-bodies.log`, `astra-slots-candidate-{library,generators,clippy}.log` and resource JSONs. Next is separate whole-entry layout selection with complete prior-winner/retry fallback and full production gates. The 87-gas result is not yet a production-selected or independently integrated saving.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.
