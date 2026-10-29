@@ -286,6 +286,106 @@ fn fused_alternatives_require_a_fusable_memory_region() {
 }
 
 #[test]
+fn seeded_slot_candidates_use_actual_held_counts_and_memory_thresholds() {
+    let opts = BuildOptions {
+        internal_consume: true,
+        prime_stack: true,
+        shadow: true,
+        shared_body: true,
+        consume_slots: 14,
+        consume_group: 6,
+        body_inline: 2,
+        prime_in_memory: true,
+        tree_sums: true,
+        tree_peak: true,
+        fused_tree: FusedTree::PreplacedSeeded,
+        ..DEFAULT_OPTIONS
+    };
+    let wide_reach = fork("amsterdam").unwrap().reach;
+    for (t, reach, slots, expected) in [
+        (24, 16, 14, vec![13]),
+        (28, 16, 13, vec![12, 14]),
+        (28, 16, 0, vec![11, 13]),
+        (20, 16, 13, vec![12]),
+        (20, 16, 14, vec![13]),
+        (16, 16, 14, vec![]),
+        (0, 16, 0, vec![]),
+        (4, 16, 0, vec![]),
+        (20, wide_reach, 14, vec![13]),
+        (28, wide_reach, 14, vec![13, 15]),
+        (28, wide_reach, 0, vec![]),
+        (28, 256, 0, vec![]),
+    ] {
+        for fused_tree in [
+            FusedTree::Serial,
+            FusedTree::PreplacedBounded,
+            FusedTree::PreplacedSeeded,
+        ] {
+            let current = BuildOptions {
+                consume_slots: slots,
+                fused_tree,
+                ..opts
+            };
+            let candidates = seeded_slot_candidates(t, reach, current);
+            assert_eq!(candidates.len(), 2 * expected.len());
+            for (pair, &slots) in candidates.as_chunks::<2>().0.iter().zip(&expected) {
+                assert_ne!(slots, held_slots(t, reach, current.consume_slots));
+                assert!(slots > 0 && slots <= reach - 2 && slots < t);
+                assert!(t - 1 - slots >= FUSE_MIN);
+                for (&candidate, prime_in_memory) in pair.iter().zip([false, true]) {
+                    assert_eq!(
+                        candidate,
+                        BuildOptions {
+                            consume_slots: slots,
+                            consume_group: 0,
+                            body_inline: 0,
+                            prime_in_memory,
+                            fused_tree: FusedTree::PreplacedSeeded,
+                            ..current
+                        }
+                    );
+                }
+            }
+        }
+    }
+    for reach in 0..4 {
+        for consume_slots in [0, 14] {
+            assert!(
+                seeded_slot_candidates(
+                    28,
+                    reach,
+                    BuildOptions {
+                        consume_slots,
+                        ..opts
+                    },
+                )
+                .is_empty()
+            );
+        }
+    }
+    for off in [
+        BuildOptions {
+            internal_consume: false,
+            ..opts
+        },
+        BuildOptions {
+            prime_stack: false,
+            ..opts
+        },
+        BuildOptions {
+            shadow: false,
+            ..opts
+        },
+        BuildOptions {
+            shared_body: false,
+            ..opts
+        },
+    ] {
+        assert!(seeded_slot_candidates(28, 16, off).is_empty());
+    }
+}
+
+#[test]
 fn fused_modes_do_not_change_below_threshold_bodies() {
     for name in ["paris", "osaka"] {
         let fork = fork(name).unwrap();

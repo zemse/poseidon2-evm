@@ -22,6 +22,15 @@ fn runtime_bytes(params: &Params, fork: Fork, result: &BuildResult) -> usize {
 }
 
 fn compiled(params: &Params, fork: Fork, best: &Best) -> u64 {
+    compiled_with_inputs(params, fork, best, &[])
+}
+
+fn compiled_with_inputs(
+    params: &Params,
+    fork: Fork,
+    best: &Best,
+    extra_inputs: &[Vec<U256>],
+) -> u64 {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let files = HashMap::from([
         (
@@ -47,8 +56,21 @@ fn compiled(params: &Params, fork: Fork, best: &Best) -> u64 {
     );
     let mut chain = Chain::new(&fork);
     let to = chain.deploy(bytecode.initcode).unwrap();
-    let calls = check_permutation(&mut chain, to, &[], params.t, "entry grid").unwrap();
+    let mut calls = check_permutation(&mut chain, to, &[], params.t, "entry grid").unwrap();
     assert_eq!(calls.len(), 24);
+    for (i, input) in extra_inputs.iter().enumerate() {
+        assert_eq!(input.len(), params.t);
+        let (out, gas) = chain.call(to, words(input), &[]).unwrap();
+        let reduced: Vec<U256> = input.iter().map(|&x| reduce(x)).collect();
+        assert_eq!(out.len(), 32 * params.t);
+        assert_eq!(
+            from_words(&out),
+            permutation(params, &reduced),
+            "entry grid extra input {i}"
+        );
+        calls.push(gas);
+    }
+    assert_eq!(calls.len(), 24 + extra_inputs.len());
     let gas = same_gas(&calls, "entry grid").unwrap();
     assert_eq!(gas, super::super::entry_gas(&fork, params.t, &best.result));
     gas
@@ -396,11 +418,23 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
 
 #[test]
 fn seeded_slots_replays_fixed_legacy_bodies() {
+    use crate::field::{PRIME, UINT256_MAX, u256};
     use crate::huff::schedule::{DEFAULT_OPTIONS, FusedTree};
     for name in ["paris", "shanghai", "cancun", "prague", "osaka"] {
         let fork = fork(name).unwrap();
         let params = generate_params(24);
         let inputs = test_inputs(params.t);
+        let words = [UINT256_MAX, PRIME, PRIME - u256(1)];
+        let mut extra_inputs = vec![vec![UINT256_MAX; params.t]];
+        // Each lane sees all three words, including the raw calldata lanes.
+        for shift in 0..words.len() {
+            extra_inputs.push(
+                (0..params.t)
+                    .map(|i| words[(i + shift) % words.len()])
+                    .collect(),
+            );
+        }
+        assert_eq!(extra_inputs.len(), 4);
         let range = Range {
             from: 0,
             to: step_count(&params),
@@ -426,7 +460,7 @@ fn seeded_slots_replays_fixed_legacy_bodies() {
         };
         let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
         let baseline = Best { opts, result };
-        let before = compiled(&params, fork, &baseline);
+        let before = compiled_with_inputs(&params, fork, &baseline, &extra_inputs);
         assert_eq!(before, if name == "paris" { 75242 } else { 75068 });
         for prime_in_memory in [true, false] {
             let opts = BuildOptions {
@@ -443,7 +477,7 @@ fn seeded_slots_replays_fixed_legacy_bodies() {
             assert!(result.max_depth <= 1000);
             assert!(runtime_bytes(&params, fork, &result) <= fork.code_size);
             let candidate = Best { opts, result };
-            let gas = compiled(&params, fork, &candidate);
+            let gas = compiled_with_inputs(&params, fork, &candidate, &extra_inputs);
             assert_eq!(gas, before - if prime_in_memory { 48 } else { 87 });
             assert_eq!(
                 runtime_bytes(&params, fork, &candidate.result),

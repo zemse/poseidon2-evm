@@ -3743,6 +3743,48 @@ pub fn build_seeded_entry(
     )
 }
 
+fn seeded_slot_candidates(t: usize, reach: usize, opts: BuildOptions) -> Vec<BuildOptions> {
+    if t < 8
+        || reach < 4
+        || !opts.internal_consume
+        || !opts.prime_stack
+        || !opts.shadow
+        || !opts.shared_body
+    {
+        return Vec::new();
+    }
+    let held = held_slots(t, reach, opts.consume_slots);
+    [held.checked_sub(1), held.checked_add(1)]
+        .into_iter()
+        .flatten()
+        .filter(|&slots| slots > 0 && slots <= reach - 2 && slots < t && t - 1 - slots >= FUSE_MIN)
+        .flat_map(|consume_slots| {
+            [false, true]
+                .into_iter()
+                .map(move |prime_in_memory| BuildOptions {
+                    consume_slots,
+                    consume_group: 0,
+                    body_inline: 0,
+                    prime_in_memory,
+                    fused_tree: FusedTree::PreplacedSeeded,
+                    ..opts
+                })
+        })
+        .collect()
+}
+
+/// Neighbouring held-state counts after the seeded entry search completes.
+pub fn build_seeded_slots_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
+    let candidates = seeded_slot_candidates(params.t, fork.reach, opts);
+    build_entry_candidates(params, inputs, max_bytes, fork, candidates)
+}
+
 fn build_entry_candidates(
     params: &Params,
     inputs: &[Vec<U256>],

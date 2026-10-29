@@ -520,6 +520,38 @@ Native batch 110 exited zero and was collected. Its seven guarded grid/check run
 
 Reproduce one grid with `GRID_WIDTH=24 GRID_FORK=osaka GRID_SLOTS=13 GRID_PRIME=opposite cargo test --release --locked --offline --manifest-path generator-rs/Cargo.toml --lib joint_seeded_slots_budget_grid -- --ignored --nocapture`. Evidence: parent scratch `astra-seeded-slots-grid-*.log`, `astra-seeded-slots-grid-results.json`, `astra-slots-fixed-bodies.log`, `astra-slots-candidate-{library,generators,clippy}.log` and resource JSONs. Next is separate whole-entry layout selection with complete prior-winner/retry fallback and full production gates. The 87-gas result is not yet a production-selected or independently integrated saving.
 
+### 23. Production neighbouring slots with the completed seeded winner retained
+
+The section 22 layout is now a separate production alternative after the completed serial, fused and seeded searches and their actual-wrapper retries. It enumerates the actual held count minus or plus one, with both deep-PRIME policies, and retunes the body group and inline count. The prior needs consuming rounds, stacked PRIME, shadow and a shared body; each neighbour separately needs valid reach and at least six memory lanes. There is no width or fork special case. Errors, missing builds, ties, regressions, excessive depth and own-wrapper budget failures retain the completed prior. Acceptance still compares complete entry gas. Core-only, folded hash and split-part searches are unchanged.
+
+An audit corrected eligibility at the threshold: t20/held14 has five memory lanes, but its held13 neighbour has six and must be considered. Tests cover that transition, actual Amsterdam reach 235, default held counts, invalid reach, disabled structural flags and serial, bounded and seeded priors. The new completed-seeded fallback test retains the prior through failed alternatives, including byte overflow and a cheaper core with a more expensive complete entry.
+
+| Fork | Width | Section 19 gas | Production gas | Extra saving | Runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Osaka | 20 | 61,768 | 61,768 | 0 | 23,884 |
+| Paris | 20 | 61,942 | 61,942 | 0 | 23,947 |
+| Osaka | 24 | 75,068 | 74,981 | 87 | 23,946 |
+| Paris | 24 | 75,242 | 75,155 | 87 | 23,997 |
+| Osaka | 28 | 90,772 | 90,772 | 0 | 24,391 |
+| Paris | 28 | 90,952 | 90,952 | 0 | 24,424 |
+
+These six production-selected compiled measurements ran separately after the eligibility fix. Only t24 changes among all 27 Amsterdam/Osaka/Paris width reports; every other report, including the t4 hash arities, matches section 19. The t24 winner spends 226 additional runtime bytes to save 87 call gas. The newly eligible t20 alternatives do not improve the selected entry. No t20 or t28 gas pin changes; the t24 pin uses the measured value without relaxing the zero-gas tolerance.
+
+The required fixed-body fixture now checks 420 compiled calls: five legacy forks, three t24 layouts and 28 inputs each. It retains the original 24 inputs and adds all `UINT256_MAX` plus three rotations of `[UINT256_MAX, PRIME, PRIME-1]`, so every eager and deferred lane sees each word. Both PRIME policies, reference outputs, equal gas, exact runtime bytes, depth, bound checks and text/model replay remain checked. Production CLI input counts are unchanged. The earlier 360-call fixture and interrupted production batch are not evidence for this expanded coverage.
+
+Final worker gates pass:
+
+- All nine widths on Amsterdam, Osaka and Paris: 864 fresh compiled full-word/reference calls, measured runtime bytes and zero gas-model differences. Six initial measurements contribute 144 calls and the remaining CLI shards contribute 720.
+- Complete Rust suite: 74 passed (58 library, two CLI, three EIP, four generator and seven execution tests), four exploratory probes ignored, and the zero-test doc target passes. The final library run includes the 420-call fixture and all six fused bounds/PRIME/caller-tail/slot tests.
+- Forge offline with clean pinned local dependencies: 127 passed, none failed or skipped, including all three 10,000-case t4 fuzz tests. Default all-nine Amsterdam regeneration is byte-identical.
+- Final all-target Clippy with warnings denied, Rust/Solidity formats and whitespace checks pass. Clippy initially rejected `chunks_exact(2)` in the new eligibility test; the equivalent `as_chunks::<2>()` iteration preserves every assertion. The complete library suite, Clippy and Rust formatting were rerun after that test-only correction. Source hashes prove production code unchanged across it.
+
+The three test/docs commits were cleanly rebased onto coordinator `b4afc03`, with equal range-diff and byte-identical restored WIP. The coordinator's formal tree is unchanged. Native audit session 120 exited zero. Acceptance session 121 completed the runtime, regeneration and Forge gates before stopping on the test-only lint; the final correction checks exited zero. The 41 passing guarded items used one heavy command at a time, nice 15, two Rayon threads, two Cargo jobs, one Rust test thread and two Forge threads. Maximum sampled aggregate RSS was 803,456 KiB, longest item 1,381.20 seconds, and no resource guard fired. Host duration is health evidence, not the EVM performance metric.
+
+Evidence: parent scratch `astra-fresh-audit-batch.log`, `astra-fresh-gates-batch.log`, `astra-fresh-finish.log`, their per-item logs/resource JSONs, `astra-fresh-gates-results.json`, source manifests and `astra-fresh-rebase-report.md`. An initial acceptance-wrapper bootstrap stopped before native work because the two old Osaka baseline logs lived in the original worker scratch; their read-only paths were corrected. No dependency, lockfile, generated or formal source changed. This production unit still needs independent coordinator verification and affected formal synchronization before integration.
+
+Next leads are phase-aware reuse of dead output-buffer words and transporting the fused root across round boundaries. They remain static hypotheses, not measured savings. No exhausted body/PRIME grid was repeated. The worker releases the heavy CPU slot for the coordinator's independent gates before any further native experiment.
+
 ## Verification and evidence
 
 Session scratch contains `astra-baseline-{amsterdam,osaka}.log`, `astra-baseline-floor.json`, `astra-baseline-schedule.json`, `astra-exchange-kept{8,9}.log`, `astra-exchange-kept9-resources.log`, `astra-search-tests.log` and the fetched EIP text. The durable tables above do not depend on those temporary files surviving.

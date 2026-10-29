@@ -155,8 +155,11 @@ pub fn build_entry(
     let fused = improve_entry(params.t, fork, serial, |budget, prior| {
         schedule::build_fused_entry(params, inputs, budget, fork, prior.opts)
     });
-    Ok(improve_entry(params.t, fork, fused, |budget, prior| {
+    let seeded = improve_entry(params.t, fork, fused, |budget, prior| {
         schedule::build_seeded_entry(params, inputs, budget, fork, prior.opts)
+    });
+    Ok(improve_entry(params.t, fork, seeded, |budget, prior| {
+        schedule::build_seeded_slots_entry(params, inputs, budget, fork, prior.opts)
     }))
 }
 
