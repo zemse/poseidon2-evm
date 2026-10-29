@@ -45,12 +45,17 @@ fn amsterdam_t2_t3_t4() {
 }
 
 #[test]
+fn amsterdam_t8_stream() {
+    let reports = run("amsterdam", &[8]);
+    within(&reports[0]);
+    assert_eq!(reports[0].gas.measured, 23786);
+    assert_eq!(reports[0].bytes.len(), 1);
+}
+
+#[test]
 fn amsterdam_sum_trees() {
-    let reports = run("amsterdam", &[8, 12, 16, 20, 24, 28]);
-    for (report, gas) in reports
-        .iter()
-        .zip([23807, 34145, 44494, 54835, 65489, 77826])
-    {
+    let reports = run("amsterdam", &[12, 16, 20, 24, 28]);
+    for (report, gas) in reports.iter().zip([34145, 44494, 54835, 65489, 77826]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);

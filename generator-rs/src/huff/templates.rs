@@ -269,6 +269,12 @@ pub fn stream_blocks(kept: bool, on_stack: bool) -> &'static [&'static str] {
     }
 }
 
+/// The last kept t8 block consumes S0 below the previous four outputs.
+/// Its z3 replaces S0, below those outputs; the other three stay on top.
+pub fn last_stream_block8() -> &'static str {
+    "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup12 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap11 add=o2 lane=z2 swap4 add=o0 lane=z0"
+}
+
 /// One block of an external layer with its outputs on top in order,
 /// [s0', s1', s2', s3'] ([s0', P, s1', s2', s3'] for Exit), from the column
 /// sums (stacksearch `sblock` exit / exit0 / final): the moves of

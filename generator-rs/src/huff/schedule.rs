@@ -32,8 +32,8 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
-    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4,
-    stream_blocks, templates,
+    internal3_periodic, internal3_seam, internal4, last_stream_block8, linear_final4,
+    ordered_blocks, round4, stream_blocks, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -1756,9 +1756,23 @@ impl<'a> Builder<'a> {
         for (n, &b) in order.iter().enumerate() {
             if let Some(r) = next {
                 let kept = n + keep >= k;
-                let program = stream_blocks(kept, on_stack(b, &self.e))
-                    .iter()
-                    .find(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let take_sum = t == 8
+                    && kept
+                    && n + 1 == k
+                    && on_stack(b, &self.e)
+                    && sums
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &s)| self.e.find(s) == i + 5);
+                let program = take_sum
+                    .then_some(last_stream_block8())
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                    .or_else(|| {
+                        stream_blocks(kept, on_stack(b, &self.e))
+                            .iter()
+                            .copied()
+                            .find(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                    });
                 if let Some(program) = program {
                     self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
                     continue;
@@ -1857,6 +1871,18 @@ impl<'a> Builder<'a> {
                     _ => {}
                 }
                 s.insert(0, None);
+            } else if mv == "take0" {
+                let Some(ks) = find(&s, sums[0]) else {
+                    return false;
+                };
+                if ks < 2 || ks - 1 > reach {
+                    return false;
+                }
+                s.swap(0, ks - 1);
+                if !find(&s, x[4 * b]).is_some_and(|k| k <= reach) {
+                    return false;
+                }
+                s[0] = None;
             } else if mv == "P" {
                 let prime = |v: &Option<Id>| v.is_some_and(|v| self.e.value(v).is_prime());
                 let Some(k) = s.iter().position(prime) else {
@@ -1920,6 +1946,11 @@ impl<'a> Builder<'a> {
             if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
                 let j = 4 * b + i;
                 self.pair_add(x[j], sums[i], &format!("u{j}"), false)?;
+            } else if mv == "take0" {
+                self.swap_up(sums[0])?;
+                let j = 4 * b;
+                self.e
+                    .compute(Op::Add, &[val(x[j]), inplace(sums[0])], &format!("u{j}"))?;
             } else if mv == "P" {
                 self.e.push_prime()?;
             } else if let Some(k) = mv.strip_prefix("dup") {
