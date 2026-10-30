@@ -50,6 +50,7 @@ fn layout_for(t: usize) -> Layout {
             fold_first: false,
             table_absolute: false,
             m4_add_double: false,
+            tree_sum: false,
         };
     }
     if t == 8 {
@@ -71,6 +72,7 @@ fn layout_for(t: usize) -> Layout {
             fold_first: false,
             table_absolute: false,
             m4_add_double: false,
+            tree_sum: false,
         };
     }
     if t == 12 {
@@ -92,6 +94,7 @@ fn layout_for(t: usize) -> Layout {
             fold_first: true,
             table_absolute: false,
             m4_add_double: true,
+            tree_sum: true,
         };
     }
     Layout {
@@ -112,6 +115,7 @@ fn layout_for(t: usize) -> Layout {
         fold_first: false,
         table_absolute: false,
         m4_add_double: false,
+        tree_sum: false,
     }
 }
 
@@ -136,7 +140,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,523 gas per permute of the test wrapper, which is then about 26,900 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 44,265 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 43,817 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }

@@ -78,6 +78,10 @@ pub struct Layout {
     /// assembly CSE brings x up with a SWAP and a DUP1, the shift has the
     /// constant moved around it
     pub m4_add_double: bool,
+    /// a sum whose chain would be cut into statements as two chains joined
+    /// by one add in a single expression instead, the deeper operands'
+    /// chain evaluated first
+    pub tree_sum: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,6 +404,11 @@ impl<'a> Builder<'a> {
         // descending rank, the unranked (infinite) first; stable like the TS
         // sort, where two infinities compare as equal
         order.sort_by_key(|a| std::cmp::Reverse(self.rank(a)));
+        if self.layout.tree_sum
+            && let Some(e) = self.tree_expr(&order, cap)?
+        {
+            return self.p.let_(name, &e);
+        }
         let cap = wide(cap);
         let mut window: Vec<Step> = Vec::new();
         let mut acc: Option<Value> = None;
@@ -425,14 +434,14 @@ impl<'a> Builder<'a> {
             let mut extended = window.clone();
             extended.push(step.clone());
             let a = acc.as_ref().expect("acc set");
-            if !self.window_fits(a, acc_is_variable, &extended) {
+            if !self.window_fits(a, acc_is_variable, &extended, 0) {
                 let flushed = self.flush(a, &window, &variable, name)?;
                 variable = Some(flushed.clone());
                 acc = Some(flushed);
                 acc_is_variable = true;
                 window.clear();
                 let a = acc.as_ref().expect("acc set");
-                if !self.window_fits(a, acc_is_variable, std::slice::from_ref(&step)) {
+                if !self.window_fits(a, acc_is_variable, std::slice::from_ref(&step), 0) {
                     bail!("{} is out of reach", v.name);
                 }
             }
@@ -473,15 +482,95 @@ impl<'a> Builder<'a> {
     }
 
     /// Intermediates on the stack when operand j of a window is read: the
-    /// operands outside it, plus PRIME for each reducing step from j out.
+    /// operands outside it, plus PRIME for each reducing step from j out,
+    /// plus `above` already on the stack when the whole window is read.
     /// The first value of the chain is innermost of all and read last.
-    fn window_fits(&self, acc: &Value, acc_is_variable: bool, w: &[Step]) -> bool {
+    fn window_fits(&self, acc: &Value, acc_is_variable: bool, w: &[Step], above: usize) -> bool {
         let reach = |v: &Value, outer: &[Step], own: usize| {
             let reducing = outer.iter().filter(|o| o.reduce).count();
-            self.reachable(v, outer.len() - own + reducing)
+            self.reachable(v, above + outer.len() - own + reducing)
         };
         (acc_is_variable || reach(acc, w, 0))
             && w.iter().enumerate().all(|(j, s)| reach(&s.v, &w[j..], 1))
+    }
+
+    /// The steps after the first value of a left-deep chain over `order` and
+    /// the bound of its sum: a step reduces where the lazy sum would overflow
+    /// or, for the last, exceed cap.
+    fn steps(order: &[Value], cap: U256) -> (Vec<Step>, U512) {
+        let cap = wide(cap);
+        let mut bound = wide(order[0].bound);
+        let mut steps = Vec::new();
+        for (j, v) in order.iter().enumerate().skip(1) {
+            let last = j == order.len() - 1;
+            let lazy = bound + wide(v.bound);
+            let reduce = lazy > wide(UINT256_MAX) || (last && lazy > cap);
+            bound = if reduce { wide(PRIME - u256(1)) } else { lazy };
+            steps.push(Step {
+                v: v.clone(),
+                reduce,
+            });
+        }
+        (steps, bound)
+    }
+
+    /// A left-deep chain over `order` as one expression, or None where an
+    /// operand of it is out of reach with `above` intermediates on the stack.
+    fn chain_expr(&self, order: &[Value], cap: U256, above: usize) -> Result<Option<Value>> {
+        let (steps, _) = Self::steps(order, cap);
+        if !self.window_fits(&order[0], false, &steps, above) {
+            return Ok(None);
+        }
+        let mut e = order[0].clone();
+        for Step { v, reduce } in &steps {
+            e = if *reduce {
+                self.p.expr(Op::Addmod, &[&e, v, &self.p.p])?
+            } else {
+                self.p.expr(Op::Add, &[&e, v])?
+            };
+        }
+        Ok(Some(e))
+    }
+
+    /// The sum as one expression: a left-deep chain, or where an operand of
+    /// that is out of reach two chains joined by one add, the deeper
+    /// operands' chain the second argument (evaluated first, with the join's
+    /// PRIME at most above the lets) and the shallower operands' the first
+    /// (with that value above them as well); the split with the fewest
+    /// reductions, the longest deep chain among those. None where no split
+    /// keeps every operand within reach.
+    fn tree_expr(&self, order: &[Value], cap: U256) -> Result<Option<Value>> {
+        if let Some(e) = self.chain_expr(order, cap, 0)? {
+            return Ok(Some(e));
+        }
+        let mut best: Option<(Value, usize)> = None;
+        for k in 1..order.len() {
+            let (shallow, deep) = order.split_at(k);
+            let (shallow_steps, shallow_bound) = Self::steps(shallow, UINT256_MAX);
+            let (deep_steps, deep_bound) = Self::steps(deep, UINT256_MAX);
+            let lazy = shallow_bound + deep_bound;
+            let reduce = lazy > wide(UINT256_MAX) || lazy > wide(cap);
+            let join = usize::from(reduce);
+            let (Some(a), Some(b)) = (
+                self.chain_expr(shallow, UINT256_MAX, 1 + join)?,
+                self.chain_expr(deep, UINT256_MAX, join)?,
+            ) else {
+                continue;
+            };
+            let reductions = join
+                + shallow_steps.iter().filter(|s| s.reduce).count()
+                + deep_steps.iter().filter(|s| s.reduce).count();
+            if best.as_ref().is_some_and(|(_, n)| *n <= reductions) {
+                continue;
+            }
+            let e = if reduce {
+                self.p.expr(Op::Addmod, &[&a, &b, &self.p.p])?
+            } else {
+                self.p.expr(Op::Add, &[&a, &b])?
+            };
+            best = Some((e, reductions));
+        }
+        Ok(best.map(|(e, _)| e))
     }
 
     /// (s_i + c)^5 written back to element i; y and x2 are popped with the

@@ -6,7 +6,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 permutation for BN254 with t = 12, Rf = 8, Rp = 57, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
-/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 44,265 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)
+/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 43,817 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT12 {
     function permute(uint256[12] memory state) internal pure {
@@ -571,28 +571,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x23d87025bd3f3352a2a0c2f4703c9d10d845d00be55597465b12d0fd0c80135d,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -650,28 +643,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x25777b7dc170f1990a4537756b084a4fe6ec946b362f73995a86fd753dc5d17f,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -729,28 +715,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1a05ec70a771db4dbd3e928f645a5202912c0eacabf5f3e2449ea4672fe6f538,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -808,28 +787,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x157d383a0a40cd84d5bcce99b5238dae37cfa07311b47f441402c24a70a2da70,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -887,28 +859,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x23adce7a7095246ec0acdd4f44cee56e1dd349c99353b35e7f058a490a5776c8,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -966,28 +931,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x28a78a8c74be2917b3f4d925391c74386570bb20504ca07655d9613068a6ae38,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1045,28 +1003,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2998c6107b89a079db6a42a6cb1140f2292b1d29cc813571aa8b5b0281ad99a6,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1124,28 +1075,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1d6417c714dc35362d500bc5c3e69d5d95f7693801bd976af94a536e33aeab15,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1203,28 +1147,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0cb5d2fcf0bf609426936548d3060351eddea4653ca31b1d0bed3479c2d8d2bb,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1282,28 +1219,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x05a772552bde1aeca89e8562941bad0c0046da3e1ad46b1783ae34e05c2627b7,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1361,28 +1291,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x222e2f3bc4dcec4275d26f99edb2f2bdb96721c4be2736bca2e19e05c8c6cbe8,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1440,28 +1363,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x01693e6e0a0ed4ae486d22a84d5f36f7c7ac6c4ab161750cce408dc6d85ba290,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1519,28 +1435,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2dd7278a597351e158c42fc05ef616eb37c4749b713585d5e0e37ada091913c1,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1598,28 +1507,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x138a7baad9fe0adbc5e15a05afd9f9ab81adcde6632dbd1c6e625ad1a44e7c59,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1677,28 +1579,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x27449334c2bd4916af3126cb62f1f65f8e59442723209956190f1b1e12295f06,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1756,28 +1651,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x082d5c05f010ddd7c7860ff0842e0dd5f543c66c54a99cc2357ae8fbfc4f9797,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1835,28 +1723,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0e58d85893bc856ef746224ec8f775019bbc7a2b128734bbb2ad782998929cd4,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1914,28 +1795,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x19e615561f2fccfefc5e7bd8a91d0eec064f13efa39f4752c38414c914af7b58,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -1993,28 +1867,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x06b0079dcff25e7a4f14cbe0ed7211580ba9fade52413dfd97fadc912490b49d,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2072,28 +1939,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1cad166c3863436fb3005fe9d47ebd6d8190b12a6b2ed5f0eb938dc5c9a570d0,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2151,28 +2011,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x00373c8d89f94b7ec87ca7c5e405246bd56b7543879266bb16993a410835bc87,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2230,28 +2083,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0b5ce685b104977696dfc5023580345a3dc8c3ab1c9bc451e1162561e0be2053,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2309,28 +2155,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2940a7fdcf1004beeb5eaa033014c933fcda85ff801bcdd6d65593946125b953,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2388,28 +2227,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0c194b50d092ecd9a8afb7ee4602ff9ae4d390d28d65c938bc3ee08b2840a3fa,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2467,28 +2299,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0caebb769b00ca8bb25621a62869ae11f2c69136555a4369de5de51159d521f8,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2546,28 +2371,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0cf3f5150ce1725ee5d4c31c962e728d34735a95f3e46dc37f42ea79b067f4ed,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2625,28 +2443,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2ef94a7f698e00d7e534a59ee6c55b0391bb6342f121d3ae61abf3451171b9b7,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2704,28 +2515,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2596cea8f3d3be305178f1131b3d0004217846b09eeb2a4ea2d5e3e2f86af2ff,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2783,28 +2587,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0ffd09263a4c0040581a28cd752d73abce7eb1b7e28fea49fc4b2e25b8629076,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2862,28 +2659,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0b7ab851fcd83492a436725c15ea60b9b496786a656572acdc98a1a5486cd839,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -2941,28 +2731,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0057e2cab9000c8c2c72ac0945ce8ec6ef062dfed248ac4e11843fce99c47d12,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3020,28 +2803,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x20d795b787d04ba638aebb728c9dc0fe4693affa15933addb47ec94fc820cea7,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3099,28 +2875,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0fa35cec60bd5f5c96e39889ccc508e3bff3434c69934c1d442739d46d20a461,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3178,28 +2947,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x198ab5ed78a09c50ebe7011c5a1422c331d21805dd382ff3e9fff30aaf97ea57,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3257,28 +3019,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2479cdff07acb7a61b185d125fe98cbaf96d63c8f6a4a67a5fae4fa082884b74,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3336,28 +3091,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x231dffb273a36b5505f6b97fce8b215b13845f51e34ca519025c37dac74e6b3c,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3415,28 +3163,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0b4e6584bff8c2ef606ca396f8c71de75ff943351dbf3f8407bb06f93e55e226,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3494,28 +3235,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x011189898119688cc6d8c088e1300e30734107dcc6c0866c42b40316e619d962,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3573,28 +3307,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x17cd979367205c7d09bdaabaa81ebb4e31993eacff14dbbd001ee80f42281d4d,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3652,28 +3379,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x00f7a32685178282bc522d621cfd3c089fdd9c11e76ede52987c1e6690f2d7d9,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3731,28 +3451,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x04f8c40a97e28dc76270ade0e61860b18ada2e01466d08a7eee7ddf1cb77fefa,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3810,28 +3523,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1a85ca1e8641b5cd585c41276374daf325f11de38721df3973be90801fbebe9b,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3889,28 +3595,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x18a54a7a63cae9fdc3a9969abec2d9bbaf97d9ae99896f1610751c7a129b48f5,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -3968,28 +3667,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0e3ee5f81508929b701f6a244631ce4e8a25c02832f9ae85770bbe9c7a040630,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4047,28 +3739,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1f09078f3dab46bb46c659dadb53f98c4586ec718509f222ca9f849455ecc119,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4126,28 +3811,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2d30f138068689d3c5bf330c551f5e552911bb5567048621c540aa4ada7fbe66,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4205,28 +3883,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x09168af78f1adf4d69e108f7b509c43dafd108c5d87a2421fc7dea574aac44b1,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4284,28 +3955,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2f19a431d8d03fbba2da044961c6d6920e5340ac32314f025b66db1acfe82c98,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4363,28 +4027,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x04a17fc8d6a57395a5495ed1ded8a06ea45624cd1b85e3cf9c30c841cc7a6c07,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4442,28 +4099,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0b1b503a4d99389d807a7cd8cb1e1c7b87881512d04251ba0f9b26668511c8b3,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4521,28 +4171,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x1a27def64d35b0dc44a00b12d42fa969228082a97e06ed7c85fec0df35106b6a,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4600,28 +4243,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x0da359b25a62ac7c80aeff176e3c2a24f34978042ebc131e0579134bf621a5bc,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4679,28 +4315,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x2287ba9daf1365ce1ed2f9599fe95e4e19b5a6744c4cd89bd4a9f79ae45f68e5,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4758,28 +4387,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x21d1a8123d862670919a26f54370d937ff96c87eb250ea9cb542b988becd5b1b,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4837,28 +4459,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x163cd5792b124086b78d81e70bf8765d131f05c580fd845065c23491af2648a8,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
@@ -4916,28 +4531,21 @@ library LibPoseidon2YulT12 {
             }
             {
                 let sum :=
-                    add(
+                    addmod(
+                        add(addmod(add(state11, state10), state9, PRIME), state8),
                         add(
-                            addmod(
-                                add(
-                                    add(
-                                        addmod(
-                                            add(add(addmod(add(state11, state10), state9, PRIME), state8), state7),
-                                            state6,
-                                            PRIME
-                                        ),
-                                        state5
-                                    ),
-                                    state4
+                            add(
+                                addmod(
+                                    add(add(addmod(add(state7, state6), state5, PRIME), state4), state3),
+                                    state2,
+                                    PRIME
                                 ),
-                                state3,
-                                PRIME
+                                state1
                             ),
-                            state2
+                            state0
                         ),
-                        state1
+                        PRIME
                     )
-                sum := addmod(sum, state0, PRIME)
                 state0 := add(
                     0x099741234d38e4e41b57764791d6fea6e522fc1773cef3bef7e98484327e04cd,
                     add(sum, mulmod(0x20bb1e98f40bfe80b8e2f2c885ea13a2ea1f146ff61218c31075ad79dd8f4ffa, state0, PRIME))
