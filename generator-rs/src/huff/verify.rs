@@ -571,6 +571,10 @@ pub fn verify(root: &Path, fork: &Fork, widths: &[Width]) -> Result<Vec<Report>>
 mod linear_probe;
 
 #[cfg(test)]
+#[path = "../../stacksearch/t2_terminal_entry_probe.rs"]
+mod t2_terminal_entry_probe;
+
+#[cfg(test)]
 #[path = "../../stacksearch/t4_row0_last_product_probe.rs"]
 mod t4_row0_last_product_probe;
 

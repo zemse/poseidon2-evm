@@ -4377,6 +4377,10 @@ fn build_best_with_candidates(
 mod fused_tests;
 
 #[cfg(test)]
+#[path = "t2_terminal_tests.rs"]
+pub(crate) mod t2_terminal_tests;
+
+#[cfg(test)]
 #[path = "t3_seam_tests.rs"]
 pub(crate) mod t3_seam_tests;
 

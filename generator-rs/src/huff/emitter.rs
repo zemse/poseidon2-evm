@@ -515,6 +515,31 @@ impl Emitter {
         Ok(())
     }
 
+    /// Test-only sequential store with an exact MSIZE precondition.
+    #[cfg(test)]
+    pub(crate) fn mstore_next(&mut self, offset: usize) -> Result<Id> {
+        if self.memory != offset || !offset.is_multiple_of(32) {
+            bail!("sequential store needs memory extent {offset}");
+        }
+        let Some(end) = offset.checked_add(32) else {
+            bail!("sequential store offset overflow");
+        };
+        let value = self.top(0)?;
+        let word = u256(offset as u64);
+        let size = self.alloc(Value::new(
+            "msize".to_string(),
+            word,
+            vec![word; self.vectors],
+            Some(word),
+        )?);
+        self.opcode(|| "msize".to_string(), 2, 1);
+        self.pushed(size);
+        self.opcode(|| "mstore".to_string(), gas::MSTORE, 1);
+        self.stack.truncate(self.stack.len() - 2);
+        self.memory = end;
+        Ok(value)
+    }
+
     /// Store a constant at a memory offset (used once for the diag table).
     pub fn mstore_const(&mut self, c: U256, offset: usize) -> Result<()> {
         self.push(c, None)?;
