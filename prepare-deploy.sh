@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Check if all arguments are provided
 if [ -z "$1" ] || [ -z "$2" ]; then
@@ -48,7 +49,7 @@ echo "Creating version: $NEW_VERSION"
 mkdir -p "$DEPLOY_DIR"
 
 if [ "$TYPE" = "huff" ]; then
-    huffc ./src/$CURVE/huff/Poseidon2.huff -b > "$DEPLOY_DIR/Poseidon2huff.out"
+    hnc ./src/$CURVE/huff/t4/Poseidon2.huff -b -e amsterdam > "$DEPLOY_DIR/Poseidon2huff.out"
     # JSON wrapper for tools that require a Foundry-style artifact (e.g. eth-vanity create2)
     printf '{"bytecode":{"object":"0x%s"}}' "$(cat "$DEPLOY_DIR/Poseidon2huff.out")" > "$DEPLOY_DIR/Poseidon2huff.json"
     echo "Deployment files prepared in $DEPLOY_DIR"

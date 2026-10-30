@@ -1,0 +1,256 @@
+{
+  "scope": "Finite incumbent-template rewrites: four reduction/SHL masks with immediate PRIME supply and shortest SWAP-only transport; adjacent ADD+MOD controls; one delayed raw-s1 reuse. No DAG/order search.",
+  "evidence": "Inclusive uint256 bound replay and 64 numeric trials per program. Compiled checks are a separate Rust gate.",
+  "cases": [
+    {
+      "kind": "final",
+      "name": "incumbent",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "shift-0",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "shift-1",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 P swap2 addmod=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P dup5 dup3 addmod=s2' swap3 2 shl=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 355,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "shift-2",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 P swap2 addmod=t1 P dup9 dup3 2 shl=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 355,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "shift-3",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 P swap2 addmod=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 P swap2 addmod=t1 P dup9 dup3 2 shl=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P dup5 dup3 addmod=s2' swap3 2 shl=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 358,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "share-raw-s1",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 add=raw-s1 P dup2 dup9 addmod=s0' swap2 swap1 mod=s1' swap1",
+      "gas_model": 361,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-t3",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 add=raw-t3 mod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-s3'",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 add=raw-s3' mod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-t2",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 add=raw-t2 mod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-s2'",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 add=raw-s2' mod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-s1'",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 add=raw-s1' mod=s1' P dup2 dup8 addmod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-s0'",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 addmod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 addmod=s3' swap5 dup1 add=2s1 addmod=t2 P P dup6 dup4 addmod=s2' swap4 4 mulmod=4t0 addmod=s1' P dup2 dup8 add=raw-s0' mod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "final",
+      "name": "split-all",
+      "init": "s0,P,s1,s2,s3",
+      "dsl": "sbox0 P dup3 sbox1 P dup6 sbox3 swap2 dup2 add=t0 P P P P dup5 dup8 dup1 add=2s3 add=raw-t3 mod=t3 swap8 sbox2 P swap6 add=t1 P dup9 P dup4 4 mulmod=4t1 add=raw-s3' mod=s3' swap5 dup1 add=2s1 add=raw-t2 mod=t2 P P dup6 dup4 add=raw-s2' mod=s2' swap4 4 mulmod=4t0 add=raw-s1' mod=s1' P dup2 dup8 add=raw-s0' mod=s0'",
+      "gas_model": 352,
+      "arithmetic": 184,
+      "net_consumed_slots": 48,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "incumbent",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "shift-0",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap6 dup3 addmod=s0'",
+      "gas_model": 160,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "shift-1",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 P swap2 addmod=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P dup4 dup3 addmod=s2' swap2 2 shl=4t0 P swap2 addmod=s1' P P swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "shift-2",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 P swap2 addmod=t1 P dup7 dup3 2 shl=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "shift-3",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 P swap2 addmod=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 P swap2 addmod=t1 P dup7 dup3 2 shl=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P dup4 dup3 addmod=s2' swap2 2 shl=4t0 P swap2 addmod=s1' P P swap6 dup3 addmod=s0'",
+      "gas_model": 166,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-t3",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 add=raw-t3 mod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-s3'",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 add=raw-s3' mod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-t2",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 add=raw-t2 mod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-s2'",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 add=raw-s2' mod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-s1'",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 add=raw-s1' mod=s1' P P swap1 swap6 dup3 addmod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-s0'",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 addmod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 addmod=s3' swap4 dup1 add=2s1 addmod=t2 P P dup5 dup4 addmod=s2' swap3 4 mulmod=4t0 P swap2 addmod=s1' P P swap1 swap6 dup3 add=raw-s0' mod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    },
+    {
+      "kind": "linear",
+      "name": "split-all",
+      "init": "s0,s1,s2,s3",
+      "dsl": "dup2 add=t0 P P swap4 P dup4 dup8 dup1 add=2s3 add=raw-t3 mod=t3 swap6 add=t1 P dup7 P dup4 4 mulmod=4t1 add=raw-s3' mod=s3' swap4 dup1 add=2s1 add=raw-t2 mod=t2 P P dup5 dup4 add=raw-s2' mod=s2' swap3 4 mulmod=4t0 P swap2 add=raw-s1' mod=s1' P P swap1 swap6 dup3 add=raw-s0' mod=s0'",
+      "gas_model": 163,
+      "arithmetic": 76,
+      "net_consumed_slots": 20,
+      "numeric_trials": 64
+    }
+  ]
+}

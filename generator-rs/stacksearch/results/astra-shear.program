@@ -1,0 +1,7 @@
+10	1	4	64	P dup4 dup3 add=q P P dup3 dup7 addmod=s dup1 dup4 add=h dup8 add=u1 swap6 addmod=v1 swap3 add=a
+33	4	1	64	P P dup5 dup4 addmod=q dup1 dup5 add=s P dup2 dup4 add=h dup8 addmod=u1 swap5 add=v1 swap3 add=a
+24	1	3	64	P dup4 dup3 add=q P dup2 dup6 add=s P dup2 dup5 addmod=h dup8 add=u1 swap6 addmod=v1 swap3 add=a
+1	2	1	56	P P dup5 dup4 addmod=q dup1 dup5 add=s dup1 dup3 add=h dup7 add=u1 swap5 add=v1 swap3 add=a
+41	5	3	72	P P dup5 dup4 addmod=q P dup2 dup6 add=s P dup2 dup5 add=h dup9 addmod=u1 swap6 addmod=v1 swap3 add=a
+32	1	1	56	P dup4 dup3 add=q dup1 dup5 add=s P dup2 dup4 add=h dup8 addmod=u1 swap5 add=v1 swap3 add=a
+40	1	1	64	P dup4 dup3 add=q P dup2 dup6 add=s P dup2 dup5 add=h dup9 addmod=u1 swap6 addmod=v1 swap3 add=a

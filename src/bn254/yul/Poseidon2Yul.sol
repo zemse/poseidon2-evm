@@ -7,6 +7,7 @@ import {LibPoseidon2Yul} from "./LibPoseidon2Yul.sol";
 /// @notice Poseidon2 hash function optimized in Yul assembly
 /// @dev ABI-compatible with IPoseidon2 interface
 /// Supports hash_1(uint256), hash_2(uint256,uint256), hash_3(uint256,uint256,uint256)
+/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,904 gas per hash call (32,574 runtime bytes, over the 24,576 byte limit before EIP-7954); legacy pipeline, runs = 1,000,000: 15,153 gas
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 contract Poseidon2Yul_BN254 {
     fallback() external {

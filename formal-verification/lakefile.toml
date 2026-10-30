@@ -1,0 +1,41 @@
+name = "poseidon2"
+version = "0.1.0"
+defaultTargets = ["Poseidon2"]
+
+[leanOptions]
+autoImplicit = false
+
+# Same Mathlib tag as the EVMLean commit below pins (its lake-manifest resolves
+# v4.29.0 to 8a178386ffc0f5fef0b77738bb5449d50efeea95).
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4.git"
+rev = "v4.29.0"
+
+[[lean_lib]]
+name = "Poseidon2"
+roots = ["Poseidon2", "Poseidon2.Audit"]
+# every module except Poseidon2/Proofs/ (its own library below)
+globs = ["Poseidon2", "Poseidon2.Audit", "Poseidon2.AxiomCheck", "Poseidon2.Deps",
+  "Poseidon2.Soundness", "Poseidon2.Theorems", "Poseidon2.Spec.+", "Poseidon2.Evm.+",
+  "Poseidon2.Checker.+", "Poseidon2.Bytecode.+"]
+
+# The kernel checks of the exported bytecode (Poseidon2/Proofs/, written by
+# scripts/Emit.lean through scripts/proof.sh): the 17 small artifacts are
+# committed and audited by Proofs/Audit.lean (`lake build Poseidon2Proofs`);
+# the 18 large ones are written to Proofs/Generated/ (not committed) by
+# `scripts/proof.sh <artifact>`, which also builds them. Not a default target.
+[[lean_lib]]
+name = "Poseidon2Proofs"
+roots = ["Poseidon2.Proofs.Audit"]
+globs = ["Poseidon2.Proofs.+"]
+# the checkpoint states are large literals; elaborating them needs a deep stack
+moreLeanArgs = ["--tstack=4000000"]
+
+# EVM semantics. Only its Lean modules are built here: its `extern_lib`
+# (C sources cloned from GitHub, compiled with `cc`) is linked into
+# executables only, and this package builds none.
+[[require]]
+name = "evmlean"
+git = "https://github.com/lefterislazar/EVMLean.git"
+rev = "fd4f5e6d6d6b4a18eb73f5a71ae2df909ac2b542"

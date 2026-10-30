@@ -1,0 +1,7 @@
+target/
+*.json
+!results/*.json
+# outputs of the run*.sh scripts
+/t23.txt
+/entry.txt
+/block*.txt
