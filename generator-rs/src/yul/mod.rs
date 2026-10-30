@@ -23,11 +23,13 @@ use render::{
 };
 use schedule::{Layout, Mode, build_hash_entry, build_permutation};
 
-/// Per-width placement, tuned against solc 0.8.30 (legacy pipeline, no
-/// via-IR, optimizer off, 200 and 1,000,000 runs): locals up to the DUP16 /
-/// SWAP16 reach, diag constants as locals where the reach allows, then in
-/// the scratch space, a few as PUSH32 and the rest in a memory table, as the
-/// 24,576 byte code size of a contract using the library requires.
+/// Per-width placement, tuned for the solc 0.8.30 setting with the least
+/// runtime gas first (the legacy pipeline at 1,000,000 runs from t = 8):
+/// locals up to the DUP16 / SWAP16 reach and every diag constant a PUSH32
+/// literal (3 gas a read), with no regard to the 24,576 byte code size of a
+/// contract using the library (t = 12 is about 39,400 bytes at 1,000,000
+/// runs); a memory table, the scratch space or locals would cost 2 to 9 gas
+/// a read.
 fn layout_for(t: usize) -> Layout {
     if t <= 4 {
         return Layout {
@@ -55,8 +57,8 @@ fn layout_for(t: usize) -> Layout {
             stack_elements: 8,
             diag_in_memory: 0,
             diag_fixed: 0,
-            diag_lets: 4,
-            diag_scratch: 2,
+            diag_lets: 0,
+            diag_scratch: 0,
             m4_temps: 4,
             internal_let: false,
             prime_first: false,
@@ -74,10 +76,10 @@ fn layout_for(t: usize) -> Layout {
     if t == 12 {
         return Layout {
             stack_elements: 12,
-            diag_in_memory: 8,
-            diag_fixed: 2,
+            diag_in_memory: 0,
+            diag_fixed: 0,
             diag_lets: 0,
-            diag_scratch: 2,
+            diag_scratch: 0,
             m4_temps: 2,
             internal_let: false,
             prime_first: false,
@@ -88,7 +90,7 @@ fn layout_for(t: usize) -> Layout {
             nested_x5: false,
             external_lets: false,
             fold_first: true,
-            table_absolute: true,
+            table_absolute: false,
             m4_add_double: true,
         };
     }
@@ -131,10 +133,10 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,882 / 13,940 / 14,003 gas per hash_1 / hash_2 / hash_3 call of a consumer, which is then about 32,400 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 14,883 / 14,969 / 15,055 gas"
         }
         8 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,523 gas per permute of the test wrapper, which is then about 26,900 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,272 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 44,265 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }

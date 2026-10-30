@@ -328,54 +328,6 @@ contract Poseidon2YulT12Test is Test {
         assertEq(zero, 0, "zero slot");
     }
 
-    /// @dev the library restores the caller's words at 0x80 .. that hold its diag table during the internal rounds
-    function test_memory_below_kept() public view {
-        uint256[8] memory below;
-        uint256 start;
-        assembly {
-            start := below
-        }
-        assertEq(start, 0x80, "below at 0x80");
-        for (uint256 i = 0; i < 8; i++) {
-            below[i] = i + 1;
-        }
-        uint256[12] memory state;
-        uint256[12] memory input;
-        for (uint256 i = 0; i < 12; i++) {
-            state[i] = i + 3;
-            input[i] = i + 3;
-        }
-        LibPoseidon2YulT12.permute(state);
-        for (uint256 i = 0; i < 8; i++) {
-            assertEq(below[i], i + 1, "word below the state");
-        }
-        assertEq(state, _permute(input), "state");
-    }
-
-    /// @dev the library restores the caller's words at 0x80 .. that hold its diag table during the internal rounds, with the state array across them
-    function test_memory_below_kept_overlap() public view {
-        uint256[3] memory below;
-        uint256 start;
-        assembly {
-            start := below
-        }
-        assertEq(start, 0x80, "below at 0x80");
-        for (uint256 i = 0; i < 3; i++) {
-            below[i] = i + 1;
-        }
-        uint256[12] memory state;
-        uint256[12] memory input;
-        for (uint256 i = 0; i < 12; i++) {
-            state[i] = i + 3;
-            input[i] = i + 3;
-        }
-        LibPoseidon2YulT12.permute(state);
-        for (uint256 i = 0; i < 3; i++) {
-            assertEq(below[i], i + 1, "word below the state");
-        }
-        assertEq(state, _permute(input), "state");
-    }
-
     /// @dev the Yul and Huff permutations of the same width must agree on any input
     /// forge-config: default.fuzz.runs = 1000
     function testFuzz_matches_huff(uint256[12] memory input) public view {
