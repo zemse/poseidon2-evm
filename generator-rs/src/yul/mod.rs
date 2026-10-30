@@ -44,6 +44,7 @@ fn layout_for(t: usize) -> Layout {
             raw_inputs: 0,
             fold_constants: true,
             nested_x5: t != 3,
+            external_lets: t == 3,
         };
     }
     if t == 8 {
@@ -61,6 +62,7 @@ fn layout_for(t: usize) -> Layout {
             raw_inputs: 8,
             fold_constants: true,
             nested_x5: false,
+            external_lets: false,
         };
     }
     if t == 12 {
@@ -78,6 +80,7 @@ fn layout_for(t: usize) -> Layout {
             raw_inputs: 0,
             fold_constants: false,
             nested_x5: false,
+            external_lets: false,
         };
     }
     Layout {
@@ -94,6 +97,7 @@ fn layout_for(t: usize) -> Layout {
         raw_inputs: 0,
         fold_constants: false,
         nested_x5: false,
+        external_lets: false,
     }
 }
 

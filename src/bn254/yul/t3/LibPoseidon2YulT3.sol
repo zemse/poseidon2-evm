@@ -26,85 +26,112 @@ library LibPoseidon2YulT3 {
 
             // round 0 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x0aad2e79f15735f2bd77c0ed3d14aa27b11f092a53bbc6e1db0672ded84f31e5)
-                state1 := add(add(sum, state1), 0x2252624f8617738cd6f661dd4094375f37028a98f1dece66091ccf1595b43f28)
-                state2 := add(add(sum, state2), 0x1a24913a928b38485a65a84a291da1ff91c20626524b2b87d49f4f2c9018d735)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x0aad2e79f15735f2bd77c0ed3d14aa27b11f092a53bbc6e1db0672ded84f31e5
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x2252624f8617738cd6f661dd4094375f37028a98f1dece66091ccf1595b43f28
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x1a24913a928b38485a65a84a291da1ff91c20626524b2b87d49f4f2c9018d735
+                            )
+                        }
+                    }
+                }
             }
 
             // round 1 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x22fc468f1759b74d7bfc427b5f11ebb10a41515ddff497b14fd6dae1508fc47a)
-                state1 := add(add(sum, state1), 0x1059ca787f1f89ed9cd026e9c9ca107ae61956ff0b4121d5efd65515617f6e4d)
-                state2 := add(add(sum, state2), 0x02be9473358461d8f61f3536d877de982123011f0bf6f155a45cbbfae8b981ce)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x22fc468f1759b74d7bfc427b5f11ebb10a41515ddff497b14fd6dae1508fc47a
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x1059ca787f1f89ed9cd026e9c9ca107ae61956ff0b4121d5efd65515617f6e4d
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x02be9473358461d8f61f3536d877de982123011f0bf6f155a45cbbfae8b981ce
+                            )
+                        }
+                    }
+                }
             }
 
             // round 2 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x0ec96c8e32962d462778a749c82ed623aba9b669ac5b8736a1ff3a441a5084a4)
-                state1 := add(add(sum, state1), 0x292f906e073677405442d9553c45fa3f5a47a7cdb8c99f9648fb2e4d814df57e)
-                state2 := add(add(sum, state2), 0x274982444157b86726c11b9a0f5e39a5cc611160a394ea460c63f0b2ffe5657e)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x0ec96c8e32962d462778a749c82ed623aba9b669ac5b8736a1ff3a441a5084a4
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x292f906e073677405442d9553c45fa3f5a47a7cdb8c99f9648fb2e4d814df57e
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x274982444157b86726c11b9a0f5e39a5cc611160a394ea460c63f0b2ffe5657e
+                            )
+                        }
+                    }
+                }
             }
 
             // round 3 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(
-                    addmod(sum, state0, PRIME),
-                    0x1a1d063e54b1e764b63e1855bff015b8cedd192f47308731499573f23597d4b5
-                )
-                state1 := addmod(sum, state1, PRIME)
-                state2 := addmod(sum, state2, PRIME)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                addmod(sum, p0, PRIME),
+                                0x1a1d063e54b1e764b63e1855bff015b8cedd192f47308731499573f23597d4b5
+                            )
+                            state1 := addmod(sum, p1, PRIME)
+                            state2 := addmod(sum, p2, PRIME)
+                        }
+                    }
+                }
             }
 
             // round 4 (internal)
@@ -675,82 +702,109 @@ library LibPoseidon2YulT3 {
 
             // round 60 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x14b39e7aa4068dbe50fe7190e421dc19fbeab33cb4f6a2c4180e4c3224987d3d)
-                state1 := add(add(sum, state1), 0x1d449b71bd826ec58f28c63ea6c561b7b820fc519f01f021afb1e35e28b0795e)
-                state2 := add(add(sum, state2), 0x1ea2c9a89baaddbb60fa97fe60fe9d8e89de141689d1252276524dc0a9e987fc)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x14b39e7aa4068dbe50fe7190e421dc19fbeab33cb4f6a2c4180e4c3224987d3d
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x1d449b71bd826ec58f28c63ea6c561b7b820fc519f01f021afb1e35e28b0795e
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x1ea2c9a89baaddbb60fa97fe60fe9d8e89de141689d1252276524dc0a9e987fc
+                            )
+                        }
+                    }
+                }
             }
 
             // round 61 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x0478d66d43535a8cb57e9c1c3d6a2bd7591f9a46a0e9c058134d5cefdb3c7ff1)
-                state1 := add(add(sum, state1), 0x19272db71eece6a6f608f3b2717f9cd2662e26ad86c400b21cde5e4a7b00bebe)
-                state2 := add(add(sum, state2), 0x14226537335cab33c749c746f09208abb2dd1bd66a87ef75039be846af134166)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x0478d66d43535a8cb57e9c1c3d6a2bd7591f9a46a0e9c058134d5cefdb3c7ff1
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x19272db71eece6a6f608f3b2717f9cd2662e26ad86c400b21cde5e4a7b00bebe
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x14226537335cab33c749c746f09208abb2dd1bd66a87ef75039be846af134166
+                            )
+                        }
+                    }
+                }
             }
 
             // round 62 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := add(add(sum, state0), 0x01fd6af15956294f9dfe38c0d976a088b21c21e4a1c2e823f912f44961f9a9ce)
-                state1 := add(add(sum, state1), 0x18e5abedd626ec307bca190b8b2cab1aaee2e62ed229ba5a5ad8518d4e5f2a57)
-                state2 := add(add(sum, state2), 0x0fc1bbceba0590f5abbdffa6d3b35e3297c021a3a409926d0e2d54dc1c84fda6)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := add(
+                                add(sum, p0),
+                                0x01fd6af15956294f9dfe38c0d976a088b21c21e4a1c2e823f912f44961f9a9ce
+                            )
+                            state1 := add(
+                                add(sum, p1),
+                                0x18e5abedd626ec307bca190b8b2cab1aaee2e62ed229ba5a5ad8518d4e5f2a57
+                            )
+                            state2 := add(
+                                add(sum, p2),
+                                0x0fc1bbceba0590f5abbdffa6d3b35e3297c021a3a409926d0e2d54dc1c84fda6
+                            )
+                        }
+                    }
+                }
             }
 
             // round 63 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
-            }
-            {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
-            }
-            {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
-            }
-            {
-                let sum := add(add(state2, state1), state0)
-                state0 := addmod(sum, state0, PRIME)
-                state1 := addmod(sum, state1, PRIME)
-                state2 := addmod(sum, state2, PRIME)
+                let x20 := mulmod(state0, state0, PRIME)
+                let p0 := mulmod(mulmod(x20, x20, PRIME), state0, PRIME)
+                {
+                    let x21 := mulmod(state1, state1, PRIME)
+                    let p1 := mulmod(mulmod(x21, x21, PRIME), state1, PRIME)
+                    {
+                        let x22 := mulmod(state2, state2, PRIME)
+                        let p2 := mulmod(mulmod(x22, x22, PRIME), state2, PRIME)
+                        {
+                            let sum := add(add(p0, p1), p2)
+                            state0 := addmod(sum, p0, PRIME)
+                            state1 := addmod(sum, p1, PRIME)
+                            state2 := addmod(sum, p2, PRIME)
+                        }
+                    }
+                }
             }
 
             mstore(state, state0)

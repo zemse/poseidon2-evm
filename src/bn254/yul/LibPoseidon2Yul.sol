@@ -35,7 +35,7 @@ library LibPoseidon2Yul {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
             let b := mod(y, PRIME)
             let t0 := add(b, mod(x, PRIME))
-            let b2 := shl(1, b)
+            let b2 := add(b, b)
             s3 := add(t0, 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f10bd032f787c7f1cdf8)
             s2 := add(add(t0, b2), 0x199750ec472f1809e0f66a545e1e51624108ac845015c2b83dfc36bab497d8aa)
             s1 := add(add(mulmod(t0, 4, PRIME), b2), 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1fad47f80c8dcf34d6)

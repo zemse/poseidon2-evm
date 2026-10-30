@@ -62,6 +62,9 @@ pub struct Layout {
     /// keeps that slot through the round's tail, which costs t = 3 more than
     /// it saves
     pub nested_x5: bool,
+    /// external rounds: each S-box output in a let of its own block (x2 and
+    /// p{i}), the linear layer reads the lets and writes the state once
+    pub external_lets: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -630,6 +633,25 @@ impl<'a> Builder<'a> {
     // ---- rounds ------------------------------------------------------------
 
     fn external_round(&mut self, round: usize, clean: bool, needed: [bool; 4]) -> Result<()> {
+        if self.layout.external_lets && self.layout.fold_constants {
+            for i in 0..self.t {
+                self.p.open();
+                let s = self.state[i].clone();
+                if !self.reachable(&s, 2) {
+                    bail!("{} is out of reach", s.name);
+                }
+                let x2 = self.p.expr(Op::Mulmod, &[&s, &s, &self.p.p])?;
+                let x2 = self.p.let_(&format!("x2{i}"), &x2)?;
+                let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
+                let x5 = self.p.expr(Op::Mulmod, &[&x4, &s, &self.p.p])?;
+                self.state[i] = self.p.let_(&format!("p{i}"), &x5)?;
+            }
+            self.external_matrix(Some(round), clean, needed)?;
+            for _ in 0..self.t {
+                self.p.close();
+            }
+            return Ok(());
+        }
         for i in 0..self.t {
             // HashRest takes round 0's constants already added
             let c = self.params.round_constants[round][i];
@@ -1009,7 +1031,7 @@ pub fn build_hash_entry(
             let b = p.let_("b", &b)?;
             let t0 = p.expr(Op::Add, &[&b, &arg(&p, 0)?])?;
             let t0 = p.let_("t0", &t0)?;
-            let b2 = p.expr(Op::Shl, &[&one, &b])?;
+            let b2 = p.expr(Op::Add, &[&b, &b])?;
             let b2 = p.let_("b2", &b2)?;
             vec![
                 p.expr(Op::Add, &[&p.expr(Op::Mulmod, &[&t0, &five, &p.p])?, &b2])?,
