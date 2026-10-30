@@ -50,8 +50,8 @@ fn layout_for(t: usize) -> Layout {
     if t == 8 {
         return Layout {
             stack_elements: 8,
-            diag_in_memory: 2,
-            diag_fixed: 2,
+            diag_in_memory: 0,
+            diag_fixed: 0,
             diag_lets: 4,
             diag_scratch: 2,
             m4_temps: 4,
