@@ -95,7 +95,7 @@ namespace Poseidon2.Proofs.Yul.OptimizerOff.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `yul/optimizeroff/t4` on ABI calldata of 1 to 3 words, call value 0: the sponge of the
-inputs, with 15320 gas. -/
+inputs, with 15348 gas. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
    
@@ -103,7 +103,7 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15320) g.toNat
+    Theorems.ExactGas (15348) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -120,7 +120,7 @@ theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15320) g.toNat
+    Theorems.ExactGas (15348) g.toNat
       (Ethereum.EVM.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -136,7 +136,7 @@ namespace Poseidon2.Proofs.Yul.Runs200.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `yul/runs200/t4` on ABI calldata of 1 to 3 words, call value 0: the sponge of the
-inputs, with 15158 gas. -/
+inputs, with 15159 gas. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
    
@@ -144,7 +144,7 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs200.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15158) g.toNat
+    Theorems.ExactGas (15159) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -161,7 +161,7 @@ theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs200.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15158) g.toNat
+    Theorems.ExactGas (15159) g.toNat
       (Ethereum.EVM.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -177,7 +177,7 @@ namespace Poseidon2.Proofs.Yul.Runs1000000.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `yul/runs1000000/t4` on ABI calldata of 1 to 3 words, call value 0: the sponge of the
-inputs, with 15152 gas. -/
+inputs, with 15153 gas. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
    
@@ -185,7 +185,7 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs1000000.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15152) g.toNat
+    Theorems.ExactGas (15153) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -202,7 +202,7 @@ theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs1000000.T4.artifact
       (sel ++ Interface.encodeWords ws) 0 I) :
-    Theorems.ExactGas (15152) g.toNat
+    Theorems.ExactGas (15153) g.toNat
       (Ethereum.EVM.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by

@@ -12,7 +12,7 @@ import Poseidon2.Spec.Constants.T3
 The checker accepts `yul/runs1000000/t3` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
 segment boundary is written out below (computed outside the kernel, checked by it). The
-gas of each case's run is `gas` ([68, 43, 101, 43, 101, 43, 43, 157, 10992]); `correct` is partial correctness, `total`
+gas of each case's run is `gas` ([68, 43, 101, 43, 101, 43, 43, 157, 10740]); `correct` is partial correctness, `total`
 total correctness with that gas.
 `cancun`: the code never runs DUPN / SWAPN, so every call is the same under EVMLean's
 Cancun `Ξ` as under the EIP-8024 overlay, and `totalCancun` is `total` of the former.
@@ -129,11 +129,11 @@ theorem case7 : checkCaseGas code (cases.getD 7 default) 157 = true := by
 
 /-! ### Case 8: call (0 boundaries) -/
 
-theorem end8 : resultOkGas (cases.getD 8 default).facts (cases.getD 8 default).expect 10992
+theorem end8 : resultOkGas (cases.getD 8 default).facts (cases.getD 8 default).expect 10740
     (run (cases.getD 8 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case8 : checkCaseGas code (cases.getD 8 default) 10992 = true := by
+theorem case8 : checkCaseGas code (cases.getD 8 default) 10740 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -141,7 +141,7 @@ theorem case8 : checkCaseGas code (cases.getD 8 default) 10992 = true := by
 
 /-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
 `gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
-def gas : List Nat := [68, 43, 101, 43, 101, 43, 43, 157, 10992]
+def gas : List Nat := [68, 43, 101, 43, 101, 43, 43, 157, 10740]
 
 theorem checkG : CheckedGas code cases gas :=
   ⟨by decide, fun j hj => by
@@ -180,16 +180,16 @@ theorem total (cd : List UInt8) (v : Nat)
     Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.yulPerm Constants.T3.params (Interface.permuteSelector 3) cd v) :=
   Theorems.yulPerm_total Poseidon2.Bytecode.Yul.Runs1000000.T3.artifact Constants.T3.params (Interface.permuteSelector 3) (by decide) (by decide) gas checkG cd v hcd hv σ σ₀ g A I hI
 
-/-- With at least 10992 gas (the most of any case) every call ends exactly as the
+/-- With at least 10740 gas (the most of any case) every call ends exactly as the
 interface says, using at most that much. -/
 theorem enough (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
-    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs1000000.T3.artifact cd v I) (hg : 10992 ≤ g.toNat) :
-    ∃ G, G ≤ 10992 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.Runs1000000.T3.artifact cd v I) (hg : 10740 ≤ g.toNat) :
+    ∃ G, G ≤ 10740 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
       (Interface.yulPerm Constants.T3.params (Interface.permuteSelector 3) cd v) :=
   (total cd v hcd hv σ σ₀ g A I hI).exact
-    (le_trans (le_of_eq (show maxGas gas = 10992 by decide)) hg)
+    (le_trans (le_of_eq (show maxGas gas = 10740 by decide)) hg)
 
 /-- No DUPN / SWAPN where the run can get to: from `pc = 0` and from every jump destination,
 up to an instruction the run cannot fall through (`Evm.Sim.ovFree`). -/

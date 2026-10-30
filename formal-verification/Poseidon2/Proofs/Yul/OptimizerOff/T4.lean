@@ -12,7 +12,7 @@ import Poseidon2.Spec.Constants.T4
 The checker accepts `yul/optimizeroff/t4` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
 segment boundary is written out below (computed outside the kernel, checked by it). The
-gas of each case's run is `gas` ([43, 15320, 15320, 15320, 15320, 15320]); `correct` is partial correctness, `total`
+gas of each case's run is `gas` ([43, 15348, 15348, 15348, 15348, 15348]); `correct` is partial correctness, `total`
 total correctness with that gas.
 `cancun`: the code never runs DUPN / SWAPN, so every call is the same under EVMLean's
 Cancun `Ξ` as under the EIP-8024 overlay, and `totalCancun` is `total` of the former.
@@ -45,11 +45,11 @@ theorem case0 : checkCaseGas code (cases.getD 0 default) 43 = true := by
 
 /-! ### Case 1: size 0 (0 boundaries) -/
 
-theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 15320
+theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 15348
     (run (cases.getD 1 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case1 : checkCaseGas code (cases.getD 1 default) 15320 = true := by
+theorem case1 : checkCaseGas code (cases.getD 1 default) 15348 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -57,11 +57,11 @@ theorem case1 : checkCaseGas code (cases.getD 1 default) 15320 = true := by
 
 /-! ### Case 2: size 1 (0 boundaries) -/
 
-theorem end2 : resultOkGas (cases.getD 2 default).facts (cases.getD 2 default).expect 15320
+theorem end2 : resultOkGas (cases.getD 2 default).facts (cases.getD 2 default).expect 15348
     (run (cases.getD 2 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case2 : checkCaseGas code (cases.getD 2 default) 15320 = true := by
+theorem case2 : checkCaseGas code (cases.getD 2 default) 15348 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -69,11 +69,11 @@ theorem case2 : checkCaseGas code (cases.getD 2 default) 15320 = true := by
 
 /-! ### Case 3: size 2 (0 boundaries) -/
 
-theorem end3 : resultOkGas (cases.getD 3 default).facts (cases.getD 3 default).expect 15320
+theorem end3 : resultOkGas (cases.getD 3 default).facts (cases.getD 3 default).expect 15348
     (run (cases.getD 3 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case3 : checkCaseGas code (cases.getD 3 default) 15320 = true := by
+theorem case3 : checkCaseGas code (cases.getD 3 default) 15348 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -81,11 +81,11 @@ theorem case3 : checkCaseGas code (cases.getD 3 default) 15320 = true := by
 
 /-! ### Case 4: size 3 (0 boundaries) -/
 
-theorem end4 : resultOkGas (cases.getD 4 default).facts (cases.getD 4 default).expect 15320
+theorem end4 : resultOkGas (cases.getD 4 default).facts (cases.getD 4 default).expect 15348
     (run (cases.getD 4 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case4 : checkCaseGas code (cases.getD 4 default) 15320 = true := by
+theorem case4 : checkCaseGas code (cases.getD 4 default) 15348 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -93,11 +93,11 @@ theorem case4 : checkCaseGas code (cases.getD 4 default) 15320 = true := by
 
 /-! ### Case 5: size >= 4 (0 boundaries) -/
 
-theorem end5 : resultOkGas (cases.getD 5 default).facts (cases.getD 5 default).expect 15320
+theorem end5 : resultOkGas (cases.getD 5 default).facts (cases.getD 5 default).expect 15348
     (run (cases.getD 5 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case5 : checkCaseGas code (cases.getD 5 default) 15320 = true := by
+theorem case5 : checkCaseGas code (cases.getD 5 default) 15348 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -105,7 +105,7 @@ theorem case5 : checkCaseGas code (cases.getD 5 default) 15320 = true := by
 
 /-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
 `gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
-def gas : List Nat := [43, 15320, 15320, 15320, 15320, 15320]
+def gas : List Nat := [43, 15348, 15348, 15348, 15348, 15348]
 
 theorem checkG : CheckedGas code cases gas :=
   ⟨by decide, fun j hj => by
@@ -141,16 +141,16 @@ theorem total (cd : List UInt8) (v : Nat)
     Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.yulHash Constants.T4.params cd v) :=
   Theorems.yulHash_total Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact Constants.T4.params gas checkG cd v hcd hv σ σ₀ g A I hI
 
-/-- With at least 15320 gas (the most of any case) every call ends exactly as the
+/-- With at least 15348 gas (the most of any case) every call ends exactly as the
 interface says, using at most that much. -/
 theorem enough (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
-    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact cd v I) (hg : 15320 ≤ g.toNat) :
-    ∃ G, G ≤ 15320 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.OptimizerOff.T4.artifact cd v I) (hg : 15348 ≤ g.toNat) :
+    ∃ G, G ≤ 15348 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
       (Interface.yulHash Constants.T4.params cd v) :=
   (total cd v hcd hv σ σ₀ g A I hI).exact
-    (le_trans (le_of_eq (show maxGas gas = 15320 by decide)) hg)
+    (le_trans (le_of_eq (show maxGas gas = 15348 by decide)) hg)
 
 /-- No DUPN / SWAPN where the run can get to: from `pc = 0` and from every jump destination,
 up to an instruction the run cannot fall through (`Evm.Sim.ovFree`). -/

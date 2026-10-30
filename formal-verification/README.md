@@ -12,7 +12,7 @@ The 35 bytecodes (`Bytecode/`, each with its keccak256; `scripts/check-deployed.
 - Yul, solc 0.8.30 legacy codegen with `evmVersion` osaka, optimizer at 1,000,000 runs, at 200 runs and off (15): the contract `Poseidon2Yul_BN254` (t = 4 hash) and, for t = 2, 3, 8, 12, the test wrapper contracts `Poseidon2YulT<t>` (`test/wrappers/Poseidon2YulT<t>.sol`) that call `LibPoseidon2YulT<t>.permute`. The libraries are `internal`, so a contract that uses `LibPoseidon2YulT<t>` or `LibPoseidon2Yul` compiles them into its own bytes, which these theorems do not cover.
 - The two deployed v2 contracts of `deployed-artifacts/` (Yul and Huff, t = 4), at the addresses of the repository's README.
 
-On ABI calldata of `hash_1` / `hash_2` / `hash_3` every t = 4 hash contract returns `hashWords` of the inputs, the Barretenberg / Noir `Poseidon2::hash` (`Spec/Abi.lean`: `huffHash_abi`, `yulHash_abi`, `hashV2_abi`, `hashWords_eq_sponge`, for every selector and input words). Per bytecode, `Proofs/Abi.lean` states it end to end: for each of the 7 (Huff Amsterdam and Osaka, `Poseidon2Yul_BN254` at the three settings, the deployed Yul v2 and Huff v2), `abi` says a call with any 4 selector bytes and 1 to 3 words below `2^256` (call value 0 for the Yul ones, any for the Huff ones) returns the sponge of the words read modulo `P` with exactly the gas of its case (11,883 / 11,890 / 11,963 for Huff with 1 / 2 / 3 words; 15,320, 15,158 and 15,152 for Yul off / 200 / 1,000,000 runs; 19,639 for Yul v2; 14,869 for Huff v2), and runs out of gas with less; `abiCancun` is the same of EVMLean's Cancun `Ξ` for the six Osaka targets.
+On ABI calldata of `hash_1` / `hash_2` / `hash_3` every t = 4 hash contract returns `hashWords` of the inputs, the Barretenberg / Noir `Poseidon2::hash` (`Spec/Abi.lean`: `huffHash_abi`, `yulHash_abi`, `hashV2_abi`, `hashWords_eq_sponge`, for every selector and input words). Per bytecode, `Proofs/Abi.lean` states it end to end: for each of the 7 (Huff Amsterdam and Osaka, `Poseidon2Yul_BN254` at the three settings, the deployed Yul v2 and Huff v2), `abi` says a call with any 4 selector bytes and 1 to 3 words below `2^256` (call value 0 for the Yul ones, any for the Huff ones) returns the sponge of the words read modulo `P` with exactly the gas of its case (11,883 / 11,890 / 11,963 for Huff with 1 / 2 / 3 words; 15,348, 15,159 and 15,153 for Yul off / 200 / 1,000,000 runs; 19,639 for Yul v2; 14,869 for Huff v2), and runs out of gas with less; `abiCancun` is the same of EVMLean's Cancun `Ξ` for the six Osaka targets.
 
 Trusted base (details under Trusted base below):
 
@@ -205,11 +205,11 @@ Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Pose
 
 | t | optimizer 1,000,000 runs | 200 runs | off |
 | - | ------------------------ | -------- | --- |
-| 2 | 9,019 / 9,019 | 9,019 / 9,019 | 10,200 / 10,200 |
-| 3 | 10,992 / 10,992 | 10,992 / 10,992 | 12,913 / 12,913 |
-| 4 | 15,152 / 15,152 | 15,158 / 15,158 | 15,320 / 15,320 |
-| 8 | 31,450 / 31,450 | 34,756 / 34,756 | 35,175 / 35,175 |
-| 12 | 48,991 / 48,991 | 51,021 / 51,021 | 54,184 / 54,184 |
+| 2 | 8,851 / 8,851 | 8,851 / 8,851 | 10,200 / 10,200 |
+| 3 | 10,740 / 10,740 | 10,740 / 10,740 | 12,913 / 12,913 |
+| 4 | 15,153 / 15,153 | 15,159 / 15,159 | 15,348 / 15,348 |
+| 8 | 31,229 / 31,229 | 44,743 / 44,743 | 35,019 / 35,019 |
+| 12 | 43,682 / 43,682 | 63,895 / 63,895 | 48,928 / 48,928 |
 
 The deployed v2 contracts, `cast call --trace` on anvil (Osaka) with the runtime code of `deployed-artifacts/`: Huff 14,869 / 14,869 (for every calldata size, 0 to 3 bytes included), Yul 19,639 / 19,639. `scripts/Call.lean` gets the same numbers from EVMLean itself, and shows that each call returns with exactly that gas (0 left) and runs out of gas with one less. The reverting cases (the Yul wrappers: 43 gas with a call value, 68 below 4 bytes, 101 for another selector, 157, or 193 with the optimizer off, for short arguments; `Poseidon2Yul_BN254` and the deployed Yul v2: 43 with a call value) are kernel-checked like the others but were not measured.
 
