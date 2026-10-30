@@ -2093,9 +2093,8 @@ impl<'a> Builder<'a> {
     /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
     /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
     /// the S-boxes instead of the M4 temporaries. A PRIME copy for the final
-    /// MOD goes down first; each lane, last first, is S-boxed on top of its
-    /// coefficient and a PRIME copy, MULMODed by the coefficient in place
-    /// and ADDed to the row so far, which stays under 4p.
+    /// ADDMOD goes down first. The first three terms accumulate below 3p;
+    /// the last product fits uint256 at 5(p-1) and joins them with ADDMOD.
     fn final_round_row0(&mut self, round: usize) -> Result<()> {
         if self.t != 4 {
             bail!("finalRoundRow0 is t = 4 only");
@@ -2109,7 +2108,9 @@ impl<'a> Builder<'a> {
             let k = row[i];
             let mut coeff = None;
             if k != 1 {
-                self.e.push_prime()?;
+                if i != 0 {
+                    self.e.push_prime()?;
+                }
                 coeff = Some(self.e.push(u256(k), None)?);
             }
             let c = self.params.round_constants[round][i];
@@ -2124,13 +2125,26 @@ impl<'a> Builder<'a> {
             };
             let mut term = self.sbox(y, &format!("s{i}'"))?;
             if let Some(coeff) = coeff {
-                term = self.e.compute(
-                    Op::Mulmod,
-                    &[inplace(term), inplace(coeff), inplace(p)],
-                    &format!("{k}s{i}'"),
-                )?;
+                term = if i == 0 {
+                    self.e.compute(
+                        Op::Mul,
+                        &[inplace(term), inplace(coeff)],
+                        &format!("{k}s{i}'"),
+                    )?
+                } else {
+                    self.e.compute(
+                        Op::Mulmod,
+                        &[inplace(term), inplace(coeff), inplace(p)],
+                        &format!("{k}s{i}'"),
+                    )?
+                };
             }
             acc = Some(match acc {
+                Some(acc) if i == 0 => self.e.compute(
+                    Op::Addmod,
+                    &[inplace(term), inplace(acc), inplace(p)],
+                    "s0'",
+                )?,
                 Some(acc) => self
                     .e
                     .compute(Op::Add, &[inplace(term), inplace(acc)], "row0")?,
@@ -2138,12 +2152,7 @@ impl<'a> Builder<'a> {
             });
             self.e.end_line();
         }
-        let acc = acc.expect("four lanes");
-        let out = self
-            .e
-            .compute(Op::Mod, &[inplace(acc), inplace(p)], "s0'")?;
-        self.e.end_line();
-        self.state = vec![out];
+        self.state = vec![acc.expect("four lanes")];
         Ok(())
     }
 
@@ -5000,6 +5009,75 @@ mod tests {
                         assert_eq!(count(round, "mulmod"), 4);
                         assert_eq!(count(round, "add"), 4);
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t4_row0_joined_predecessor_bounds() {
+        let params = generate_params_uncached(4);
+        for name in ["amsterdam", "osaka", "paris"] {
+            let f = fork(name).unwrap();
+            let prologues: Vec<_> = (1..=3)
+                .map(|n| {
+                    let inputs = [U256::ZERO, p1(), PRIME, UINT256_MAX].map(|word| vec![word; n]);
+                    build_hash_prologue(&params, &inputs, f).unwrap()
+                })
+                .collect();
+            let mut joined = vec![U256::ZERO; 4];
+            let mut inputs = Vec::new();
+            for prologue in &prologues {
+                for (bound, &other) in joined.iter_mut().zip(&prologue.bounds) {
+                    *bound = (*bound).max(other);
+                }
+                inputs.extend(prologue.outputs.iter().cloned());
+            }
+            for (bounds, vectors) in prologues
+                .iter()
+                .map(|p| (p.bounds.clone(), p.outputs.clone()))
+                .chain(std::iter::once((joined, inputs)))
+            {
+                let mut b = Builder::new(
+                    &params,
+                    &vectors,
+                    BuildOptions {
+                        external_template: true,
+                        internal_template: true,
+                        ..DEFAULT_OPTIONS
+                    },
+                    f,
+                    Range { from: 2, to: 64 },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &Boundary {
+                        bounds: Some(bounds),
+                        prime_second: true,
+                        prime_below: Some(HASH_DEAD),
+                        ..Boundary::default()
+                    },
+                )
+                .unwrap();
+                // Observe the unmodified round-62 stack, without a split hand-off.
+                b.state_in_memory = false;
+                b.build().unwrap();
+                assert_eq!(
+                    b.state.iter().map(|&v| b.e.bound(v)).collect::<Vec<_>>(),
+                    vec![
+                        p1() * u256(3),
+                        p1() * u256(2),
+                        p1() * u256(3),
+                        p1() * u256(2)
+                    ]
+                );
+                let before = b.e.from_top();
+                b.final_round_row0(63).unwrap();
+                assert_eq!(b.e.bound(b.state[0]), p1());
+                assert_eq!(&b.e.from_top()[1..], &before);
+                for (i, input) in vectors.iter().enumerate() {
+                    let expected = permutation_steps(&params, input, 2, 65);
+                    assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);
                 }
             }
         }
