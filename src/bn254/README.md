@@ -69,7 +69,7 @@ Every generated permutation lives in `huff/t<t>/Permutation.huff`. t = 4 is call
 | t   | Rf  | Rp  | permutation gas | call gas | max stack depth | max dup | runtime bytes | placement                                                                       |
 | --- | --- | --- | --------------- | -------- | --------------- | ------- | ------------- | ------------------------------------------------------------------------------- |
 | 2   | 8   | 56  | 5,851           | 5,898    | 129             | 123     | 4,008         | stack, 3 s1 by MULMOD, no PRIME backing, external templates                     |
-| 3   | 8   | 56  | 7,581           | 7,644    | 74              | 8       | 6,713         | stack, external and periodic internal templates                                 |
+| 3   | 8   | 56  | 7,578           | 7,644    | 74              | 8       | 6,713         | stack, external and periodic internal templates                                 |
 | 4   | 8   | 56  | 11,989          | 11,890   | 94              | 86      | 13,607        | stack, hash entry: round 0 per arity, s0' only, external and internal templates |
 | 8   | 8   | 57  | 23,365          | 23,547   | 111             | 58      | 24,912        | stack, internalConsume, externalD, streamed blocks, treeSums                   |
 | 12  | 8   | 57  | 33,642          | 33,912   | 164             | 90      | 36,497        | stack, internalConsume, externalD, streamed blocks, treeSums                   |

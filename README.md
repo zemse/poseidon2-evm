@@ -6,18 +6,45 @@ Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.ia
 
 See impl-specific documentation:
 
-- [BN254 (t=4, Rf=8, Rp=56)](src/bn254/README.md)
+- [BN254 (t = 2 to 28)](src/bn254/README.md)
 
 > Goldilocks support is planned.
 
 ## Gas Costs
 
-| Implementation | hash_1 | hash_2 | hash_3 |
-| -------------- | ------ | ------ | ------ |
-| Yul            | 15,153 | 15,153 | 15,153 |
-| Huff           | 11,883 | 11,890 | 11,963 |
+Call gas of the current sources, each figure proven exact in Lean (see [Formal verification](#formal-verification)).
 
-It is recommended to use Yul implementation. Huff is experimental, and the Huff source targets Amsterdam (EIP-8024 `DUPN` / `SWAPN`); the deployed Huff contract below is a pre-Amsterdam build. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
+### t = 4 hash (`IPoseidon2`)
+
+| Implementation                                | hash_1 | hash_2 | hash_3 |
+| --------------------------------------------- | ------ | ------ | ------ |
+| Huff (Amsterdam)                              | 11,883 | 11,890 | 11,963 |
+| Yul, solc 0.8.30 via-IR, 1,000,000 runs       | 13,904 | 13,904 | 13,904 |
+| Yul, solc 0.8.30 legacy, 1,000,000 runs       | 15,153 | 15,153 | 15,153 |
+| Deployed v2 Huff (pre-Amsterdam, below)       | 14,869 | 14,869 | 14,869 |
+| Deployed v2 Yul (below)                       | 19,639 | 19,639 | 19,639 |
+
+### Permutation, state width t
+
+| t   | Huff (Amsterdam) | Yul (least-gas setting)   |
+| --- | ---------------- | ------------------------- |
+| 2   | 5,898            | 7,560 (via-IR, 1M runs)   |
+| 3   | 7,644            | 9,505 (via-IR, 1M runs)   |
+| 8   | 23,547           | 29,321 (via-IR, 1M runs)  |
+| 12  | 33,912           | 43,682 (legacy, 1M runs)  |
+| 16  | 44,249           |                           |
+| 20  | 54,578           |                           |
+| 24  | 65,220           |                           |
+| 28  | 77,475           |                           |
+
+Huff is the raw permutation entry (t words in, t words out). Yul is the `permute(uint256[t])` test wrapper, so it includes the ABI decoding and encoding of t words. Each Yul library states its least-gas solc settings in its natspec; with the legacy pipeline at 1,000,000 runs t = 2, 3, 8 cost 8,851, 10,740 and 31,229.
+
+### Compile targets
+
+- Huff: Amsterdam only. The generated source uses the EIP-8024 `DUPN` / `SWAPN` opcodes and the EIP-7954 65,536 byte code limit, so it does not run before Amsterdam. Osaka builds exist only in memory, for the formal verification.
+- Yul: solc 0.8.30 with `evmVersion` osaka (the newest it knows); the bytecode runs on Osaka and Amsterdam. The tests run the Amsterdam EVM (`foundry.toml`).
+
+It is recommended to use Yul implementation. Huff is experimental; the deployed Huff contract below is a pre-Amsterdam build. Pure solidity impl is still kept in this repository for reference, but it costs 200k+ gas.
 
 ## Deployed Contracts
 
