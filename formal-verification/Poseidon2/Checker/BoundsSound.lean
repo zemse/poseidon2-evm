@@ -110,7 +110,10 @@ theorem binRange_sound (op : Nat) (a b : Word) (x y v : Nat) (ha : a.lo ≤ x �
   · simp only [binOp, Option.some.injEq] at h; subst h
     split
     · rw [Nat.mod_eq_of_lt (by omega)]; omega
-    · exact full_sound _ hv
+    · split
+      · have e : x + y = (x + y - W) + W := by omega
+        rw [e, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]; omega
+      · exact full_sound _ hv
   -- SUB
   · simp only [binOp, Option.some.injEq] at h; subst h
     split

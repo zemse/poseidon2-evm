@@ -4,8 +4,10 @@ import Poseidon2.Checker.Forms
 # Word terms with value ranges
 
 `mkBin` / `mkUn` build the term of an EVM operation on two (one) words together with an
-interval `[lo, hi]` holding its value, given intervals for the operands. Constants fold, and a
-few rewrites put equal words into one shape:
+interval `[lo, hi]` holding its value, given intervals for the operands (an `ADD` that wraps for
+every value of the intervals, as via-IR's `add(calldatasize(), not(3))` with at least 4 bytes,
+has the interval of the sum less `2^256`). Constants fold, and a few rewrites put equal words
+into one shape:
 
 * `a + c` with `c ≥ 2^255` is `a - (2^256 - c)`;
 * commutative operations keep a constant operand second;
@@ -59,7 +61,10 @@ def decided (yes no : Bool) : Nat × Nat := if yes then (1, 1) else if no then (
 /-- The interval of `bin op a b` from the operand intervals. -/
 def binRange (op : Nat) (a b : Word) : Nat × Nat :=
   match op with
-  | 0x01 => if a.hi + b.hi < W then (a.lo + b.lo, a.hi + b.hi) else full
+  | 0x01 =>
+    if a.hi + b.hi < W then (a.lo + b.lo, a.hi + b.hi)
+    else if W ≤ a.lo + b.lo then (a.lo + b.lo - W, a.hi + b.hi - W)
+    else full
   | 0x03 =>
     if b.hi ≤ a.lo then (a.lo - b.hi, a.hi - b.lo)
     else if a.hi < b.lo then (a.lo + W - b.hi, a.hi + W - b.lo)
