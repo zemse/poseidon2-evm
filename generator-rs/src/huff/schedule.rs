@@ -4402,6 +4402,10 @@ mod fused_tests;
 pub(crate) mod t2_terminal_tests;
 
 #[cfg(test)]
+#[path = "t3_terminal_tests.rs"]
+pub(crate) mod t3_terminal_tests;
+
+#[cfg(test)]
 #[path = "t3_seam_tests.rs"]
 pub(crate) mod t3_seam_tests;
 

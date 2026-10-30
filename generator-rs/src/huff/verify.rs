@@ -575,6 +575,10 @@ mod linear_probe;
 mod t2_terminal_entry_probe;
 
 #[cfg(test)]
+#[path = "../../stacksearch/t3_terminal_entry_probe.rs"]
+mod t3_terminal_entry_probe;
+
+#[cfg(test)]
 #[path = "../../stacksearch/t4_row0_last_product_probe.rs"]
 mod t4_row0_last_product_probe;
 

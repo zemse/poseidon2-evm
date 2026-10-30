@@ -28,7 +28,7 @@ fn eligible(params: &Params, opts: BuildOptions, range: Range, boundary: &Bounda
 
 // Memory counters alone do not cover MLOAD. Only a recorded straight-line
 // stack prefix can establish the empty-memory precondition of this entry.
-fn stack_only(lines: &[String], fork: Fork) -> bool {
+pub(super) fn stack_only(lines: &[String], fork: Fork) -> bool {
     let mut tokens = lines
         .iter()
         .flat_map(|line| line.split("//").next().unwrap_or("").split_whitespace());
