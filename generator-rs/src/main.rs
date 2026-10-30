@@ -103,14 +103,29 @@ fn widths(widths: Vec<usize>) -> Result<Vec<usize>> {
     Ok(widths)
 }
 
-/// The schedule `huff` selects for t on the fork as a JSON object, its
-/// wrapper the entry and tail gas around it with the memory it expands.
+/// The selected raw entry and, separately, the public permutation trace.
 fn schedule(fork: &Fork, t: usize) -> Result<String> {
     let params = generate_params(t);
-    let Some(best) = huff::build_entry(&params, &test_inputs(t), *fork)? else {
+    let Some(plan) = huff::build_entry_plan(&params, &test_inputs(t), *fork)? else {
         bail!("no {} schedule for t = {t}", fork.name);
     };
-    let result = &best.result;
+    let kind = if plan.terminal_result().is_some() {
+        "t2-terminal"
+    } else {
+        "permutation"
+    };
+    Ok(format!(
+        "{{\"t\":{t},\"roundsF\":{},\"roundsP\":{},\"options\":{:?},\"hardfork\":{:?},\"entryKind\":{kind:?},{},\"permutation\":{{{}}}}}",
+        params.rounds_f,
+        params.rounds_p,
+        describe_options(&plan.permutation().opts),
+        fork.name,
+        schedule_cost(fork, t, plan.entry_result()),
+        schedule_cost(fork, t, &plan.permutation().result),
+    ))
+}
+
+fn schedule_cost(fork: &Fork, t: usize, result: &huff::schedule::BuildResult) -> String {
     let o = overhead(
         *fork,
         t,
@@ -120,17 +135,18 @@ fn schedule(fork: &Fork, t: usize) -> Result<String> {
         false,
         result.memory,
     );
-    let wrapper = o.entry_gas + o.tail_gas + memory_gas(result.memory.max(32 * t));
+    let memory = memory_gas(result.memory.max(32 * t));
+    let wrapper = o.entry_gas + o.tail_gas + memory;
     // Debug escapes the ASCII lines as JSON does
     let lines: Vec<String> = result.lines.iter().map(|l| format!("{l:?}")).collect();
-    Ok(format!(
-        "{{\"t\":{t},\"roundsF\":{},\"roundsP\":{},\"options\":{:?},\"gas\":{},\"wrapper\":{wrapper},\"lines\":[{}]}}",
-        params.rounds_f,
-        params.rounds_p,
-        describe_options(&best.opts),
+    format!(
+        "\"gas\":{},\"wrapper\":{wrapper},\"entryGas\":{},\"tailGas\":{},\"memoryGas\":{memory},\"runtimeBytes\":{},\"lines\":[{}]",
         result.gas,
+        o.entry_gas,
+        o.tail_gas,
+        result.bytes + o.bytes,
         lines.join(",")
-    ))
+    )
 }
 
 fn run(cli: Cli) -> Result<()> {

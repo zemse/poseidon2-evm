@@ -515,8 +515,7 @@ impl Emitter {
         Ok(())
     }
 
-    /// Test-only sequential store with an exact MSIZE precondition.
-    #[cfg(test)]
+    /// Sequential store; the caller must establish the exact MSIZE extent.
     pub(crate) fn mstore_next(&mut self, offset: usize) -> Result<Id> {
         if self.memory != offset || !offset.is_multiple_of(32) {
             bail!("sequential store needs memory extent {offset}");

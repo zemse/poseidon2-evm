@@ -59,11 +59,35 @@ fn calls(
         gas.push(actual);
     }
     assert_eq!(same_gas(&gas, fork.name).unwrap(), model);
+    for len in [0, 1, 31, 32, 33, 63, 64, 65, 96, 129] {
+        let calldata = vec![0xff; len];
+        let mut padded = calldata.clone();
+        padded.resize(64, 0);
+        padded.truncate(64);
+        let (out, actual) = chain.call(to, calldata, &[]).unwrap();
+        assert_eq!(out.len(), 64, "{} calldata length {len}", fork.name);
+        assert_eq!(from_words(&out), permutation(params, &from_words(&padded)));
+        assert!(from_words(&out).iter().all(|&word| word < PRIME));
+        assert_eq!(actual, model);
+    }
+    println!(
+        "T2_TERMINAL calldata {}: 10 short/exact/overlong cases passed at {model} gas",
+        fork.name
+    );
     code.runtime
 }
 
 #[test]
 fn t2_terminal_compiled() {
+    check_terminal(false);
+}
+
+#[test]
+fn t2_terminal_production_compiled() {
+    check_terminal(true);
+}
+
+fn check_terminal(production: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let params = generate_params(2);
     let raw = raw_inputs();
@@ -127,7 +151,18 @@ fn t2_terminal_compiled() {
         baselines.push((fork, result, files, runtime, depth, model));
     }
     for (fork, original, files, runtime, depth, baseline_gas) in baselines {
-        let (candidate, _) = build_fixture(&params, &clean, fork, true, 0).unwrap();
+        let plan = production.then(|| {
+            super::super::build_entry_plan(&params, &clean, fork)
+                .unwrap()
+                .unwrap()
+        });
+        let candidate = if let Some(plan) = &plan {
+            assert!(plan.terminal_result().is_some());
+            assert_eq!(plan.permutation().result.lines, original.lines);
+            plan.entry_result().clone()
+        } else {
+            build_fixture(&params, &clean, fork, true, 0).unwrap().0
+        };
         let old_ops = tokens(&original.lines);
         let new_ops = tokens(&candidate.lines);
         assert_eq!(
@@ -169,11 +204,31 @@ fn t2_terminal_compiled() {
         assert_eq!(model + 3, baseline_gas);
         let path = huff_name(&fork, 2, "Poseidon2");
         let public_path = huff_name(&fork, 2, "Permutation");
-        let wrapper = render_entry(&params, &fork, &candidate);
-        assert_eq!(wrapper.matches("POSEIDON2_PERMUTATION()").count(), 1);
-        let entry = wrapper.replacen("POSEIDON2_PERMUTATION()", &candidate.lines.join("\n"), 1);
-        let mut trial = files.clone();
-        trial.insert(path.clone(), entry);
+        let mut trial = if let Some(plan) = &plan {
+            let width = super::super::generate(2, &fork).unwrap();
+            let Target::Entry { path: target, gas } = &width.target else {
+                panic!("raw entry expected")
+            };
+            assert_eq!(target, &path);
+            assert_eq!(*gas, model);
+            let generated: HashMap<String, String> = width
+                .files()
+                .map(|(p, text)| (p.into(), text.into()))
+                .collect();
+            assert_eq!(
+                generated[&path],
+                crate::huff::render::render_entry_plan(&params, &fork, plan)
+            );
+            assert!(!generated[&path].contains("POSEIDON2_PERMUTATION()"));
+            generated
+        } else {
+            let wrapper = render_entry(&params, &fork, &candidate);
+            assert_eq!(wrapper.matches("POSEIDON2_PERMUTATION()").count(), 1);
+            let entry = wrapper.replacen("POSEIDON2_PERMUTATION()", &candidate.lines.join("\n"), 1);
+            let mut trial = files.clone();
+            trial.insert(path.clone(), entry);
+            trial
+        };
         assert_eq!(trial[&public_path], files[&public_path]);
         let sources = Arc::new(Sources {
             root: root.clone(),

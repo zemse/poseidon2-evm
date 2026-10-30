@@ -40,8 +40,8 @@ use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
     MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead,
-    render_deploy_parts, render_entry, render_forge_test, render_hash_entry, render_hash_test,
-    render_part, render_permutation, test_dir,
+    render_deploy_parts, render_entry, render_entry_plan, render_forge_test, render_hash_entry,
+    render_hash_test, render_part, render_permutation, test_dir,
 };
 use schedule::{
     BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
@@ -161,6 +161,63 @@ pub fn build_entry(
     Ok(improve_entry(params.t, fork, seeded, |budget, prior| {
         schedule::build_seeded_slots_entry(params, inputs, budget, fork, prior.opts)
     }))
+}
+
+/// The public permutation and the independently selected raw entry body.
+/// A terminal body is never rendered as POSEIDON2_PERMUTATION.
+pub struct EntryPlan {
+    permutation: schedule::Best,
+    terminal: Option<BuildResult>,
+}
+
+impl EntryPlan {
+    pub fn permutation(&self) -> &schedule::Best {
+        &self.permutation
+    }
+
+    pub fn terminal_result(&self) -> Option<&BuildResult> {
+        self.terminal.as_ref()
+    }
+
+    pub fn entry_result(&self) -> &BuildResult {
+        self.terminal_result().unwrap_or(&self.permutation.result)
+    }
+}
+
+/// Select a raw entry without changing the public permutation's contract.
+pub fn build_entry_plan(
+    params: &crate::round_constants::Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+) -> Result<Option<EntryPlan>> {
+    Ok(build_entry(params, inputs, fork)?.map(|best| plan_entry(params, inputs, fork, best)))
+}
+
+fn plan_entry(
+    params: &crate::round_constants::Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+    permutation: schedule::Best,
+) -> EntryPlan {
+    let candidate = schedule::build_t2_terminal(params, inputs, fork, &permutation);
+    select_terminal(params.t, fork, permutation, candidate)
+}
+
+fn select_terminal(
+    t: usize,
+    fork: Fork,
+    permutation: schedule::Best,
+    candidate: Result<Option<BuildResult>>,
+) -> EntryPlan {
+    let terminal = candidate.ok().flatten().filter(|result| {
+        entry_fits(t, fork, result)
+            && result.max_dup <= fork.reach
+            && entry_gas(&fork, t, result) < entry_gas(&fork, t, &permutation.result)
+    });
+    EntryPlan {
+        permutation,
+        terminal,
+    }
 }
 
 fn entry_wrapper(t: usize, fork: Fork, result: &BuildResult) -> usize {
@@ -359,9 +416,11 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
             format!("{dir}/Permutation.huff"),
             render_permutation(&params, result, opts, utils_path, fork),
         ));
+        let plan = plan_entry(&params, &inputs, *fork, best);
+        let result = plan.entry_result();
         actions.push(Action::Write(
             format!("{dir}/Poseidon2.huff"),
-            render_entry(&params, fork, result),
+            render_entry_plan(&params, fork, &plan),
         ));
         actions.push(Action::MkdirAll(tests.clone()));
         actions.push(Action::Write(

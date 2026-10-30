@@ -461,17 +461,38 @@ library DeployParts {{
 /// Minimal entry contract for t != 4: calldata holds t words which are
 /// reduced mod PRIME, the permuted state is returned as t words.
 pub fn render_entry(params: &Params, fork: &Fork, result: &BuildResult) -> String {
+    render_entry_body(params, fork, result, false)
+}
+
+/// A selected terminal body is inline in MAIN, not in the public macro.
+pub fn render_entry_plan(params: &Params, fork: &Fork, plan: &super::EntryPlan) -> String {
+    render_entry_body(
+        params,
+        fork,
+        plan.entry_result(),
+        plan.terminal_result().is_some(),
+    )
+}
+
+fn render_entry_body(params: &Params, fork: &Fork, result: &BuildResult, inline: bool) -> String {
     let t = params.t;
     let mut code = Code::new(*fork);
     loads(&mut code, t, &result.input_slots, 0, true);
     code.blank();
     let in_memory = result.state_in_memory;
-    code.op("POSEIDON2_PERMUTATION()", 0, 0);
-    code.end(&if in_memory {
-        format!("state at memory [0, {})", hex_off(32 * t))
+    if inline {
+        code.text("    // Private terminal body: empty memory, outputs stored at [0, 0x40)");
+        for line in &result.lines {
+            code.text(line);
+        }
     } else {
-        format!("[s0', ..., s{}', ...]", t - 1)
-    });
+        code.op("POSEIDON2_PERMUTATION()", 0, 0);
+        code.end(&if in_memory {
+            format!("state at memory [0, {})", hex_off(32 * t))
+        } else {
+            format!("[s0', ..., s{}', ...]", t - 1)
+        });
+    }
     code.blank();
     ret(&mut code, t, in_memory, result.memory);
     format!(
@@ -691,10 +712,16 @@ pub fn render_part(
     loads(&mut code, t, &result.input_slots, 0, from == 0);
     code.blank();
     code.op("POSEIDON2_PART()", 0, 0);
-    code.end(&format!("state at memory [0, {})", hex_off(32 * t)));
+    code.end(&if result.state_in_memory {
+        format!("state at memory [0, {})", hex_off(32 * t))
+    } else if t <= 4 {
+        format!("[{}, PRIME, ...]", state_names(t, "'"))
+    } else {
+        format!("[{}, ...]", state_names(t, "'"))
+    });
     code.blank();
     if last {
-        ret(&mut code, t, true, result.memory);
+        ret(&mut code, t, result.state_in_memory, result.memory);
     } else {
         hand_over(&mut code, t, part, result.memory);
     }
@@ -765,11 +792,24 @@ pub fn render_part(
     } else {
         format!("lazy values below {HANDOVER_BOUND_TEXT}, which the next part takes as they are")
     };
+    let layout = if result.state_in_memory {
+        format!(
+            "the state in memory at [0, {}) ({outputs}; stack: garbage)",
+            hex_off(32 * t)
+        )
+    } else if t <= 4 {
+        format!(
+            "[{}, PRIME, ...garbage...] ({outputs})",
+            state_names(t, "'")
+        )
+    } else {
+        format!("[{}, ...garbage...] ({outputs})", state_names(t, "'"))
+    };
     format!(
         "{HEADER}
 {includes}
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}: part {part} of {count}, {steps}
-/// @dev takes [{inputs}, PRIME] {takes}, leaves the state in memory at [0, {end}) ({outputs}; stack: garbage)
+/// @dev takes [{inputs}, PRIME] {takes}, leaves {layout}
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 {note}{stats}
 /// @dev schedule options: {options}
@@ -783,7 +823,6 @@ pub fn render_part(
 }}
 {chain}",
         includes = includes(utils_path),
-        end = hex_off(32 * t),
         note = fork_note(fork),
         stats = stats(result),
         options = describe_options(opts),

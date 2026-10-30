@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { account, trace } from "./gas-floor.mjs";
+import { account, entryCost, trace } from "./gas-floor.mjs";
 
 test("baseline opcode counts reproduce core gas and scoped floors", () => {
   const cases = [
@@ -57,6 +57,25 @@ test("trace follows round headings and ignores stack comments", () => {
   assert.deepEqual(segments[1].counts, { push: 2, dup: 1, mulmod: 1 });
 });
 
+test("streamed external re-entry retains its own segment and opcode costs", () => {
+  const segments = trace([
+    "// Round 59 (internal)",
+    "dup1 add",
+    "// Round 60 (external, streamed internal outputs)",
+    "dup2 dup1 mulmod",
+  ]);
+  assert.equal(segments.length, 2);
+  assert.deepEqual(
+    segments.map((s) => s.group),
+    ["internal", "external"],
+  );
+  assert.deepEqual(
+    segments.map((s) => s.gas),
+    [6, 14],
+  );
+  assert.deepEqual(segments[1].counts, { dup: 2, mulmod: 1 });
+});
+
 test("unsupported arithmetic cannot silently enter the floor model", () => {
   assert.throws(() => account({ mod: 1 }), /unsupported opcode/);
   assert.throws(() => account({ pop: 1 }), /unsupported opcode/);
@@ -81,4 +100,73 @@ test("trace rejects cheaper zero supply and non-Osaka stack operations", () => {
 
 test("trace rejects opcodes not attributed to a segment", () => {
   assert.throws(() => trace(["dup1"]), /outside a round/);
+});
+
+// A short accounting fixture, not a permutation correctness oracle.
+function terminal(hardfork = "osaka") {
+  const paris = hardfork === "paris";
+  return {
+    t: 2,
+    hardfork,
+    entryKind: "t2-terminal",
+    gas: 50,
+    entryGas: paris ? 31 : 30,
+    tailGas: paris ? 5 : 4,
+    memoryGas: 6,
+    wrapper: paris ? 42 : 40,
+    runtimeBytes: paris ? 93 : 91,
+    lines: [
+      "[PRIME] swap1 dup1 dup4 add dup3 dup2 dup6 addmod msize mstore addmod msize mstore",
+    ],
+  };
+}
+
+test("terminal accounting charges both stores and expansion, not a second return store", () => {
+  for (const name of ["amsterdam", "osaka", "paris"]) {
+    const built = terminal(name);
+    const entry = entryCost(built);
+    assert.equal(entry.call, name === "paris" ? 92 : 90);
+    assert.equal(entry.memoryGas, 6);
+    assert.deepEqual(entry.stores, [0, 32]);
+    assert.throws(
+      () => trace(["// Initial linear layer", ...built.lines]),
+      /unsupported opcode/,
+    );
+  }
+});
+
+test("terminal adapter rejects unmodeled memory, wrong metadata and stack underflow", () => {
+  for (const instruction of [
+    "mload",
+    "mstore",
+    "codecopy",
+    "calldatacopy",
+    "return",
+    "jump",
+    "dupn 236",
+  ]) {
+    const built = terminal();
+    built.lines.unshift(instruction);
+    assert.throws(() => entryCost(built));
+  }
+  for (const key of [
+    "gas",
+    "entryGas",
+    "tailGas",
+    "memoryGas",
+    "wrapper",
+    "runtimeBytes",
+  ]) {
+    const built = terminal();
+    built[key] += 1;
+    assert.throws(() => entryCost(built));
+  }
+  for (const lines of [
+    ["addmod addmod"],
+    ["msize dup1 mstore"],
+    ["msize mstore"],
+    ["msize mstore msize mstore msize mstore"],
+  ])
+    assert.throws(() => entryCost({ ...terminal(), lines }));
+  assert.throws(() => entryCost({ ...terminal(), entryKind: "unknown" }));
 });

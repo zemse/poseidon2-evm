@@ -42,6 +42,10 @@ use crate::reference::{permutation_steps, sponge_state};
 use crate::round_constants::Params;
 use crate::value::Op;
 
+#[path = "t2_entry.rs"]
+mod t2_entry;
+pub(crate) use t2_entry::build as build_t2_terminal;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BuildOptions {
     /// keep the internal diag constants in memory instead of PUSH32 (t >= 4)
@@ -474,6 +478,8 @@ struct Builder<'a> {
     sboxed: bool,
     /// the outputs are already at [0, 32t) (stream_final)
     stored: bool,
+    /// the private t2 raw entry stores its last linear outputs directly
+    terminal_t2: bool,
     /// the sum of the elements the previous consuming round stored, in
     /// memory (internal_round_consume)
     fused: Option<Id>,
@@ -646,6 +652,7 @@ impl<'a> Builder<'a> {
             lane_constants: None,
             sboxed: false,
             stored: false,
+            terminal_t2: false,
             fused: None,
             entry_layout: None,
             mid_entry: true,
@@ -3322,6 +3329,9 @@ impl<'a> Builder<'a> {
                 } else {
                     self.internal_round(r, prime_under)?;
                 }
+            } else if r == total - 1 && self.terminal_t2 {
+                self.e.comment(&format!("Round {r} (external)"));
+                self.terminal_round2(r)?;
             } else if r == total - 1 && self.live.is_some() {
                 self.e.comment(&format!("Round {r} (external, s0' only)"));
                 if self.live.as_deref() != Some(&[0]) {
@@ -3606,9 +3616,19 @@ fn build_once(
     let built = b.build();
     *entered |= b.entered;
     let outputs = built?;
+    finish_checked(b, &outputs, expected, boundary)
+}
+
+fn finish_checked(
+    b: Builder<'_>,
+    outputs: &[Id],
+    expected: &[Vec<U256>],
+    boundary: &Boundary,
+) -> Result<BuildResult> {
     let e = &b.e;
-    let t = params.t;
-    let is_final = range.to == step_count(params);
+    let t = b.t;
+    let range = b.range;
+    let is_final = range.to == step_count(b.params);
     // the state indices the outputs hold
     let live: Vec<usize> = boundary
         .live
