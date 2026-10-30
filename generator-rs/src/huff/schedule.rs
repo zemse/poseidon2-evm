@@ -1694,6 +1694,18 @@ impl<'a> Builder<'a> {
         STREAM_KEEP.min(self.t / 4)
     }
 
+    /// The PRIME copy a streamed layer's sums and blocks DUP from: within
+    /// the legacy reach it keeps their copies one-byte DUPs (or saves a
+    /// PUSH32 where none is near); beyond it every copy reaches the one
+    /// there is, so the floor would be a dead 3 gas.
+    fn stream_floor(&mut self) -> Result<()> {
+        if self.e.max_reach <= 16 || self.e.find_prime() == 0 {
+            self.e.push_prime()?;
+            self.e.end_line();
+        }
+        Ok(())
+    }
+
     /// s + c and the S-box of a lane over a PRIME copy: an input on top
     /// gets the copy swapped under it, any other is DUPed over one (its
     /// slot is left dead); a lazy input that does not fit the ADD takes an
@@ -1728,8 +1740,7 @@ impl<'a> Builder<'a> {
         let t = self.t;
         let k = t / 4;
         let keep = self.stream_keep();
-        self.e.push_prime()?;
-        self.e.end_line();
+        self.stream_floor()?;
         let state = self.state.clone();
         let mut out = Vec::with_capacity(t);
         for (i, &s) in state.iter().enumerate() {
@@ -1759,8 +1770,7 @@ impl<'a> Builder<'a> {
         let keep = self.stream_keep();
         self.layers += 1;
         let x = self.state.clone();
-        self.e.push_prime()?;
-        self.e.end_line();
+        self.stream_floor()?;
         let mut sums = [0; 4];
         for i in (0..4).rev() {
             let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();

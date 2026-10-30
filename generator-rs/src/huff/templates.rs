@@ -275,9 +275,15 @@ pub fn last_stream_block8() -> &'static str {
     "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup12 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap11 add=o2 lane=z2 swap4 add=o0 lane=z0"
 }
 
-/// The first kept t8 block parks z3 in its consumed input's slot.
+/// The first kept t8 block parks z3 in its consumed input's slot. The
+/// depth is x4's under the column sums: 8 and 9 without the floor PRIME
+/// copy (x3 parked after x6 by the layer before, or the inputs in order),
+/// 9 and 10 with it.
 pub fn first_stream_block8(depth: usize) -> Option<&'static str> {
     match depth {
+        8 => Some(
+            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup15 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap14 add=o2 lane=z2 swap4 add=o0 lane=z0",
+        ),
         9 => Some(
             "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup16 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap15 add=o2 lane=z2 swap4 add=o0 lane=z0",
         ),

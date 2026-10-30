@@ -598,15 +598,18 @@ fn t8_input_last_use_selection_and_fallback() {
             let old = b.state.clone();
             let tail = sentinels(&mut b, 3);
             let mut stack = b.e.from_top();
+            // x4 two slots deeper than any first-block program expects
             if moved {
-                stack.swap(4, 5);
+                stack.swap(4, 6);
             }
             stack.extend_from_slice(&tail);
             b.e.set_stack(&stack);
             let before = b.e.gas;
             b.stream_linear(Some(0)).unwrap();
             let eligible = name == "amsterdam" && !moved;
-            assert_eq!(b.e.gas - before, if eligible { 759 } else { 762 });
+            // Amsterdam pushes no floor PRIME copy (3 gas less)
+            let floor = if name == "amsterdam" { 0 } else { 3 };
+            assert_eq!(b.e.gas - before, if eligible { 756 } else { 759 + floor });
             assert_eq!(b.e.find(old[4]) == 0, eligible);
             let top = b.e.from_top();
             assert_eq!(&top[top.len() - tail.len()..], tail);
@@ -1290,8 +1293,9 @@ fn t8_seam_runs_the_next_s_boxes_in_the_last_consuming_round() {
     let (plain, _) = build(false);
     let (seam, out) = build(true);
     // every lane but s0' lands over its second copy: no copy and no DUP of
-    // the output for its S-box in the external round
-    assert_eq!(plain.e.gas - seam.e.gas, 3 * (params.t as u64 - 1));
+    // the output for its S-box in the external round, whose layer pushes
+    // no floor PRIME copy on Amsterdam either (3 gas less to save)
+    assert_eq!(plain.e.gas - seam.e.gas, 3 * (params.t as u64 - 1) - 3);
     assert!(seam.e.max_depth < plain.e.max_depth);
     let last = params.rounds_f / 2 + params.rounds_p - 1;
     let from = seam
