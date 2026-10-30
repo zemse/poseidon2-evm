@@ -76,16 +76,14 @@ library LibPoseidon2Yul {
 
             // initial linear layer
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6
                 )
                 state0 := add(add(t3, state1), 0x23beb8884da4fed48ef12e74c950988d0a0441f5838aca9721a27669cc1def10)
@@ -110,16 +108,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x13da07dc64d428369873e97160234641f8beb56fdd05e5f3563fa39d9c22df4e
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x0e35fb89981890520d4aef2b6d6506c3cb2f0b6973c24fa82731345ffa2d1f1e
                 )
                 state0 := add(add(t3, state1), 0x2013c8b2ad514d4a52886b98f2652d2d3fe6ba26f56d3c46d6e7c029709c29e4)
@@ -144,16 +140,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x04dba94a7b0ce9e221acad41472b6bbe3aec507f5eb3d33f463672264c9f789b
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x011f16b1c63a854f01992e3956f42d8b04eb650c6d535eb0203dec74befdca06
                 )
                 state0 := add(add(t3, state1), 0x0ae184d3201661833c26de4475fb46f8a0682e8a1c7ff21d26a9cc1b96ff7d32)
@@ -178,16 +172,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x0a1ca941f057037526ea200f489be8d4c37c85bbcce6a2aeec91bd6941432447
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x259a666f129eea198f8a1c502fdb38fa39b1f075569564b6e54a485d1182323f
                 )
                 state0 := add(add(t3, state1), 0x15090e3ba6d3a9b19776bd8d6e4342de4eb86d506ed917d22d0add28b377f6aa)
@@ -212,12 +204,10 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := addmod(mulmod(t1, 4, PRIME), t3, PRIME)
-                state1 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                state3 := addmod(t3, mulmod(4, add(state3, state2), PRIME), PRIME)
+                state1 := addmod(t2, mulmod(4, add(state1, state0), PRIME), PRIME)
                 state0 := add(
                     addmod(t3, state1, PRIME),
                     0x0c6f8f958be0e93053d7fd4fc54512855535ed1539f051dcb43a26fd926361cf
@@ -1155,16 +1145,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x21ca859468a746b6aaa79474a37dab49f1ca5a28c748bc7157e1b3345bb0f959
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x13abe3f5239915d39f7e13c2c24970b6df8cf86ce00a22002bc15866e52b5a96
                 )
                 state0 := add(add(t3, state1), 0x2939ea51eaf804973a306efb795159bcf65bb354a0b52927038456afca9f9cc5)
@@ -1189,16 +1177,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x09d3dca9173ed2faceea125157683d18924cadad3f655a60b72f5864961f1455
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x0f0e34a64b70a626e464d846674c4c8816c4fb267fe44fe6ea28678cb09490a4
                 )
                 state0 := add(add(t3, state1), 0x2722eff1f1df690f30dd5e4fad76a09b3a80be6efcf686d4e8d3d6a0dd9f87b8)
@@ -1223,16 +1209,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x176563472456aaa746b694c60e1823611ef39039b2edc7ff391e6f2293d2c404
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x2bf07216e2aff0a223a487b1a7094e07e79e7bcc9798c648ee3347dd5329d34b
                 )
                 state0 := add(add(t3, state1), 0x079ca8314d0db89addeb4473aab52be132d4ff526ccf6ece6d8374d982936feb)
@@ -1257,11 +1241,9 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                let t5 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t5 := addmod(t2, mulmod(4, add(state1, state0), PRIME), PRIME)
                 state0 := addmod(t3, t5, PRIME)
             }
 
@@ -1296,16 +1278,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x13da07dc64d428369873e97160234641f8beb56fdd05e5f3563fa39d9c22df4e
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x0e35fb89981890520d4aef2b6d6506c3cb2f0b6973c24fa82731345ffa2d1f1e
                 )
                 state0 := add(add(t3, state1), 0x2013c8b2ad514d4a52886b98f2652d2d3fe6ba26f56d3c46d6e7c029709c29e4)
@@ -1330,16 +1310,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x04dba94a7b0ce9e221acad41472b6bbe3aec507f5eb3d33f463672264c9f789b
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x011f16b1c63a854f01992e3956f42d8b04eb650c6d535eb0203dec74befdca06
                 )
                 state0 := add(add(t3, state1), 0x0ae184d3201661833c26de4475fb46f8a0682e8a1c7ff21d26a9cc1b96ff7d32)
@@ -1364,16 +1342,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x0a1ca941f057037526ea200f489be8d4c37c85bbcce6a2aeec91bd6941432447
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x259a666f129eea198f8a1c502fdb38fa39b1f075569564b6e54a485d1182323f
                 )
                 state0 := add(add(t3, state1), 0x15090e3ba6d3a9b19776bd8d6e4342de4eb86d506ed917d22d0add28b377f6aa)
@@ -1398,12 +1374,10 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := addmod(mulmod(t1, 4, PRIME), t3, PRIME)
-                state1 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                state3 := addmod(t3, mulmod(4, add(state3, state2), PRIME), PRIME)
+                state1 := addmod(t2, mulmod(4, add(state1, state0), PRIME), PRIME)
                 state0 := add(
                     addmod(t3, state1, PRIME),
                     0x0c6f8f958be0e93053d7fd4fc54512855535ed1539f051dcb43a26fd926361cf
@@ -2341,16 +2315,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x21ca859468a746b6aaa79474a37dab49f1ca5a28c748bc7157e1b3345bb0f959
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x13abe3f5239915d39f7e13c2c24970b6df8cf86ce00a22002bc15866e52b5a96
                 )
                 state0 := add(add(t3, state1), 0x2939ea51eaf804973a306efb795159bcf65bb354a0b52927038456afca9f9cc5)
@@ -2375,16 +2347,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x09d3dca9173ed2faceea125157683d18924cadad3f655a60b72f5864961f1455
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x0f0e34a64b70a626e464d846674c4c8816c4fb267fe44fe6ea28678cb09490a4
                 )
                 state0 := add(add(t3, state1), 0x2722eff1f1df690f30dd5e4fad76a09b3a80be6efcf686d4e8d3d6a0dd9f87b8)
@@ -2409,16 +2379,14 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
                 state3 := add(
-                    add(mulmod(t1, 4, PRIME), t3),
+                    add(t3, mulmod(4, add(state3, state2), PRIME)),
                     0x176563472456aaa746b694c60e1823611ef39039b2edc7ff391e6f2293d2c404
                 )
                 state1 := add(
-                    add(mulmod(t0, 4, PRIME), t2),
+                    add(t2, mulmod(4, add(state1, state0), PRIME)),
                     0x2bf07216e2aff0a223a487b1a7094e07e79e7bcc9798c648ee3347dd5329d34b
                 )
                 state0 := add(add(t3, state1), 0x079ca8314d0db89addeb4473aab52be132d4ff526ccf6ece6d8374d982936feb)
@@ -2443,11 +2411,9 @@ library LibPoseidon2Yul {
                 state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                let t5 := addmod(mulmod(t0, 4, PRIME), t2, PRIME)
+                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t5 := addmod(t2, mulmod(4, add(state1, state0), PRIME), PRIME)
                 state0 := addmod(t3, t5, PRIME)
             }
 

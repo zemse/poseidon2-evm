@@ -291,6 +291,20 @@ impl<'a> Builder<'a> {
         self.p.expr(Op::Mulmod, &[&diag, s, &self.p.p])
     }
 
+    /// sum + d_i s; a lazy doubling as (sum + s) + s, 3 gas less a round than
+    /// sum + (s + s) once the assembly CSE has regenerated the tail
+    fn diag_output(&self, sum: &Value, s: &Value, i: usize, reduce: bool) -> Result<Value> {
+        let d = self.params.internal_diag_minus_one[i];
+        if d == u256(2) && !reduce && Self::fits(s, s) {
+            let partial = self.add(sum, s, false)?;
+            if Self::fits(&partial, s) {
+                return self.add(&partial, s, false);
+            }
+        }
+        let scaled = self.scaled(s, i)?;
+        self.add(sum, &scaled, reduce)
+    }
+
     fn diag(&self, i: usize) -> Result<Value> {
         let d = self.params.internal_diag_minus_one[i];
         if i < self.layout.diag_lets {
@@ -644,8 +658,7 @@ impl<'a> Builder<'a> {
         };
         let sum = self.chain_sum(&old, "sum", cap)?;
         for (i, s) in old.iter().enumerate() {
-            let scaled = self.scaled(s, i)?;
-            let e = self.add(&sum, &scaled, lazy && i > 0)?;
+            let e = self.diag_output(&sum, s, i, lazy && i > 0)?;
             self.set(i, &e)?;
         }
         Ok(())
@@ -658,10 +671,9 @@ impl<'a> Builder<'a> {
         let e = self.p.expr(Op::Addmod, &[&q, &old[2], &self.p.p])?;
         let sum = self.p.let_("sum", &e)?;
         for (i, s) in old.iter().enumerate() {
-            let scaled = self.scaled(s, i)?;
             let reduce = i == 1
                 && wide(sum.bound) + wide(s.bound) + wide(PRIME - u256(1)) > wide(UINT256_MAX);
-            let e = self.add(&sum, &scaled, reduce)?;
+            let e = self.diag_output(&sum, s, i, reduce)?;
             self.set(i, &e)?;
         }
         Ok(())

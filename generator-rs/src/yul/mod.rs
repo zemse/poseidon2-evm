@@ -36,7 +36,7 @@ fn layout_for(t: usize) -> Layout {
             diag_fixed: 0,
             diag_lets: if t == 4 { 4 } else { 0 },
             diag_scratch: 0,
-            m4_temps: 4,
+            m4_temps: if t == 4 { 2 } else { 4 },
             internal_let: true,
             prime_first: t >= 3,
             internal_reduce_outputs: t == 2,

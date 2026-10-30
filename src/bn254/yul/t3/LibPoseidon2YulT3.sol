@@ -114,7 +114,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x26abc66f3fdf8e68839d10956259063708235dccc1aa3793b91b002c5b257c37)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 5 (internal)
@@ -134,7 +134,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1cf5998769e9fab79e17f0b6d08b2d1eba2ebac30dc386b0edd383831354b495)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 7 (internal)
@@ -154,7 +154,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x18df6a9d19ea90d895e60e4db0794a01f359a53a180b7d4b42bf3d7a531c976e)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 9 (internal)
@@ -174,7 +174,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x29c76ce22255206e3c40058523748531e770c0584aa2328ce55d54628b89ebe6)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 11 (internal)
@@ -194,7 +194,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x25ee27ab6296cd5e6af3cc79c598a1daa7ff7f6878b3c49d49d3a9a90c3fdf74)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 13 (internal)
@@ -214,7 +214,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x306197fb3fab671ef6e7c2cba2eefd0e42851b5b9811f2ca4013370a01d95687)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 15 (internal)
@@ -234,7 +234,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x2b46b418de80915f3ff86a8e5c8bdfccebfbe5f55163cd6caa52997da2c54a9f)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 17 (internal)
@@ -254,7 +254,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x263390cf74dc3a8870f5002ed21d089ffb2bf768230f648dba338a5cb19b3a1f)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 19 (internal)
@@ -274,7 +274,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x28ead9c586513eab1a5e86509d68b2da27be3a4f01171a1dd847df829bc683b9)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 21 (internal)
@@ -294,7 +294,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1fc7e71bc0b819792b2500239f7f8de04f6decd608cb98a932346015c5b42c94)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 23 (internal)
@@ -314,7 +314,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x2d354a251f381a4669c0d52bf88b772c46452ca57c08697f454505f6941d78cd)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 25 (internal)
@@ -334,7 +334,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x19705b783bf3d2dc19bcaeabf02f8ca5e1ab5b6f2e3195a9d52b2d249d1396f7)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 27 (internal)
@@ -354,7 +354,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1803f8200db6013c50f83c0c8fab62843413732f301f7058543a073f3f3b5e4e)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 29 (internal)
@@ -374,7 +374,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x126ee1f8504f15c3d77f0088c1cfc964abcfcf643f4a6fea7dc3f98219529d78)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 31 (internal)
@@ -394,7 +394,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x2a2ae15d8b143709ec0d09705fa3a6303dec1ee4eec2cf747c5a339f7744fb94)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 33 (internal)
@@ -414,7 +414,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x27316b559be3edfd885d95c494c1ae3d8a98a320baa7d152132cfe583c9311bd)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 35 (internal)
@@ -434,7 +434,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x2f8b124e78163b2f332774e0b850b5ec09c01bf6979938f67c24bd5940968488)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 37 (internal)
@@ -454,7 +454,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x11cdf00a35f650c55fca25c9929c8ad9a68daf9ac6a189ab1f5bc79f21641d4b)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 39 (internal)
@@ -474,7 +474,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x0de625758452efbd97b27025fbd245e0255ae48ef2a329e449d7b5c51c18498a)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 41 (internal)
@@ -494,7 +494,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1d6b169ed63872dc6ec7681ec39b3be93dd49cdd13c813b7d35702e38d60b077)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 43 (internal)
@@ -514,7 +514,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x0065a92d1de81f34114f4ca2deef76e0ceacdddb12cf879096a29f10376ccbfe)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 45 (internal)
@@ -534,7 +534,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x26596f5c5dd5a5d1b437ce7b14a2c3dd3bd1d1a39b6759ba110852d17df0693e)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 47 (internal)
@@ -554,7 +554,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1abe1deb45b3e3119954175efb331bf4568feaf7ea8b3dc5e1a4e7438dd39e5f)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 49 (internal)
@@ -574,7 +574,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x0e7c30c2e2e8957f4933bd1942053f1f0071684b902d534fa841924303f6a6c6)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 51 (internal)
@@ -594,7 +594,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x21a5ade3df2bc1b5bba949d1db96040068afe5026edd7a9c2e276b47cf010d54)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 53 (internal)
@@ -614,7 +614,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x0b115572f038c0e2028c2aafc2d06a5e8bf2f9398dbd0fdf4dcaa82b0f0c1c8b)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 55 (internal)
@@ -634,7 +634,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x1c89c6d9666272e8425c3ff1f4ac737b2f5d314606a297d4b1d0b254d880c53e)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 57 (internal)
@@ -654,7 +654,7 @@ library LibPoseidon2YulT3 {
                 let sum := addmod(add(x5, state1), state2, PRIME)
                 state0 := add(add(sum, x5), 0x268076b0054fb73f67cee9ea0e51e3ad50f27a6434b5dceb5bdde2299910a4c9)
                 state1 := add(sum, state1)
-                state2 := add(sum, add(state2, state2))
+                state2 := add(add(sum, state2), state2)
             }
 
             // round 59 (internal)
