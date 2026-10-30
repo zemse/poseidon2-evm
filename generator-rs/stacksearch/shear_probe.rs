@@ -318,6 +318,10 @@ fn shear_compiled_whole_call_regression() {
         let mut measured = Vec::new();
         for text in [original, &candidate] {
             let mut files = files.clone();
+            files.insert(
+                entry.clone(),
+                crate::huff::render::render_entry(&params, &fork, &baseline),
+            );
             files.insert(path.clone(), text.clone());
             let sources = Arc::new(Sources {
                 root: root.clone(),

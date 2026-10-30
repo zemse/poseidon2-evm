@@ -44,7 +44,7 @@ use crate::value::Op;
 
 #[path = "t2_entry.rs"]
 mod t2_entry;
-pub(crate) use t2_entry::build as build_t2_terminal;
+pub(crate) use t2_entry::build as build_terminal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BuildOptions {
@@ -478,8 +478,8 @@ struct Builder<'a> {
     sboxed: bool,
     /// the outputs are already at [0, 32t) (stream_final)
     stored: bool,
-    /// the private t2 raw entry stores its last linear outputs directly
-    terminal_t2: bool,
+    /// a private raw entry stores its last linear outputs directly
+    terminal: Option<t2_entry::Terminal>,
     /// the sum of the elements the previous consuming round stored, in
     /// memory (internal_round_consume)
     fused: Option<Id>,
@@ -652,7 +652,7 @@ impl<'a> Builder<'a> {
             lane_constants: None,
             sboxed: false,
             stored: false,
-            terminal_t2: false,
+            terminal: None,
             fused: None,
             entry_layout: None,
             mid_entry: true,
@@ -3330,9 +3330,14 @@ impl<'a> Builder<'a> {
                 } else {
                     self.internal_round(r, prime_under)?;
                 }
-            } else if r == total - 1 && self.terminal_t2 {
+            } else if r == total - 1
+                && let Some(kind) = self.terminal
+            {
                 self.e.comment(&format!("Round {r} (external)"));
-                self.terminal_round2(r)?;
+                match kind {
+                    t2_entry::Terminal::T2 => self.terminal_round2(r)?,
+                    t2_entry::Terminal::T3 => self.terminal_round3(r)?,
+                }
             } else if r == total - 1 && self.live.is_some() {
                 self.e.comment(&format!("Round {r} (external, s0' only)"));
                 if self.live.as_deref() != Some(&[0]) {

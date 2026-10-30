@@ -255,3 +255,114 @@ fn t3_terminal_compiled_whole_entry() {
         );
     }
 }
+
+#[test]
+fn t3_terminal_production_compiled_whole_entry() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let params = generate_params(3);
+    let raw = raw_inputs();
+    let clean: Vec<Vec<U256>> = raw
+        .iter()
+        .map(|input| input.iter().map(|&word| reduce(word)).collect())
+        .collect();
+    for name in ["amsterdam", "osaka", "paris"] {
+        let fork = fork(name).unwrap();
+        let plan = super::super::build_entry_plan(&params, &clean, fork)
+            .unwrap()
+            .unwrap();
+        let original = &plan.permutation().result;
+        let selected = plan.terminal_result().expect("selected t3 terminal entry");
+        let (fixture, _) = build_fixture(&params, &clean, fork, true, 0).unwrap();
+        let (_, depth) = build_fixture(&params, &clean, fork, false, 0).unwrap();
+        assert_eq!(tokens(&selected.lines), tokens(&fixture.lines));
+        let baseline_gas = super::super::entry_gas(&fork, 3, original);
+        let model = super::super::entry_gas(&fork, 3, selected);
+        assert_eq!(baseline_gas, if fork.push0 { 7650 } else { 7652 });
+        assert_eq!(model + 6, baseline_gas);
+        let path = huff_name(&fork, 3, "Poseidon2");
+        let public_path = huff_name(&fork, 3, "Permutation");
+        let utils = if name == "amsterdam" {
+            "../Utils.huff"
+        } else {
+            "../../Utils.huff"
+        };
+        let public = render_permutation(&params, original, &plan.permutation().opts, utils, &fork);
+        let mut baseline = HashMap::from([
+            (path.clone(), render_entry(&params, &fork, original)),
+            (public_path.clone(), public.clone()),
+        ]);
+        let width = super::super::generate(3, &fork).unwrap();
+        assert!(matches!(&width.target, super::super::Target::Entry { gas, .. } if *gas == model));
+        let mut generated: HashMap<String, String> = width
+            .files()
+            .map(|(path, text)| (path.to_string(), text.to_string()))
+            .collect();
+        assert_eq!(generated[&public_path], public);
+        assert!(generated[&path].contains("outputs stored at [0, 0x60)"));
+        let compile_files = |files: &HashMap<String, String>, path: &str| {
+            compile(
+                &Arc::new(Sources {
+                    root: root.clone(),
+                    files: files.clone(),
+                }),
+                path,
+                &fork,
+            )
+            .unwrap()
+        };
+        let canonical = compile_files(&baseline, &path);
+        let baseline_runtime = calls(&fork, canonical, &params, &raw, baseline_gas);
+        let mut fixture_files = baseline.clone();
+        fixture_files.insert(
+            path.clone(),
+            render_entry(&params, &fork, &fixture).replacen(
+                "POSEIDON2_PERMUTATION()",
+                &fixture.lines.join("\n"),
+                1,
+            ),
+        );
+        let checked = compile_files(&fixture_files, &path);
+        let production = compile_files(&generated, &path);
+        assert_eq!(production.runtime, checked.runtime);
+        assert_eq!(production.initcode, checked.initcode);
+        assert_eq!(
+            production.runtime.len(),
+            if fork.push0 { 6713 } else { 6715 }
+        );
+        assert_eq!(production.runtime.len() + 34, baseline_runtime.len());
+        assert_eq!(
+            production.runtime.len(),
+            selected.bytes + entry_bytes(fork, 3, &selected.input_slots, true, 96)
+        );
+        let runtime = calls(&fork, production, &params, &raw, model);
+        println!(
+            "T3_PRODUCTION {name}: {} reference-checked calls, {model} gas, {} runtime bytes, fixture-identical init/runtime",
+            raw.len(),
+            runtime.len()
+        );
+        let caller = huff_name(&fork, 3, "ProductionPublicCaller");
+        let source = format!(
+            "#include \"./Permutation.huff\"\n#define macro MAIN() = {{\n0xbeef 0x200 mstore\n0x22 0x11 SETUP()\ndup1 0x40 calldataload mod\ndup2 0x20 calldataload mod\ndup3 0x0 calldataload mod\nPOSEIDON2_PERMUTATION()\n0x0 mstore 0x20 mstore 0x40 mstore 0x60 mstore\n{}\n0x80 mstore 0xa0 mstore\n0x200 mload 0xc0 mstore\n0xe0 0x0 return\n}}\n",
+            "pop ".repeat(depth - 4)
+        );
+        baseline.insert(caller.clone(), source.clone());
+        generated.insert(caller.clone(), source);
+        let before = compile_files(&baseline, &caller);
+        let after = compile_files(&generated, &caller);
+        assert_eq!(before.runtime, after.runtime);
+        assert_eq!(before.initcode, after.initcode);
+        let mut chain = Chain::new(&fork);
+        let to = chain.deploy(after.initcode).unwrap();
+        for input in &raw {
+            let (out, _) = chain.call(to, words(input), &[]).unwrap();
+            let mut expected = permutation(&params, input);
+            expected.extend([PRIME, u256(0x11), u256(0x22), u256(0xbeef)]);
+            assert_eq!(out.len(), 224);
+            assert_eq!(from_words(&out), expected);
+        }
+        println!(
+            "T3_PRODUCTION public {name}: {} calls, byte identity, PRIME, tails and pre-touched memory preserved",
+            raw.len()
+        );
+    }
+}

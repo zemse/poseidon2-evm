@@ -109,10 +109,11 @@ fn schedule(fork: &Fork, t: usize) -> Result<String> {
     let Some(plan) = huff::build_entry_plan(&params, &test_inputs(t), *fork)? else {
         bail!("no {} schedule for t = {t}", fork.name);
     };
-    let kind = if plan.terminal_result().is_some() {
-        "t2-terminal"
-    } else {
-        "permutation"
+    let kind = match (plan.terminal_result().is_some(), t) {
+        (false, _) => "permutation",
+        (true, 2) => "t2-terminal",
+        (true, 3) => "t3-terminal",
+        (true, _) => bail!("unsupported terminal entry width {t}"),
     };
     Ok(format!(
         "{{\"t\":{t},\"roundsF\":{},\"roundsP\":{},\"options\":{:?},\"hardfork\":{:?},\"entryKind\":{kind:?},{},\"permutation\":{{{}}}}}",

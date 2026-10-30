@@ -199,7 +199,7 @@ fn plan_entry(
     fork: Fork,
     permutation: schedule::Best,
 ) -> EntryPlan {
-    let candidate = schedule::build_t2_terminal(params, inputs, fork, &permutation);
+    let candidate = schedule::build_terminal(params, inputs, fork, &permutation);
     select_terminal(params.t, fork, permutation, candidate)
 }
 

@@ -102,71 +102,104 @@ test("trace rejects opcodes not attributed to a segment", () => {
   assert.throws(() => trace(["dup1"]), /outside a round/);
 });
 
-// A short accounting fixture, not a permutation correctness oracle.
-function terminal(hardfork = "osaka") {
+// Short accounting fixtures, not permutation correctness oracles.
+function terminal(hardfork = "osaka", t = 2) {
   const paris = hardfork === "paris";
   return {
-    t: 2,
+    t,
     hardfork,
-    entryKind: "t2-terminal",
-    gas: 50,
-    entryGas: paris ? 31 : 30,
+    entryKind: `t${t}-terminal`,
+    gas: t === 2 ? 50 : 78,
+    entryGas: (t === 2 ? 30 : 44) + (paris ? 1 : 0),
     tailGas: paris ? 5 : 4,
-    memoryGas: 6,
-    wrapper: paris ? 42 : 40,
-    runtimeBytes: paris ? 93 : 91,
+    memoryGas: t === 2 ? 6 : 9,
+    wrapper: (t === 2 ? 40 : 57) + (paris ? 2 : 0),
+    runtimeBytes: (t === 2 ? 91 : 104) + (paris ? 2 : 0),
     lines: [
-      "[PRIME] swap1 dup1 dup4 add dup3 dup2 dup6 addmod msize mstore addmod msize mstore",
+      t === 2
+        ? "[PRIME] swap1 dup1 dup4 add dup3 dup2 dup6 addmod msize mstore addmod msize mstore"
+        : "dup1 dup4 dup4 add add [PRIME] dup1 dup3 dup6 addmod msize mstore dup1 dup3 dup7 addmod msize mstore swap2 addmod msize mstore",
     ],
   };
 }
 
-test("terminal accounting charges both stores and expansion, not a second return store", () => {
-  for (const name of ["amsterdam", "osaka", "paris"]) {
-    const built = terminal(name);
-    const entry = entryCost(built);
-    assert.equal(entry.call, name === "paris" ? 92 : 90);
-    assert.equal(entry.memoryGas, 6);
-    assert.deepEqual(entry.stores, [0, 32]);
-    assert.throws(
-      () => trace(["// Initial linear layer", ...built.lines]),
-      /unsupported opcode/,
-    );
+test("terminal accounting charges every output store and expansion exactly once", () => {
+  for (const t of [2, 3]) {
+    for (const name of ["amsterdam", "osaka", "paris"]) {
+      const built = terminal(name, t);
+      const entry = entryCost(built);
+      assert.equal(
+        entry.call,
+        (t === 2 ? 90 : 135) + (name === "paris" ? 2 : 0),
+      );
+      assert.equal(entry.memoryGas, 3 * t);
+      assert.equal(entry.memory, 32 * t);
+      assert.deepEqual(entry.stores, t === 2 ? [0, 32] : [0, 32, 64]);
+      assert.throws(
+        () => trace(["// Initial linear layer", ...built.lines]),
+        /unsupported opcode/,
+      );
+    }
   }
 });
 
-test("terminal adapter rejects unmodeled memory, wrong metadata and stack underflow", () => {
-  for (const instruction of [
-    "mload",
-    "mstore",
-    "codecopy",
-    "calldatacopy",
-    "return",
-    "jump",
-    "dupn 236",
-  ]) {
-    const built = terminal();
-    built.lines.unshift(instruction);
-    assert.throws(() => entryCost(built));
+test("both terminal adapters reject unmodeled memory, wrong metadata and unsafe stacks", () => {
+  for (const t of [2, 3]) {
+    for (const hardfork of ["amsterdam", "osaka", "paris"]) {
+      for (const instruction of [
+        "mload",
+        "mstore",
+        "codecopy",
+        "calldatacopy",
+        "return",
+        "jump",
+        "dupn 236",
+        "swapn 236",
+        "dup17",
+        "dupn",
+        "dupn 0",
+        "swapn 16",
+      ]) {
+        const built = terminal(hardfork, t);
+        built.lines.unshift(instruction);
+        assert.throws(() => entryCost(built));
+      }
+      for (const key of [
+        "gas",
+        "entryGas",
+        "tailGas",
+        "memoryGas",
+        "wrapper",
+        "runtimeBytes",
+      ]) {
+        const built = terminal(hardfork, t);
+        built[key] += 1;
+        assert.throws(() => entryCost(built));
+      }
+      for (const lines of [
+        ["addmod addmod"],
+        ["msize dup1 mstore"],
+        ["msize mstore"],
+        ["msize mstore ".repeat(t + 1)],
+        ["dup1 ".repeat(1024 - (t + 1)) + "msize mstore"],
+        ["dup1 ".repeat(1025 - (t + 1))],
+        ["dup16"],
+        ["swap16"],
+      ])
+        assert.throws(() => entryCost({ ...terminal(hardfork, t), lines }));
+      for (const entryKind of [
+        "unknown",
+        `t${5 - t}-terminal`,
+        "t4-terminal",
+      ]) {
+        assert.throws(() => entryCost({ ...terminal(hardfork, t), entryKind }));
+      }
+      for (const width of [0, 1, 4, 8, 2.5, "3"]) {
+        assert.throws(() => entryCost({ ...terminal(hardfork, t), t: width }));
+      }
+      assert.throws(() =>
+        entryCost({ ...terminal(hardfork, t), hardfork: "unknown" }),
+      );
+    }
   }
-  for (const key of [
-    "gas",
-    "entryGas",
-    "tailGas",
-    "memoryGas",
-    "wrapper",
-    "runtimeBytes",
-  ]) {
-    const built = terminal();
-    built[key] += 1;
-    assert.throws(() => entryCost(built));
-  }
-  for (const lines of [
-    ["addmod addmod"],
-    ["msize dup1 mstore"],
-    ["msize mstore"],
-    ["msize mstore msize mstore msize mstore"],
-  ])
-    assert.throws(() => entryCost({ ...terminal(), lines }));
-  assert.throws(() => entryCost({ ...terminal(), entryKind: "unknown" }));
 });

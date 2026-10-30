@@ -481,7 +481,10 @@ fn render_entry_body(params: &Params, fork: &Fork, result: &BuildResult, inline:
     code.blank();
     let in_memory = result.state_in_memory;
     if inline {
-        code.text("    // Private terminal body: empty memory, outputs stored at [0, 0x40)");
+        code.text(&format!(
+            "    // Private terminal body: empty memory, outputs stored at [0, {})",
+            hex_off(32 * t)
+        ));
         for line in &result.lines {
             code.text(line);
         }

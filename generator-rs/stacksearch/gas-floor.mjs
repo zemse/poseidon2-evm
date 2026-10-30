@@ -106,8 +106,12 @@ export function entryCost(built) {
       call: core + built.wrapper,
     };
   }
-  assert.equal(built.entryKind, "t2-terminal", "unsupported entry kind");
-  assert.equal(built.t, 2);
+  const t = built.t;
+  assert(
+    (t === 2 && built.entryKind === "t2-terminal") ||
+      (t === 3 && built.entryKind === "t3-terminal"),
+    "unsupported entry kind or width",
+  );
   assert(
     ["paris", "shanghai", "cancun", "prague", "osaka", "amsterdam"].includes(
       built.hardfork,
@@ -120,7 +124,7 @@ export function entryCost(built) {
   );
   let core = 0;
   let bytes = 0;
-  let depth = 3; // the unchanged wrapper supplies [s0, s1, PRIME]
+  let depth = t + 1; // the unchanged wrapper supplies t words over PRIME
   let memory = 0;
   const stores = [];
   for (let i = 0; i < tokens.length; i++) {
@@ -133,7 +137,7 @@ export function entryCost(built) {
       );
       assert(depth >= 1, "store stack underflow");
       assert(depth < 1024, "MSIZE stack overflow");
-      assert(memory < 64, "only two sequential output stores are supported");
+      assert(memory < 32 * t, "too many sequential output stores");
       stores.push(memory);
       memory += 32;
       depth -= 1; // MSIZE pushes one word; MSTORE consumes it and the value
@@ -172,13 +176,18 @@ export function entryCost(built) {
     }
     assert(depth <= 1024, "stack overflow");
   }
-  assert.deepEqual(stores, [0, 32], "terminal outputs must occupy [0, 64)");
-  const entryGas = 3 + 2 * (3 + 3 + 3 + 5) - (push0 ? 1 : 0);
+  assert.deepEqual(
+    stores,
+    Array.from({ length: t }, (_, i) => 32 * i),
+    "terminal outputs must fill the return region",
+  );
+  const entryGas = 3 + t * (3 + 3 + 3 + 5) - (push0 ? 1 : 0);
   const tailGas = 2 + (push0 ? 2 : 3); // MSIZE, zero, RETURN; no second store pass
   const words = memory / 32;
   const memoryGas = 3 * words + Math.floor((words * words) / 512);
   const wrapper = entryGas + tailGas + memoryGas;
-  const runtimeBytes = bytes + (push0 ? 42 : 43) + (push0 ? 3 : 4);
+  const inputBytes = 33 + 5 * t - (push0 ? 1 : 0);
+  const runtimeBytes = bytes + inputBytes + (push0 ? 3 : 4);
   assert.equal(core, built.gas, "entry core gas");
   assert.equal(entryGas, built.entryGas, "calldata wrapper gas");
   assert.equal(tailGas, built.tailGas, "return wrapper gas");

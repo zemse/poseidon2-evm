@@ -1,6 +1,12 @@
-// The private t2 entry consumes its final outputs into empty memory. The
-// public permutation and split boundaries keep their existing contracts.
+// Private small-state entries consume their final outputs into empty memory.
+// Public permutations and split boundaries keep their existing contracts.
 use super::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Terminal {
+    T2,
+    T3,
+}
 
 const OPTIONS: BuildOptions = BuildOptions {
     prime_under_external: false,
@@ -10,20 +16,38 @@ const OPTIONS: BuildOptions = BuildOptions {
     ..DEFAULT_OPTIONS
 };
 
-fn eligible(params: &Params, opts: BuildOptions, range: Range, boundary: &Boundary) -> bool {
-    (params.t, params.rounds_f, params.rounds_p) == (2, 8, 56)
-        && opts == OPTIONS
-        && range
-            == (Range {
-                from: 0,
-                to: step_count(params),
-            })
+const T3_OPTIONS: BuildOptions = BuildOptions {
+    prime_under_external: false,
+    external_template: true,
+    internal_template: true,
+    external_seam: true,
+    ..DEFAULT_OPTIONS
+};
+
+fn whole_stack(params: &Params, range: Range, boundary: &Boundary) -> bool {
+    range
+        == (Range {
+            from: 0,
+            to: step_count(params),
+        })
         && boundary.bounds.is_none()
         && !boundary.calldata
         && boundary.live.is_none()
         && !boundary.prime_second
         && boundary.prime_below.is_none()
         && !boundary.store_inputs
+}
+
+fn eligible(params: &Params, opts: BuildOptions, range: Range, boundary: &Boundary) -> bool {
+    (params.t, params.rounds_f, params.rounds_p) == (2, 8, 56)
+        && opts == OPTIONS
+        && whole_stack(params, range, boundary)
+}
+
+fn eligible3(params: &Params, opts: BuildOptions, range: Range, boundary: &Boundary) -> bool {
+    (params.t, params.rounds_f, params.rounds_p) == (3, 8, 56)
+        && opts == T3_OPTIONS
+        && whole_stack(params, range, boundary)
 }
 
 // Memory counters alone do not cover MLOAD. Only a recorded straight-line
@@ -68,12 +92,18 @@ pub(crate) fn build(
 ) -> Result<Option<BuildResult>> {
     let boundary = Boundary::default();
     let result = &prior.result;
-    if !eligible(params, prior.opts, result.range, &boundary)
-        || result.state_in_memory
+    let kind = if eligible(params, prior.opts, result.range, &boundary) {
+        Terminal::T2
+    } else if eligible3(params, prior.opts, result.range, &boundary) {
+        Terminal::T3
+    } else {
+        return Ok(None);
+    };
+    if result.state_in_memory
         || result.memory != 0
         || result.stores != 0
         || result.loads != 0
-        || result.input_slots != [None; 2]
+        || result.input_slots != vec![None; params.t]
         || !result.tables.is_empty()
         || !stack_only(&result.lines, fork)
     {
@@ -90,7 +120,7 @@ pub(crate) fn build(
         true,
         &boundary,
     )?;
-    b.terminal_t2 = true;
+    b.terminal = Some(kind);
     let outputs = b.build()?;
     let expected = expected_outputs(params, inputs, result.range);
     finish_checked(b, &outputs, &expected, &boundary).map(Some)
@@ -163,6 +193,119 @@ impl Builder<'_> {
         Ok(())
     }
 }
+
+impl Builder<'_> {
+    pub(super) fn terminal_round3(&mut self, round: usize) -> Result<()> {
+        if !eligible3(self.params, self.opts, self.range, &Boundary::default())
+            || self.terminal != Some(Terminal::T3)
+            || round.checked_add(2) != Some(self.range.to)
+            || self.live.is_some()
+            || self.state_in_memory
+            || self.stored
+            || self.lane_constants.is_some()
+            || self.input_slots != [None; 3]
+            || self.e.memory != 0
+            || self.e.prime_slot.is_some()
+            || self.e.stores != 0
+            || self.e.loads != 0
+            || !self.e.tables.is_empty()
+        {
+            bail!("t3 terminal entry needs a whole stack-only permutation");
+        }
+        let inputs = self.state.clone();
+        if inputs.len() != 3
+            || !self
+                .e
+                .from_top()
+                .starts_with(&[inputs[0], self.e.p, inputs[2], inputs[1]])
+            || inputs.iter().enumerate().any(|(i, &id)| {
+                self.e.bound(id) > p1() * u256(4)
+                    || !self
+                        .e
+                        .fits_add(self.e.bound(id), self.params.round_constants[round][i])
+            })
+        {
+            bail!("t3 terminal entry needs the final template layout and bounds");
+        }
+        self.e.end_line();
+        if !stack_only(&self.e.lines, self.e.fork) {
+            bail!("t3 terminal entry needs an untouched-memory prefix");
+        }
+        let x = self.template_lane(&inputs, 0, round, true)?;
+        self.e.end_line();
+        self.e.push_prime()?;
+        self.e.push_prime()?;
+        self.e.dup(inputs[1])?;
+        let y = self.template_lane(&inputs, 1, round, true)?;
+        self.e.end_line();
+        self.e.swap(3)?;
+        let z = self.template_lane(&inputs, 2, round, true)?;
+        self.e.end_line();
+        if !self.e.from_top().starts_with(&[z, x, y, inputs[1]])
+            || !stack_only(&self.e.lines, self.e.fork)
+        {
+            bail!("t3 terminal entry needs clean [z, x, y, s1]");
+        }
+        self.state = terminal3(&mut self.e)?;
+        self.state_in_memory = true;
+        self.stored = true;
+        Ok(())
+    }
+}
+
+// [z, x, y, U] -> memory [s0', s1', s2'], stack [x, y, U].
+fn terminal3(e: &mut Emitter) -> Result<Vec<Id>> {
+    if e.memory != 0 || e.prime_slot.is_some() {
+        bail!("t3 terminal entry needs untouched memory");
+    }
+    let z = e.top(0)?;
+    let x = e.top(1)?;
+    let y = e.top(2)?;
+    if [x, y, z].iter().any(|&id| e.bound(id) >= PRIME) {
+        bail!("t3 terminal entry needs clean S-box outputs");
+    }
+    let tail = e.from_top()[3..].to_vec();
+    e.dup(z)?;
+    e.dup(y)?;
+    e.dup(x)?;
+    let pair = e.compute(Op::Add, &[inplace(x), inplace(y)], "pair")?;
+    let sum = e.compute(Op::Add, &[inplace(pair), inplace(z)], "sum")?;
+    e.push(PRIME, None)?;
+    e.dup(e.p)?;
+    e.dup(sum)?;
+    e.dup(x)?;
+    let o0 = e.compute(Op::Addmod, &[inplace(x), inplace(sum), inplace(e.p)], "s0'")?;
+    e.end_line();
+    if e.mstore_next(0)? != o0 || e.top(0)? != e.p {
+        bail!("t3 terminal entry did not store s0' and retain PRIME");
+    }
+    e.end_line();
+    e.dup(e.p)?;
+    e.dup(sum)?;
+    e.dup(y)?;
+    let o1 = e.compute(Op::Addmod, &[inplace(y), inplace(sum), inplace(e.p)], "s1'")?;
+    e.end_line();
+    if e.mstore_next(32)? != o1 || e.top(0)? != e.p {
+        bail!("t3 terminal entry did not store s1' and retain PRIME");
+    }
+    e.end_line();
+    e.swap(2)?;
+    let o2 = e.compute(Op::Addmod, &[inplace(z), inplace(sum), inplace(e.p)], "s2'")?;
+    e.end_line();
+    if e.mstore_next(64)? != o2 {
+        bail!("t3 terminal entry did not store s2'");
+    }
+    e.end_line();
+    let stack = e.from_top();
+    if !stack.starts_with(&[x, y]) || stack[2..] != tail || e.memory != 96 {
+        bail!("t3 terminal entry changed its retained stack or memory extent");
+    }
+    Ok(vec![o0, o1, o2])
+}
+
+#[cfg(test)]
+#[path = "t3_entry_tests.rs"]
+mod t3_tests;
 
 #[cfg(test)]
 mod tests {
