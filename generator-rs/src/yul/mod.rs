@@ -101,6 +101,33 @@ fn layout_for(t: usize) -> Layout {
     }
 }
 
+/// The solc 0.8.30 settings that give a contract using the library its least
+/// runtime gas and the gas there (the permute test wrapper, or a consumer of
+/// hash_1 / hash_2 / hash_3 for t = 4), for the library's natspec. Measured
+/// with the legacy pipeline (optimizer off, 200 and 1,000,000 runs) and
+/// via-IR (200 and 1,000,000 runs); via-IR fails for t = 8 (a solc stack
+/// layout assertion after 48 GB) and exceeds 40 GB for t = 12.
+fn settings_note(t: usize) -> &'static str {
+    match t {
+        2 => {
+            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 7,779 gas per permute of the test wrapper (legacy pipeline, runs = 1,000,000: 8,491)"
+        }
+        3 => {
+            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 9,826 gas per permute of the test wrapper (legacy pipeline, runs = 1,000,000: 10,413)"
+        }
+        4 => {
+            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,882 / 13,940 / 14,003 gas per hash_1 / hash_2 / hash_3 call of a consumer, which is then about 32,400 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 14,883 / 14,969 / 15,055 gas"
+        }
+        8 => {
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
+        }
+        12 => {
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 48,991 gas per permute of the test wrapper (via-IR does not compile it)"
+        }
+        _ => "Not measured: this width is not shipped",
+    }
+}
+
 /// The files of one width and its log lines.
 struct Output {
     files: Vec<(String, String)>,
@@ -124,7 +151,10 @@ fn generate(t: usize) -> Result<Output> {
             params.rounds_f, params.rounds_p
         );
         return Ok(Output {
-            files: vec![(path, render_hash_library(&core, &rest, &entries))],
+            files: vec![(
+                path,
+                render_hash_library(&core, &rest, &entries, settings_note(t)),
+            )],
             log: vec![log],
         });
     }
@@ -157,7 +187,10 @@ fn generate(t: usize) -> Result<Output> {
     }
     Ok(Output {
         files: vec![
-            (lib, render_array_library(&params, &layout, &result)),
+            (
+                lib,
+                render_array_library(&params, &layout, &result, settings_note(t)),
+            ),
             (wrapper, render_wrapper(t)),
             (test, render_forge_test(&params, &vectors, t <= 12)),
         ],

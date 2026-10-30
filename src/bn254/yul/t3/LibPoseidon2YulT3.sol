@@ -6,6 +6,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 permutation for BN254 with t = 3, Rf = 8, Rp = 56, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
+/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 9,826 gas per permute of the test wrapper (legacy pipeline, runs = 1,000,000: 10,413)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT3 {
     function permute(uint256[3] memory state) internal pure {

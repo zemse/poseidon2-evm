@@ -21,6 +21,7 @@ pub fn render_hash_library(
     core: &BuildResult,
     rest: &BuildResult,
     entries: &[BuildResult],
+    settings: &str,
 ) -> String {
     let names = ["x", "y", "z"];
     let hashes: Vec<String> = entries
@@ -58,6 +59,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 hash function library optimized in Yul assembly
 /// @dev Internal functions can be inlined without deploying a contract
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
+/// @dev {settings}
 /// {SECURITY}
 library LibPoseidon2Yul {{
 {}
@@ -85,7 +87,12 @@ pub fn library_name(t: usize) -> String {
     format!("LibPoseidon2YulT{t}")
 }
 
-pub fn render_array_library(params: &Params, layout: &Layout, result: &BuildResult) -> String {
+pub fn render_array_library(
+    params: &Params,
+    layout: &Layout,
+    result: &BuildResult,
+    settings: &str,
+) -> String {
     let (t, rounds_f, rounds_p) = (params.t, params.rounds_f, params.rounds_p);
     let name = library_name(t);
     let placement = if layout.stack_elements == t {
@@ -125,6 +132,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, {placement}
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256{scratch}{table}
+/// @dev {settings}
 /// {SECURITY}
 library {name} {{
     function permute(uint256[{t}] memory state) internal pure {{

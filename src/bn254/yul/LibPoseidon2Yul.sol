@@ -6,6 +6,7 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 hash function library optimized in Yul assembly
 /// @dev Internal functions can be inlined without deploying a contract
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
+/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,882 / 13,940 / 14,003 gas per hash_1 / hash_2 / hash_3 call of a consumer, which is then about 32,400 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 14,883 / 14,969 / 15,055 gas
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2Yul {
     function hash_1(uint256 x) internal pure returns (uint256) {

@@ -8,6 +8,7 @@ pragma solidity >=0.6.0;
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
 /// @dev 2 internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation
 /// @dev 7 of the 12 internal diag constants are kept in free memory (not allocated) and 2 at 0x40 and 0x60 to stay within the code size limit; the free memory pointer and the zero slot are restored after the internal rounds
+/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 48,991 gas per permute of the test wrapper (via-IR does not compile it)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT12 {
     function permute(uint256[12] memory state) internal pure {
