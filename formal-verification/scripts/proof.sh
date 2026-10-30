@@ -1,7 +1,7 @@
 #!/bin/sh
 # Kernel-checks exported artifacts: writes each proof with scripts/Emit.lean, then builds it.
-# The 17 small artifacts (t <= 4 and the deployed v2) have committed proofs in Poseidon2/Proofs/,
-# which this rewrites (so `git diff` shows a stale one); the 18 large ones go to
+# The 20 small artifacts (t <= 4 and the deployed v2) have committed proofs in Poseidon2/Proofs/,
+# which this rewrites (so `git diff` shows a stale one); the 19 large ones go to
 # Poseidon2/Proofs/Generated/ (not committed) as a chain of parts, see the README.
 # Run from formal-verification/ after `lake build`:
 #   LEAN_NUM_THREADS=1 scripts/proof.sh huff/amsterdam/t28 [more artifacts]

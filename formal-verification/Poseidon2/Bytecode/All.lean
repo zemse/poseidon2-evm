@@ -32,6 +32,10 @@ import Poseidon2.Bytecode.Yul.OptimizerOff.T2
 import Poseidon2.Bytecode.Yul.OptimizerOff.T3
 import Poseidon2.Bytecode.Yul.OptimizerOff.T8
 import Poseidon2.Bytecode.Yul.OptimizerOff.T12
+import Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T4
+import Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T2
+import Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T3
+import Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T8
 import Poseidon2.Bytecode.Deployed.HuffV2
 import Poseidon2.Bytecode.Deployed.YulV2
 
@@ -74,6 +78,10 @@ def all : List Artifact := [
   Poseidon2.Bytecode.Yul.OptimizerOff.T3.artifact,
   Poseidon2.Bytecode.Yul.OptimizerOff.T8.artifact,
   Poseidon2.Bytecode.Yul.OptimizerOff.T12.artifact,
+  Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T4.artifact,
+  Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T2.artifact,
+  Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T3.artifact,
+  Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T8.artifact,
   Poseidon2.Bytecode.Deployed.HuffV2.artifact,
   Poseidon2.Bytecode.Deployed.YulV2.artifact]
 

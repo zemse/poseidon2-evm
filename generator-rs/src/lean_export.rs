@@ -246,8 +246,9 @@ pub fn solc_settings(json: &str) -> String {
 }
 
 /// The Yul wrappers of one forge `out/` directory, `label` naming the solc
-/// settings it was built with.
-pub fn yul_artifacts(dir: &Path, label: &str) -> Result<Vec<Artifact>> {
+/// settings it was built with: `Poseidon2Yul_BN254` and the wrappers of
+/// `widths`.
+pub fn yul_artifacts(dir: &Path, label: &str, widths: &[usize]) -> Result<Vec<Artifact>> {
     let read = |file: PathBuf| -> Result<(Vec<u8>, String)> {
         let json =
             fs::read_to_string(&file).map_err(|e| Error(format!("{}: {e}", file.display())))?;
@@ -266,7 +267,7 @@ pub fn yul_artifacts(dir: &Path, label: &str) -> Result<Vec<Artifact>> {
         ),
         code,
     });
-    for t in YUL_WIDTHS {
+    for &t in widths {
         let (code, settings) =
             read(dir.join(format!("Poseidon2YulT{t}.sol/Poseidon2YulT{t}.json")))?;
         out.push(Artifact {
@@ -415,7 +416,8 @@ pub fn write(out: &Path, artifacts: &[Artifact]) -> Result<()> {
 }
 
 /// `lean-export`: Huff for each fork in `forks`, Yul for each
-/// `label=dir` in `yul`, and the deployed artifacts.
+/// `label[:t,t..]=dir` in `yul` (the wrappers of the widths listed, all of
+/// `YUL_WIDTHS` without a list), and the deployed artifacts.
 pub fn run(root: &Path, out: &Path, forks: &[String], yul: &[String]) -> Result<()> {
     let mut artifacts = Vec::new();
     for name in forks {
@@ -423,9 +425,22 @@ pub fn run(root: &Path, out: &Path, forks: &[String], yul: &[String]) -> Result<
     }
     for spec in yul {
         let Some((label, dir)) = spec.split_once('=') else {
-            bail!("--yul takes label=dir, got {spec}")
+            bail!("--yul takes label[:t,t..]=dir, got {spec}")
         };
-        artifacts.extend(yul_artifacts(Path::new(dir), label)?);
+        let (label, widths) = match label.split_once(':') {
+            Some((label, list)) => {
+                let widths = list
+                    .split(',')
+                    .map(|t| match t.parse::<usize>() {
+                        Ok(t) if YUL_WIDTHS.contains(&t) => Ok(t),
+                        _ => Err(Error(format!("--yul {spec}: no Yul wrapper of width {t}"))),
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (label, widths)
+            }
+            None => (label, YUL_WIDTHS.to_vec()),
+        };
+        artifacts.extend(yul_artifacts(Path::new(dir), label, &widths)?);
     }
     artifacts.extend(deployed_artifacts(root)?);
     write(out, &artifacts)

@@ -5,19 +5,21 @@ import Poseidon2.Proofs.Huff.Osaka.T4
 import Poseidon2.Proofs.Yul.OptimizerOff.T4
 import Poseidon2.Proofs.Yul.Runs200.T4
 import Poseidon2.Proofs.Yul.Runs1000000.T4
+import Poseidon2.Proofs.Yul.ViaIrRuns1000000.T4
 import Poseidon2.Proofs.Deployed.YulV2
 import Poseidon2.Proofs.Deployed.HuffV2
 
 /-!
 # The t = 4 hash contracts on ABI calldata
 
-For each of the seven t = 4 hash bytecodes (Huff for Amsterdam and Osaka, `Poseidon2Yul_BN254` at
-the three optimizer settings, the deployed Yul v2 and Huff v2), `abi`: a call with ABI calldata
-of `hash_1` / `hash_2` / `hash_3` (any 4 selector bytes, then 1 to 3 input words below
-`2^256`), with call value 0 for the Yul contracts and any call value for the Huff ones, returns
-the Barretenberg / Noir sponge `Poseidon2::hash` (`Spec/Sponge.lean`, `sponge`) of the inputs
-read modulo `P`, with exactly the gas listed, and runs out of gas with less. `abiCancun` is the
-same of EVMLean's Cancun `Ξ`, for the six that never run DUPN / SWAPN (`totalCancun`).
+For each of the eight t = 4 hash bytecodes (Huff for Amsterdam and Osaka, `Poseidon2Yul_BN254` at
+the three legacy optimizer settings and with via-IR, the deployed Yul v2 and Huff v2), `abi`: a
+call with ABI calldata of `hash_1` / `hash_2` / `hash_3` (any 4 selector bytes, then 1 to 3 input
+words below `2^256`), with call value 0 for the Yul contracts and any call value for the Huff
+ones, returns the Barretenberg / Noir sponge `Poseidon2::hash` (`Spec/Sponge.lean`, `sponge`) of
+the inputs read modulo `P`, with exactly the gas listed, and runs out of gas with less.
+`abiCancun` is the same of EVMLean's Cancun `Ξ`, for the seven that never run DUPN / SWAPN
+(`totalCancun`).
 
 Each is the artifact's `total` (or `totalCancun`) on that calldata, with the case fixed by the
 calldata size (`Theorems.huffHash_abi_total`, `yulHash_abi_total`, `hashV2_abi_total`) and
@@ -212,6 +214,47 @@ theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
   rwa [Interface.hashWords_eq_sponge _ rfl ws h1 h3] at h
 
 end Poseidon2.Proofs.Yul.Runs1000000.T4
+
+namespace Poseidon2.Proofs.Yul.ViaIrRuns1000000.T4
+
+open Poseidon2.Checker Poseidon2.Spec
+
+/-- `yul/viairruns1000000/t4` on ABI calldata of 1 to 3 words, call value 0: the sponge of the
+inputs, with 13904 gas. -/
+theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
+    (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
+   
+    (σ σ₀ : Ethereum.AccountMap) (g : Ethereum.UInt256) (A : Ethereum.Substate)
+    (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T4.artifact
+      (sel ++ Interface.encodeWords ws) 0 I) :
+    Theorems.ExactGas (13904) g.toNat
+      (Evm.Eip8024.Ξ σ σ₀ g A I)
+      (.ret (Interface.encodeWords
+        [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
+  have hcd := Theorems.abi_length_lt sel hsel ws h3
+  have h := Theorems.yulHash_abi_total _ rfl gas sel hsel ws hws h1 h3 g.toNat
+    (total _ 0 hcd (by decide) σ σ₀ g A I hI)
+  rwa [Interface.hashWords_eq_sponge _ rfl ws h1 h3] at h
+
+/-- `abi` of EVMLean's Cancun `Ξ`. -/
+theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
+    (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
+   
+    (σ σ₀ : Ethereum.AccountMap) (g : Ethereum.UInt256) (A : Ethereum.Substate)
+    (I : Ethereum.ExecutionEnv)
+    (hI : Theorems.Runs Poseidon2.Bytecode.Yul.ViaIrRuns1000000.T4.artifact
+      (sel ++ Interface.encodeWords ws) 0 I) :
+    Theorems.ExactGas (13904) g.toNat
+      (Ethereum.EVM.Ξ σ σ₀ g A I)
+      (.ret (Interface.encodeWords
+        [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
+  have hcd := Theorems.abi_length_lt sel hsel ws h3
+  have h := Theorems.yulHash_abi_total _ rfl gas sel hsel ws hws h1 h3 g.toNat
+    (totalCancun _ 0 hcd (by decide) σ σ₀ g A I hI)
+  rwa [Interface.hashWords_eq_sponge _ rfl ws h1 h3] at h
+
+end Poseidon2.Proofs.Yul.ViaIrRuns1000000.T4
 
 namespace Poseidon2.Proofs.Deployed.YulV2
 

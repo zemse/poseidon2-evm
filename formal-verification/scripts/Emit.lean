@@ -31,6 +31,7 @@ open Poseidon2.Spec Poseidon2.Checker Poseidon2.Bytecode
 def moduleOf (name : String) : String :=
   ".".intercalate ((name.splitOn "/").map fun p =>
     if p == "runs1000000" then "Runs1000000" else if p == "runs200" then "Runs200"
+    else if p == "viairruns1000000" then "ViaIrRuns1000000"
     else if p == "optimizeroff" then "OptimizerOff" else if p == "huffv2" then "HuffV2"
     else if p == "yulv2" then "YulV2" else p.capitalize)
 

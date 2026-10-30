@@ -233,6 +233,8 @@ def osakaTargets : List Artifact := [
   Yul.Runs200.T8.artifact, Yul.Runs200.T12.artifact,
   Yul.OptimizerOff.T2.artifact, Yul.OptimizerOff.T3.artifact, Yul.OptimizerOff.T4.artifact,
   Yul.OptimizerOff.T8.artifact, Yul.OptimizerOff.T12.artifact,
+  Yul.ViaIrRuns1000000.T2.artifact, Yul.ViaIrRuns1000000.T3.artifact,
+  Yul.ViaIrRuns1000000.T4.artifact, Yul.ViaIrRuns1000000.T8.artifact,
   Deployed.HuffV2.artifact, Deployed.YulV2.artifact]
 
 /-- Every exported artifact is a Huff Amsterdam one or an Osaka target. -/
@@ -316,6 +318,18 @@ theorem scan_yulOptimizerOffT8 :
 theorem scan_yulOptimizerOffT12 :
     scan osakaMask codeFuel true Yul.OptimizerOff.T12.artifact.bytes := by decide +kernel
 
+theorem scan_yulViaIrRuns1000000T2 :
+    scan osakaMask codeFuel true Yul.ViaIrRuns1000000.T2.artifact.bytes := by decide +kernel
+
+theorem scan_yulViaIrRuns1000000T3 :
+    scan osakaMask codeFuel true Yul.ViaIrRuns1000000.T3.artifact.bytes := by decide +kernel
+
+theorem scan_yulViaIrRuns1000000T4 :
+    scan osakaMask codeFuel true Yul.ViaIrRuns1000000.T4.artifact.bytes := by decide +kernel
+
+theorem scan_yulViaIrRuns1000000T8 :
+    scan osakaMask codeFuel true Yul.ViaIrRuns1000000.T8.artifact.bytes := by decide +kernel
+
 theorem scan_deployedHuffV2 :
     scan osakaMask codeFuel true Deployed.HuffV2.artifact.bytes := by decide +kernel
 
@@ -330,7 +344,9 @@ theorem osaka_scan :
     scan_yulRuns1000000T4, scan_yulRuns1000000T8, scan_yulRuns1000000T12, scan_yulRuns200T2,
     scan_yulRuns200T3, scan_yulRuns200T4, scan_yulRuns200T8, scan_yulRuns200T12,
     scan_yulOptimizerOffT2, scan_yulOptimizerOffT3, scan_yulOptimizerOffT4, scan_yulOptimizerOffT8,
-    scan_yulOptimizerOffT12, scan_deployedHuffV2, scan_deployedYulV2, Bool.and_true]
+    scan_yulOptimizerOffT12, scan_yulViaIrRuns1000000T2, scan_yulViaIrRuns1000000T3,
+    scan_yulViaIrRuns1000000T4, scan_yulViaIrRuns1000000T8, scan_deployedHuffV2,
+    scan_deployedYulV2, Bool.and_true]
 
 /-- The scan is not vacuous: it finds DUPN / SWAPN in Huff Amsterdam t = 2 and t = 28. -/
 theorem amsterdam_scan :

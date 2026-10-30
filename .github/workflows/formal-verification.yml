@@ -46,7 +46,7 @@ jobs:
       fail-fast: true
 
     # spec, constants (GrainCheck, DiagCheck, MinpolyCheck), checker, theorems, the audit, and the
-    # committed kernel checks of the 17 small artifacts (Proofs/Audit.lean imports them)
+    # committed kernel checks of the 20 small artifacts (Proofs/Audit.lean imports them)
     name: Lean build
     runs-on: ubuntu-latest
     timeout-minutes: 300

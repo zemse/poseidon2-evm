@@ -74,7 +74,8 @@ enum Command {
         #[arg(long = "hardfork", default_values = ["amsterdam", "osaka"])]
         hardforks: Vec<String>,
         /// label=dir: a forge out/ directory with the Yul wrappers, its label
-        /// naming the solc settings it was built with
+        /// naming the solc settings it was built with; label:2,3,8=dir reads
+        /// only those wrappers (and Poseidon2Yul_BN254)
         #[arg(long)]
         yul: Vec<String>,
     },
