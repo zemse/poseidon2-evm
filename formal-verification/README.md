@@ -12,7 +12,7 @@ The 35 bytecodes (`Bytecode/`, each with its keccak256; `scripts/check-deployed.
 - Yul, solc 0.8.30 legacy codegen with `evmVersion` osaka, optimizer at 1,000,000 runs, at 200 runs and off (15): the contract `Poseidon2Yul_BN254` (t = 4 hash) and, for t = 2, 3, 8, 12, the test wrapper contracts `Poseidon2YulT<t>` (`test/wrappers/Poseidon2YulT<t>.sol`) that call `LibPoseidon2YulT<t>.permute`. The libraries are `internal`, so a contract that uses `LibPoseidon2YulT<t>` or `LibPoseidon2Yul` compiles them into its own bytes, which these theorems do not cover.
 - The two deployed v2 contracts of `deployed-artifacts/` (Yul and Huff, t = 4), at the addresses of the repository's README.
 
-On ABI calldata of `hash_1` / `hash_2` / `hash_3` every t = 4 hash contract returns `hashWords` of the inputs, the Barretenberg / Noir `Poseidon2::hash` (`Spec/Abi.lean`: `huffHash_abi`, `yulHash_abi`, `hashV2_abi`, `hashWords_eq_sponge`, for every selector and input words). Per bytecode, `Proofs/Abi.lean` states it end to end: for each of the 7 (Huff Amsterdam and Osaka, `Poseidon2Yul_BN254` at the three settings, the deployed Yul v2 and Huff v2), `abi` says a call with any 4 selector bytes and 1 to 3 words below `2^256` (call value 0 for the Yul ones, any for the Huff ones) returns the sponge of the words read modulo `P` with exactly the gas of its case (11,895 / 11,902 / 11,975 for Huff with 1 / 2 / 3 words; 15,320, 15,158 and 15,152 for Yul off / 200 / 1,000,000 runs; 19,639 for Yul v2; 14,869 for Huff v2), and runs out of gas with less; `abiCancun` is the same of EVMLean's Cancun `Ξ` for the six Osaka targets.
+On ABI calldata of `hash_1` / `hash_2` / `hash_3` every t = 4 hash contract returns `hashWords` of the inputs, the Barretenberg / Noir `Poseidon2::hash` (`Spec/Abi.lean`: `huffHash_abi`, `yulHash_abi`, `hashV2_abi`, `hashWords_eq_sponge`, for every selector and input words). Per bytecode, `Proofs/Abi.lean` states it end to end: for each of the 7 (Huff Amsterdam and Osaka, `Poseidon2Yul_BN254` at the three settings, the deployed Yul v2 and Huff v2), `abi` says a call with any 4 selector bytes and 1 to 3 words below `2^256` (call value 0 for the Yul ones, any for the Huff ones) returns the sponge of the words read modulo `P` with exactly the gas of its case (11,883 / 11,890 / 11,963 for Huff with 1 / 2 / 3 words; 15,320, 15,158 and 15,152 for Yul off / 200 / 1,000,000 runs; 19,639 for Yul v2; 14,869 for Huff v2), and runs out of gas with less; `abiCancun` is the same of EVMLean's Cancun `Ξ` for the six Osaka targets.
 
 Trusted base (details under Trusted base below):
 
@@ -80,7 +80,7 @@ The contract theorems, partial and total correctness, are proven without hypothe
       (g < gas.getD j 0 → r = .error .OutOfGass)
   ```
 
-  `Proofs/Huff/Amsterdam/T2.lean` instantiates them with its kernel checks as `correct` and `total`: there `gas` is the literal `[5912]` and `checkG : CheckedGas code cases gas` is kernel-checked, so a call of the t = 2 permutation given at least 5,912 gas returns exactly `encodeWords (permutationWords c (calldataWords cd 0 c.t))` and leaves `g - 5912`, and given less runs out of gas. Every artifact's file has its `gas` list (one entry per case, in the order of its `cases`), and `enough` states the simpler corollary: with at least the most gas of any case, every call ends exactly as the interface says. `Runs a cd v I` fixes only the call frame's code, calldata and call value (`runs_exists`: every artifact, calldata and value has such a frame); the accounts, substate, gas and the rest of the frame are arbitrary. `Matches` holds for an out-of-gas (or out-of-fuel) error, for a success whose output bytes are exactly the interface's, and for nothing else: any other exceptional halt, a revert, or other bytes falsify it.
+  `Proofs/Huff/Amsterdam/T2.lean` instantiates them with its kernel checks as `correct` and `total`: there `gas` is the literal `[5898]` and `checkG : CheckedGas code cases gas` is kernel-checked, so a call of the t = 2 permutation given at least 5,898 gas returns exactly `encodeWords (permutationWords c (calldataWords cd 0 c.t))` and leaves `g - 5898`, and given less runs out of gas. Every artifact's file has its `gas` list (one entry per case, in the order of its `cases`), and `enough` states the simpler corollary: with at least the most gas of any case, every call ends exactly as the interface says. `Runs a cd v I` fixes only the call frame's code, calldata and call value (`runs_exists`: every artifact, calldata and value has such a frame); the accounts, substate, gas and the rest of the frame are arbitrary. `Matches` holds for an out-of-gas (or out-of-fuel) error, for a success whose output bytes are exactly the interface's, and for nothing else: any other exceptional halt, a revert, or other bytes falsify it.
 
 What the theorems do not say:
 
@@ -185,21 +185,21 @@ Every permutation case has 7 spec segments. All 35 were measured again after the
 
 The checker adds up the gas of its run as EVMLean charges it (Cancun, and on these opcodes also Prague, Osaka and Amsterdam, see Forks): each instruction's static gas (`staticGas`: 0 for `STOP`, `RETURN`, `REVERT`; 1 for `JUMPDEST`; 2 for `PUSH0`, `POP`, `CALLVALUE`, `CALLDATASIZE`, `RETURNDATASIZE`, `MSIZE`; 5 for `MUL`, `DIV`, `MOD`; 8 for `ADDMOD`, `MULMOD`, `JUMP`; 10 for `JUMPI`; 3 for the rest it accepts, DUPN and SWAPN included; `CALLDATACOPY` and `CODECOPY` 3 plus 3 per word), plus the memory expansion, which over a run is `memCost` (EVMLean's `Cₘ`, 3 per word and words squared over 512) of the memory the run ends with, the `RETURN`'s range included. The path is concrete, so this is one number per case, `G`. The per-artifact files list it per case (`gas`), and the kernel checks it with the run (`checkCaseGas`). `CheckerTotal` makes it the exact gas of the call: with at least `G` the call ends as the interface says and `g - G` is left, with less it runs out of gas.
 
-`G` is execution gas: what `Ξ` consumes, the gas of the contract's own call frame. That is the number `poseidon2-gen verify` reports as call gas (revm's gas spent by the outermost frame) and the number in brackets in a forge or cast trace. A transaction calling the contract directly uses 21,000 + 4 per zero byte and 16 per non-zero byte of calldata + `G` (the EIP-7623 floor of 10 per zero and 40 per non-zero byte is lower for every returning call below, and can be higher for a reverting one, whose `G` is small); for example the deployed Huff v2 on three words of calldata (one of them `P + 7`; 66 zero and 34 non-zero bytes) used 36,677 = 21,000 + 808 + 14,869 on anvil (Osaka). On Amsterdam the 21,000 becomes 15,000 for a call without value (EIP-2780: 12,000 for the sender, 3,000 for the recipient) and the floor 15,000 + 64 per calldata byte (EIP-7976), still lower for every returning call below with calldata of just its input words (that needs `G` above 60 per calldata byte; the least is Huff t = 3, 7,653 for 96 bytes, about 80). A contract calling it pays the `CALL` and the account access on top.
+`G` is execution gas: what `Ξ` consumes, the gas of the contract's own call frame. That is the number `poseidon2-gen verify` reports as call gas (revm's gas spent by the outermost frame) and the number in brackets in a forge or cast trace. A transaction calling the contract directly uses 21,000 + 4 per zero byte and 16 per non-zero byte of calldata + `G` (the EIP-7623 floor of 10 per zero and 40 per non-zero byte is lower for every returning call below, and can be higher for a reverting one, whose `G` is small); for example the deployed Huff v2 on three words of calldata (one of them `P + 7`; 66 zero and 34 non-zero bytes) used 36,677 = 21,000 + 808 + 14,869 on anvil (Osaka). On Amsterdam the 21,000 becomes 15,000 for a call without value (EIP-2780: 12,000 for the sender, 3,000 for the recipient) and the floor 15,000 + 64 per calldata byte (EIP-7976), still lower for every returning call below with calldata of just its input words (that needs `G` above 60 per calldata byte; the least is Huff t = 3, 7,644 for 96 bytes, about 80). A contract calling it pays the `CALL` and the account access on top.
 
 Every `G` of a returning case equals the measured call-frame gas, on both forks for Huff and at every solc setting for Yul. Huff, `poseidon2-gen verify --hardfork <fork> 2 3 4 8 12 16 20 24 28` (revm on the fork's rules), `G` / measured:
 
 | t | Amsterdam | Osaka |
 | - | --------- | ----- |
-| 2 | 5,912 / 5,912 | 5,912 / 5,912 |
-| 3 | 7,653 / 7,653 | 7,653 / 7,653 |
-| 4, `hash_1` / `hash_2` / `hash_3` | 11,895, 11,902, 11,975 / the same | 11,895, 11,902, 11,975 / the same |
-| 8 | 23,807 / 23,807 | 24,217 / 24,217 |
-| 12 | 34,145 / 34,145 | 35,047 / 35,047 |
-| 16 | 44,494 / 44,494 | 47,809 / 47,809 |
-| 20 | 54,835 / 54,835 | 61,768 / 61,768 |
-| 24 | 65,489 / 65,489 | 75,068 / 75,068 |
-| 28 | 77,826 / 77,826 | 90,772 / 90,772 |
+| 2 | 5,898 / 5,898 | 5,898 / 5,898 |
+| 3 | 7,644 / 7,644 | 7,644 / 7,644 |
+| 4, `hash_1` / `hash_2` / `hash_3` | 11,883, 11,890, 11,963 / the same | 11,883, 11,890, 11,963 / the same |
+| 8 | 23,547 / 23,547 | 24,217 / 24,217 |
+| 12 | 33,912 / 33,912 | 35,047 / 35,047 |
+| 16 | 44,249 / 44,249 | 47,809 / 47,809 |
+| 20 | 54,578 / 54,578 | 61,768 / 61,768 |
+| 24 | 65,220 / 65,220 | 74,981 / 74,981 |
+| 28 | 77,475 / 77,475 | 90,740 / 90,740 |
 
 Yul, `forge test -vvvv` of `test/Poseidon2Yul*.t.sol` (`permute`) and `test/Poseidon2.t.sol` (`hash_1`, `hash_2`, `hash_3` of `Poseidon2Yul_BN254`, the same gas for all three and for calldata below 4 bytes) built as `scripts/export.sh` builds them, on forge's Amsterdam EVM, `G` / measured:
 

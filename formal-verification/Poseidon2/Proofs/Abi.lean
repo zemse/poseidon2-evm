@@ -30,7 +30,7 @@ namespace Poseidon2.Proofs.Huff.Amsterdam.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `huff/amsterdam/t4` on ABI calldata of 1 to 3 words, any call value: the sponge of the
-inputs, with 11895, 11902, 11975 gas for 1, 2, 3 inputs. -/
+inputs, with 11883, 11890, 11963 gas for 1, 2, 3 inputs. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
     (v : Nat) (hv : v < W)
@@ -38,7 +38,7 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Amsterdam.T4.artifact
       (sel ++ Interface.encodeWords ws) v I) :
-    Theorems.ExactGas ([11895, 11902, 11975].getD (ws.length - 1) 0) g.toNat
+    Theorems.ExactGas ([11883, 11890, 11963].getD (ws.length - 1) 0) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -54,7 +54,7 @@ namespace Poseidon2.Proofs.Huff.Osaka.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `huff/osaka/t4` on ABI calldata of 1 to 3 words, any call value: the sponge of the
-inputs, with 11895, 11902, 11975 gas for 1, 2, 3 inputs. -/
+inputs, with 11883, 11890, 11963 gas for 1, 2, 3 inputs. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
     (v : Nat) (hv : v < W)
@@ -62,7 +62,7 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact
       (sel ++ Interface.encodeWords ws) v I) :
-    Theorems.ExactGas ([11895, 11902, 11975].getD (ws.length - 1) 0) g.toNat
+    Theorems.ExactGas ([11883, 11890, 11963].getD (ws.length - 1) 0) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
@@ -79,7 +79,7 @@ theorem abiCancun (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact
       (sel ++ Interface.encodeWords ws) v I) :
-    Theorems.ExactGas ([11895, 11902, 11975].getD (ws.length - 1) 0) g.toNat
+    Theorems.ExactGas ([11883, 11890, 11963].getD (ws.length - 1) 0) g.toNat
       (Ethereum.EVM.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
