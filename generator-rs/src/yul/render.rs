@@ -96,7 +96,22 @@ pub fn render_array_library(params: &Params, layout: &Layout, result: &BuildResu
             layout.stack_elements as i64 - 1
         )
     };
-    let table = if layout.diag_fixed > 0 {
+    let table = if layout.diag_fixed > 0 && layout.diag_in_memory == layout.diag_fixed {
+        format!(
+            "\n/// @dev {} internal diag constants are kept at 0x40{} during the internal rounds, with the free memory pointer parked {} and both slots restored after them, since with 200 optimizer runs solc copies a repeated PUSH32 from code",
+            layout.diag_fixed,
+            if layout.diag_fixed > 1 {
+                " and 0x60"
+            } else {
+                ""
+            },
+            if layout.diag_fixed > 1 {
+                "in the state array"
+            } else {
+                "in the zero slot"
+            }
+        )
+    } else if layout.diag_fixed > 0 {
         format!(
             "\n/// @dev {} of the {t} internal diag constants are kept in free memory (not allocated) and {} at 0x40 and 0x60 to stay within the code size limit; the free memory pointer and the zero slot are restored after the internal rounds",
             layout.diag_in_memory - layout.diag_fixed,

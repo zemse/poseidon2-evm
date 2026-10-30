@@ -840,7 +840,13 @@ impl<'a> Builder<'a> {
                     self.p.mstore(addr, &self.p.constant(d))?;
                 }
             }
-            if diag_in_memory > 0 {
+            // with no table entry the free memory pointer is parked in the zero
+            // slot (one fixed constant) or the state array (two), not a let
+            let parked = diag_fixed > 0 && diag_in_memory == diag_fixed;
+            if parked && diag_fixed > 1 && (self.mode != Mode::Array || self.in_memory() > 0) {
+                bail!("two parked diag constants need the whole state in locals");
+            }
+            if diag_in_memory > diag_fixed {
                 self.p.comment(
                     "diag constants that would not fit the code size as PUSH32, in free memory",
                 );
@@ -856,6 +862,10 @@ impl<'a> Builder<'a> {
                 self.p.comment(
                     "diag constants in the free memory pointer and the zero slot, restored after the internal rounds",
                 );
+                if parked {
+                    let park = if diag_fixed > 1 { "state" } else { "0x60" };
+                    self.p.line(&format!("mstore({park}, mload(0x40))"));
+                }
                 for (i, &d) in d.iter().enumerate().skip(t - diag_fixed) {
                     let addr = self.fixed_addr(i);
                     self.p.mstore(addr, &self.p.constant(d))?;
@@ -863,10 +873,13 @@ impl<'a> Builder<'a> {
             }
             self.p.blank();
             internal(&mut self)?;
-            if diag_fixed > 0 {
+            if parked {
+                let park = if diag_fixed > 1 { "state" } else { "0x60" };
+                self.p.line(&format!("mstore(0x40, mload({park}))"));
+            } else if diag_fixed > 0 {
                 self.p.line("mstore(0x40, table)");
             }
-            if diag_fixed > 1 {
+            if diag_fixed > 1 || parked {
                 self.p.line("mstore(0x60, 0)");
             }
             self.p.close();
