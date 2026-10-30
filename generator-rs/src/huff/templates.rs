@@ -318,7 +318,8 @@ pub fn ordered_blocks(kind: BlockKind) -> &'static [&'static str] {
     }
 }
 
-/// The last t8 Exit block parks PRIME in S0 for the consuming internal round.
+/// The last Exit block parks PRIME in S0 for the consuming internal round
+/// (from t = 8, under the outputs of the blocks before it).
 pub fn exit_prime_block8() -> &'static str {
     "u1 P take0 dup2 add=t0 u3 P P P dup4 dup1 add=d3 dup6 addmod=t3 swap3 u2 add=t1 P dup2 q=q1 dup5 add=o3 swap6 dup1 add=d1 addmod=t2 P dup2 dup7 add=o2 swap5 q=q0 add=o1 dup1 swap3 add=o0"
 }

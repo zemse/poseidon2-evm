@@ -946,7 +946,12 @@ fn t8_exit_prime_selection_and_configurations() {
                     ops.contains(" swap6 ") && ops.contains(" add dup2 add")
                 })
                 .count();
-        assert_eq!(parked, usize::from(case == 0), "configuration {case}");
+        // the shared body (4) leaves the first consuming round inline
+        assert_eq!(
+            parked,
+            usize::from(case == 0 || case == 4),
+            "configuration {case}"
+        );
         if case == 6 {
             assert!(b.e.loads > 0 && b.e.memory > 0);
             assert!(b.e.lines.iter().any(|line| {

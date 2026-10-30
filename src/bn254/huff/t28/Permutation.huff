@@ -7,7 +7,7 @@
 /// @dev takes [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, PRIME] with clean inputs, returns [s0', s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', s16', s17', s18', s19', s20', s21', s22', s23', s24', s25', s26', s27', ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN: runs on Amsterdam and later only
-/// @dev 76826 gas, max stack depth 324, max dup 189, 65217 bytes
+/// @dev 76821 gas, max stack depth 324, max dup 186, 65214 bytes
 /// @dev schedule options: externalD, internalConsume, primeStack, primeEarly, sharedBody, bodyInline=12, externalTemplate, externalSeam, externalStream, treeSums
 #define macro POSEIDON2_PERMUTATION() = {
     // Initial linear layer
@@ -559,8 +559,8 @@
     swap4 0x4 mulmod                         // [q0, t2, t3, s6', s7', s8', s9', s10', s11', s12', s13', s14', ...]
     add                                      // [s5', t3, s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
     dup1 swap2 add                           // [s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', s14', s15', ...]
-    dupn 30 dupn 27 add dupn 30 dupn 27 add dup2 add // [t0, u1, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
-    dupn 34 dupn 31 add dupn 188 dup1 dup1 dup4 dup1 add // [d3, P, P, P, u3, t0, u1, s4', s5', s6', s7', s8', ...]
+    dupn 30 dupn 27 add dupn 186 swapn 26 dupn 31 add dup2 add // [t0, u1, s4', s5', s6', s7', s8', s9', s10', s11', s12', s13', ...]
+    dupn 34 dupn 31 add dupn 28 dup1 dup1 dup4 dup1 add // [d3, P, P, P, u3, t0, u1, s4', s5', s6', s7', s8', ...]
     dup6 addmod                              // [t3, P, P, u3, t0, u1, s4', s5', s6', s7', s8', s9', ...]
     swap3 dupn 37 dupn 34 add add            // [t1, P, P, t3, t0, u1, s4', s5', s6', s7', s8', s9', ...]
     dup2 dup2 0x4 mulmod                     // [q1, t1, P, P, t3, t0, u1, s4', s5', s6', s7', s8', ...]
@@ -574,7 +574,6 @@
 
     // Round 4 (internal)
     0x1dbfa6590ac62407c2ba07924322356b666a4cc785b29f2dce053303f56db4a6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
-    dupn 189 swapn 29 pop                    // [s0^5, s1', s2', s3', s4', s5', s6', s7', s8', s9', s10', s11', ...]
     dupn 29 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dup1 dupn 59 dupn 59 add dupn 58 dupn 58 add addmod dup2 dupn 56 dupn 56 add dupn 55 dupn 55 add addmod dupn 52 add add dupn 50 dupn 50 add addmod dup2 dupn 48 dupn 48 add dupn 47 dupn 47 add addmod dup3 dupn 45 dupn 45 add dupn 44 dupn 44 add addmod add dup3 dupn 41 dupn 41 add dupn 40 dupn 40 add addmod add dup3 dupn 37 dupn 37 add dupn 36 dupn 36 add addmod dupn 33 add add addmod // [sum, P, P, P, P, P, P, P, P, P, P, P, ...]
     swapn 29 0x06bab517cbec6dc1436e6534d6ef00b929a17e511f6dbc3ad4a0fe34d0c1dbb1 mulmod // [m0, P, P, P, P, P, P, P, P, P, P, P, ...]
     swapn 29 0x697045b0581dc09e226f188b5dbe69ad447721fe57f744b94db25f406a7f2d mulmod dupn 28 add // [s1', P, P, P, P, P, P, P, P, P, P, P, ...]

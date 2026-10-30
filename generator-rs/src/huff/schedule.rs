@@ -1891,14 +1891,14 @@ impl<'a> Builder<'a> {
         } else {
             &[]
         };
+        // block 0 runs last, under the outputs of the k - 1 blocks before it
+        let above = 4 * (self.t / 4 - 1);
         let park_prime = self.stream()
-            && self.t == 8
             && b == 0
             && kind == BlockKind::Exit
             && self.opts.internal_consume
             && !self.opts.shadow
             && !self.opts.prime_in_memory
-            && !self.opts.shared_body
             && !self.state_in_memory
             && self.range.from == 0
             && self.range.to == step_count(self.params)
@@ -1911,7 +1911,7 @@ impl<'a> Builder<'a> {
             && sums
                 .iter()
                 .enumerate()
-                .all(|(i, &s)| self.e.find(s) == i + 5);
+                .all(|(i, &s)| self.e.find(s) == i + above + 1);
         let program = park_prime
             .then_some(super::templates::exit_prime_block8())
             .filter(|p| self.stream_block_fits(p, b, x, sums, true))
