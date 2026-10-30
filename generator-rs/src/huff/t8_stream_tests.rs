@@ -1177,3 +1177,77 @@ fn t8_exit_prime_lifetime_and_real_internal_entry() {
         }
     }
 }
+
+#[test]
+fn t8_prime_early_lands_m0_on_the_stacked_copies() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    let build =
+        |fork: Fork, base: BuildOptions, prime_early: bool| -> Result<(Builder<'_>, Vec<Id>)> {
+            let opts = BuildOptions {
+                external_d: true,
+                internal_consume: true,
+                prime_stack: true,
+                prime_early,
+                external_template: true,
+                tree_sums: true,
+                ..base
+            };
+            let mut b = Builder::new(
+                &params,
+                &inputs,
+                opts,
+                fork,
+                Range {
+                    from: 0,
+                    to: step_count(&params),
+                },
+                HashSet::new(),
+                false,
+                true,
+                &Boundary::default(),
+            )?;
+            let out = b.build()?;
+            Ok((b, out))
+        };
+    let amsterdam = fork("amsterdam").unwrap();
+    let streamed = BuildOptions {
+        external_stream: true,
+        ..DEFAULT_OPTIONS
+    };
+    let (laid, _) = build(amsterdam, streamed, false).unwrap();
+    let (early, out) = build(amsterdam, streamed, true).unwrap();
+    // the copies of the swapped elements are pushed under the sum's own,
+    // and m0 lands on them: the SWAP that put it there goes, every round
+    assert_eq!(laid.e.gas - early.e.gas, 3 * params.rounds_p as u64);
+    assert_eq!(early.e.max_dup, laid.e.max_dup);
+    assert!(early.e.max_depth <= laid.e.max_depth);
+    assert!(early.e.max_dup <= amsterdam.reach);
+    let round = early
+        .e
+        .lines
+        .iter()
+        .position(|l| l.contains("Round 5 (internal)"))
+        .unwrap();
+    let text = early.e.lines[round + 1..round + 4].join("\n");
+    assert!(!text.contains("swap7"), "{text}");
+    assert!(text.contains("swap9 0x"), "{text}");
+    for (i, input) in inputs.iter().enumerate() {
+        let expected = permutation_steps(&params, input, 0, step_count(&params));
+        for (&id, expected) in out.iter().zip(expected) {
+            assert_eq!(early.e.value(id).vals[i], expected);
+            assert_eq!(early.e.bound(id), p1());
+        }
+    }
+    // the sum's DUPs then reach past the copies: not within DUP16 (the
+    // options Osaka selects)
+    let osaka = fork("osaka").unwrap();
+    let stored = BuildOptions {
+        diag_in_memory: true,
+        diag_push32: 7,
+        ..DEFAULT_OPTIONS
+    };
+    assert!(build(osaka, stored, true).is_err());
+    assert!(build(osaka, stored, false).is_ok());
+}

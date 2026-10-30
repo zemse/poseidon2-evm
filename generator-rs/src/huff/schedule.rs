@@ -78,6 +78,9 @@ pub struct BuildOptions {
     /// once so each swapped element lands on its own instead of getting one
     /// swapped under it
     pub prime_stack: bool,
+    /// with prime_stack, push the copies under the sum's own before the
+    /// chain sums, so the MULMOD of s0^5 lands m0 on them (no SWAP)
+    pub prime_early: bool,
     /// with gc_internal, leave the garbage of the first gc_internal_from
     /// internal rounds in place as far as the depth allows
     pub gc_internal_from: usize,
@@ -165,6 +168,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     float_prime_internal: false,
     internal_consume: false,
     prime_stack: false,
+    prime_early: false,
     gc_internal_from: 0,
     gc_m4_from: 0,
     diag_push32: 0,
@@ -264,6 +268,7 @@ pub fn describe_options(opts: &BuildOptions) -> String {
         ("floatPrimeInternal", opts.float_prime_internal),
         ("internalConsume", opts.internal_consume),
         ("primeStack", opts.prime_stack),
+        ("primeEarly", opts.prime_early),
     ];
     let mut enabled: Vec<String> = flags
         .iter()
@@ -384,6 +389,15 @@ pub fn held_slots(t: usize, reach: usize, consume_slots: usize) -> usize {
         return consume_slots.min(t - 1);
     }
     (t - 1).min(reach - 4)
+}
+
+/// How many of the elements a consuming round swaps up, at `depths` under
+/// [m0, sum], can have their PRIME copies stacked under m0 at once: the
+/// k-th sits under the copies left over its turn, so its swap must still
+/// reach it.
+fn stacked_copies(depths: &[usize], reach: usize) -> usize {
+    let fits = |n: usize| (0..n).all(|k| depths[k] + n - k - 1 <= reach);
+    (0..=depths.len()).rev().find(|&n| fits(n)).unwrap_or(0)
 }
 
 /// elements the consuming round holds on the stack: the rounds the layout
@@ -2606,24 +2620,26 @@ impl<'a> Builder<'a> {
     /// slots, and for the last internal round Eulerian circuits of the
     /// blocks (Hierholzer's algorithm), one per connected component from
     /// the lowest slot left, that leave every element in the slots of its
-    /// block of the external layer.
+    /// block of the external layer. `top` values sit over the region
+    /// ([m0, sum], or s0^5 alone before the sum).
     fn consume_chains(
         &self,
         old: &[Id],
         mem: usize,
         next_internal: bool,
+        top: usize,
     ) -> Result<Vec<Vec<usize>>> {
         let t = self.t;
         let slots = t - 1 - mem;
-        // slot s holds index s - 2 + mem in the block order
+        // slot s holds index s - top + mem in the block order
         let mut at: BTreeMap<usize, usize> = BTreeMap::new();
         for (i, &v) in old.iter().enumerate().skip(1) {
             let s = self.e.find(v);
-            if s >= 3 && s <= slots + 2 {
+            if s > top && s <= slots + top {
                 at.insert(s, i);
             }
         }
-        if !at.contains_key(&3) {
+        if !at.contains_key(&(top + 1)) {
             bail!("no element under the sum");
         }
         let order: Vec<usize> = at.keys().copied().collect();
@@ -2641,7 +2657,7 @@ impl<'a> Builder<'a> {
         let block = |i: usize| i >> 2;
         let mut out: HashMap<usize, Vec<usize>> = HashMap::new();
         for &s in &order {
-            out.entry(block(s - 2 + mem)).or_default().push(s);
+            out.entry(block(s - top + mem)).or_default().push(s);
         }
         let mut chains: Vec<Vec<usize>> = Vec::new();
         let mut used: HashSet<usize> = HashSet::new();
@@ -2651,7 +2667,7 @@ impl<'a> Builder<'a> {
             }
             let mut circuit: Vec<usize> = Vec::new();
             // (node, via)
-            let mut stack: Vec<(usize, usize)> = vec![(block(first - 2 + mem), 0)];
+            let mut stack: Vec<(usize, usize)> = vec![(block(first - top + mem), 0)];
             while let Some(&(node, _)) = stack.last() {
                 match out.get_mut(&node).and_then(Vec::pop) {
                     Some(s) => stack.push((block(at[&s]), s)),
@@ -2723,6 +2739,22 @@ impl<'a> Builder<'a> {
                 self.e.spill(x5)?;
             }
         }
+        // with prime_early the copies of the stacked elements go under the
+        // sum's own now, and the MULMOD of s0^5 lands m0 on them
+        let early = self.opts.prime_early && self.opts.prime_stack && mem == 0;
+        let early_stacked = if early {
+            let chains = self.consume_chains(&old, mem, next_internal, 1)?;
+            let order: Vec<usize> = chains.iter().flatten().copied().collect();
+            // the depths at the chain, under [m0, sum]
+            let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i]) + 1).collect();
+            let stacked = stacked_copies(&depths, self.e.max_reach);
+            for _ in 0..stacked {
+                self.e.push_prime()?;
+            }
+            stacked
+        } else {
+            0
+        };
         self.e.push_prime()?;
         // the elements the previous round stored enter the sum as theirs
         let fused_slot = self.fused.and_then(|f| self.e.slot_of(f));
@@ -2742,7 +2774,7 @@ impl<'a> Builder<'a> {
         let fusing = mem >= FUSE_MIN && next_internal && self.opts.prime_stack;
         // [sum, P, ...] holds the region where [m0, sum, ...] will
         let fuse = fusing && {
-            let loads = self.region_loads(&old, slots);
+            let loads = self.region_loads(&old, slots, 2);
             (1..=mem).all(|j| loads.contains(&j)) && loads.iter().all(|&j| j <= mem)
         };
         let mut out = vec![0; t];
@@ -2818,7 +2850,7 @@ impl<'a> Builder<'a> {
             self.e.swap(1)?;
             self.e.dup(x5)?;
         } else {
-            self.e.swap(2)?;
+            self.e.swap(2 + early_stacked)?;
         }
         let d0 = self.diag(0);
         let m0 = self
@@ -2826,13 +2858,15 @@ impl<'a> Builder<'a> {
             .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
         self.e.end_line();
 
+        // [m0, sum, ...], or [m0, P, ..., P, sum, ...] with the early copies
+        let top = 2 + early_stacked;
         let loads = if fuse {
             Vec::new()
         } else {
-            self.region_loads(&old, slots)
+            self.region_loads(&old, slots, top)
         };
         let mut to_stack: VecDeque<usize> = loads.iter().copied().filter(|&i| i > mem).collect();
-        let chains = self.consume_chains(&old, mem, next_internal)?;
+        let chains = self.consume_chains(&old, mem, next_internal, top)?;
         let order: Vec<usize> = chains.iter().flatten().copied().collect();
         // a chain closes with m0 back on top, its last output into the slot
         // of its first element (the sum is then right under m0 after the
@@ -2848,16 +2882,20 @@ impl<'a> Builder<'a> {
                     self.consume_load(j, &old, sum, mem, &mut out)?;
                 }
             }
-            let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i])).collect();
-            let fits = |n: usize| (0..n).all(|k| depths[k] + n - k - 1 <= self.e.max_reach);
-            let stacked = (0..=order.len()).rev().find(|&n| fits(n)).unwrap_or(0);
-            if stacked > 0 {
-                for _ in 0..stacked {
-                    self.e.push_prime()?;
+            let stacked = if early {
+                early_stacked
+            } else {
+                let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i])).collect();
+                let stacked = stacked_copies(&depths, self.e.max_reach);
+                if stacked > 0 {
+                    for _ in 0..stacked {
+                        self.e.push_prime()?;
+                    }
+                    self.e.swap(stacked)?;
+                    self.e.end_line();
                 }
-                self.e.swap(stacked)?;
-                self.e.end_line();
-            }
+                stacked
+            };
             let mut k = 0;
             for chain in &chains {
                 for &i in chain {
@@ -2961,12 +2999,13 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    /// The indices of `old` but s0 the region under [m0, sum] does not hold
-    fn region_loads(&self, old: &[Id], slots: usize) -> Vec<usize> {
+    /// The indices of `old` but s0 the region under the `top` values on the
+    /// stack ([m0, sum]) does not hold
+    fn region_loads(&self, old: &[Id], slots: usize, top: usize) -> Vec<usize> {
         (1..old.len())
             .filter(|&i| {
                 let s = self.e.find(old[i]);
-                s < 3 || s > slots + 2
+                s <= top || s > slots + top
             })
             .collect()
     }
@@ -3746,80 +3785,85 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                             t >= 8 && !gc_internal && !float_prime_internal;
                                         for &internal_consume in pick(consume) {
                                             for &prime_stack in pick(internal_consume) {
-                                                for &shared_body in pick(internal_consume) {
-                                                    // the templates replace the
-                                                    // external rounds (t <= 4) or
-                                                    // the M4 of every block (with
-                                                    // external_d), so the options
-                                                    // those would collect or
-                                                    // pre-place are moot
-                                                    let templated = if t <= 4 {
-                                                        !gc_external
-                                                            && !gc_m4
-                                                            && !prime_under_external
-                                                    } else {
-                                                        external_d && !gc_m4
-                                                    };
-                                                    for &external_template in pick(templated) {
-                                                        for &internal_template in
-                                                            pick((t == 3 || t == 4) && !gc_internal)
-                                                        {
-                                                            for &internal_mul3 in pick(
-                                                                t == 2 && internal_reduce_outputs,
+                                                for &prime_early in pick(prime_stack && !shadow) {
+                                                    for &shared_body in pick(internal_consume) {
+                                                        // the templates replace the
+                                                        // external rounds (t <= 4) or
+                                                        // the M4 of every block (with
+                                                        // external_d), so the options
+                                                        // those would collect or
+                                                        // pre-place are moot
+                                                        let templated = if t <= 4 {
+                                                            !gc_external
+                                                                && !gc_m4
+                                                                && !prime_under_external
+                                                        } else {
+                                                            external_d && !gc_m4
+                                                        };
+                                                        for &external_template in pick(templated) {
+                                                            for &internal_template in pick(
+                                                                (t == 3 || t == 4) && !gc_internal,
                                                             ) {
-                                                                // the external rounds of the templated
-                                                                // blocks stream (always with shadow),
-                                                                // which collects no garbage
-                                                                let streams =
-                                                                    external_d && external_template;
-                                                                for &external_stream in
-                                                                    pick(streams)
-                                                                {
-                                                                    if shadow
-                                                                        && streams
-                                                                        && !external_stream
+                                                                for &internal_mul3 in pick(
+                                                                    t == 2
+                                                                        && internal_reduce_outputs,
+                                                                ) {
+                                                                    // the external rounds of the templated
+                                                                    // blocks stream (always with shadow),
+                                                                    // which collects no garbage
+                                                                    let streams = external_d
+                                                                        && external_template;
+                                                                    for &external_stream in
+                                                                        pick(streams)
                                                                     {
-                                                                        continue;
+                                                                        if shadow
+                                                                            && streams
+                                                                            && !external_stream
+                                                                        {
+                                                                            continue;
+                                                                        }
+                                                                        if external_stream
+                                                                            && gc_external
+                                                                        {
+                                                                            continue;
+                                                                        }
+                                                                        list.push(BuildOptions {
+                                                                            diag_in_memory,
+                                                                            gc_external,
+                                                                            gc_m4,
+                                                                            gc_internal,
+                                                                            chain_swap_mod,
+                                                                            external_d,
+                                                                            prime_under_external,
+                                                                            internal_reduce_outputs,
+                                                                            float_prime_internal,
+                                                                            internal_consume,
+                                                                            prime_stack,
+                                                                            prime_early,
+                                                                            gc_internal_from: 0,
+                                                                            gc_m4_from: 0,
+                                                                            diag_push32: 0,
+                                                                            shadow,
+                                                                            shared_body,
+                                                                            body_inline: 0,
+                                                                            consume_group: 0,
+                                                                            consume_slots: 0,
+                                                                            external_template,
+                                                                            internal_template,
+                                                                            external_seam: false,
+                                                                            internal_mul3,
+                                                                            prime_in_memory: false,
+                                                                            external_stream,
+                                                                            compact_inputs: false,
+                                                                            tree_sums: false,
+                                                                            tree_peak: false,
+                                                                            tree_late_prime: false,
+                                                                            tree_adaptive_prime:
+                                                                                false,
+                                                                            fused_tree:
+                                                                                FusedTree::Serial,
+                                                                        });
                                                                     }
-                                                                    if external_stream
-                                                                        && gc_external
-                                                                    {
-                                                                        continue;
-                                                                    }
-                                                                    list.push(BuildOptions {
-                                                                        diag_in_memory,
-                                                                        gc_external,
-                                                                        gc_m4,
-                                                                        gc_internal,
-                                                                        chain_swap_mod,
-                                                                        external_d,
-                                                                        prime_under_external,
-                                                                        internal_reduce_outputs,
-                                                                        float_prime_internal,
-                                                                        internal_consume,
-                                                                        prime_stack,
-                                                                        gc_internal_from: 0,
-                                                                        gc_m4_from: 0,
-                                                                        diag_push32: 0,
-                                                                        shadow,
-                                                                        shared_body,
-                                                                        body_inline: 0,
-                                                                        consume_group: 0,
-                                                                        consume_slots: 0,
-                                                                        external_template,
-                                                                        internal_template,
-                                                                        external_seam: false,
-                                                                        internal_mul3,
-                                                                        prime_in_memory: false,
-                                                                        external_stream,
-                                                                        compact_inputs: false,
-                                                                        tree_sums: false,
-                                                                        tree_peak: false,
-                                                                        tree_late_prime: false,
-                                                                        tree_adaptive_prime: false,
-                                                                        fused_tree:
-                                                                            FusedTree::Serial,
-                                                                    });
                                                                 }
                                                             }
                                                         }
