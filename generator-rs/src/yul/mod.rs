@@ -45,6 +45,7 @@ fn layout_for(t: usize) -> Layout {
             fold_constants: true,
             nested_x5: t != 3,
             external_lets: t == 3,
+            fold_first: false,
         };
     }
     if t == 8 {
@@ -63,6 +64,7 @@ fn layout_for(t: usize) -> Layout {
             fold_constants: true,
             nested_x5: false,
             external_lets: false,
+            fold_first: false,
         };
     }
     if t == 12 {
@@ -78,9 +80,10 @@ fn layout_for(t: usize) -> Layout {
             internal_reduce_outputs: false,
             periodic_internal: false,
             raw_inputs: 0,
-            fold_constants: false,
+            fold_constants: true,
             nested_x5: false,
             external_lets: false,
+            fold_first: true,
         };
     }
     Layout {
@@ -98,6 +101,7 @@ fn layout_for(t: usize) -> Layout {
         fold_constants: false,
         nested_x5: false,
         external_lets: false,
+        fold_first: false,
     }
 }
 
@@ -122,7 +126,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 48,991 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 48,367 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }

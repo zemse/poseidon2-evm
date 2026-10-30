@@ -65,6 +65,9 @@ pub struct Layout {
     /// external rounds: each S-box output in a let of its own block (x2 and
     /// p{i}), the linear layer reads the lets and writes the state once
     pub external_lets: bool,
+    /// the folded constant as the first operand of its add, so that it is
+    /// pushed after the value is evaluated rather than held under it
+    pub fold_first: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +172,11 @@ impl<'a> Builder<'a> {
         let folded;
         let v = match self.pending[i].take() {
             Some(c) => {
-                folded = self.add(v, &self.p.constant(c), false)?;
+                folded = if self.layout.fold_first {
+                    self.add(&self.p.constant(c), v, false)?
+                } else {
+                    self.add(v, &self.p.constant(c), false)?
+                };
                 &folded
             }
             None => v,
