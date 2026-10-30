@@ -46,6 +46,7 @@ fn layout_for(t: usize) -> Layout {
             nested_x5: t != 3,
             external_lets: t == 3,
             fold_first: false,
+            table_absolute: false,
         };
     }
     if t == 8 {
@@ -65,6 +66,7 @@ fn layout_for(t: usize) -> Layout {
             nested_x5: false,
             external_lets: false,
             fold_first: false,
+            table_absolute: false,
         };
     }
     if t == 12 {
@@ -84,6 +86,7 @@ fn layout_for(t: usize) -> Layout {
             nested_x5: false,
             external_lets: false,
             fold_first: true,
+            table_absolute: true,
         };
     }
     Layout {
@@ -102,6 +105,7 @@ fn layout_for(t: usize) -> Layout {
         nested_x5: false,
         external_lets: false,
         fold_first: false,
+        table_absolute: false,
     }
 }
 
@@ -126,7 +130,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 48,367 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,542 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }
@@ -196,7 +200,10 @@ fn generate(t: usize) -> Result<Output> {
                 render_array_library(&params, &layout, &result, settings_note(t)),
             ),
             (wrapper, render_wrapper(t)),
-            (test, render_forge_test(&params, &vectors, t <= 12)),
+            (
+                test,
+                render_forge_test(&params, &vectors, t <= 12, layout.table_absolute),
+            ),
         ],
         log,
     })

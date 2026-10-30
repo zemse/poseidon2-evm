@@ -68,6 +68,12 @@ pub struct Layout {
     /// the folded constant as the first operand of its add, so that it is
     /// pushed after the value is evaluated rather than held under it
     pub fold_first: bool,
+    /// the diag table at 0x80 .. instead of free memory (a PUSH1 and an
+    /// MLOAD per read instead of an ADD to a table let): the caller's words
+    /// there and the free memory pointer are saved in the state array, whose
+    /// words are free while the whole state is in locals, and restored after
+    /// the internal rounds
+    pub table_absolute: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +135,17 @@ impl<'a> Builder<'a> {
             || layout.diag_lets + layout.diag_scratch + layout.diag_in_memory > params.t
         {
             bail!("layout exceeds t");
+        }
+        // every saved word that the caller still owns lands past the table
+        // (its slot is the array's word t - 2 - k, so at or above the table's
+        // end once the array starts above the word), as does the parked
+        // pointer (word t - 1)
+        if layout.table_absolute
+            && (mode != Mode::Array
+                || layout.stack_elements != params.t
+                || layout.diag_in_memory - layout.diag_fixed + 2 > params.t)
+        {
+            bail!("an absolute table needs the whole state in locals and t - 2 entries at most");
         }
         Ok(Builder {
             p: Program::new(inputs.len(), indent),
@@ -350,11 +367,23 @@ impl<'a> Builder<'a> {
 
     fn table_addr(&self, i: usize) -> String {
         let k = i - (self.t - self.layout.diag_in_memory);
-        if k == 0 {
+        if self.layout.table_absolute {
+            format!("0x{:x}", 0x80 + 32 * k)
+        } else if k == 0 {
             "table".to_string()
         } else {
             format!("add(table, 0x{:x})", 32 * k)
         }
+    }
+
+    /// the state array word that keeps the caller's word k of the absolute
+    /// table (k None: the free memory pointer)
+    fn saved_addr(&self, k: Option<usize>) -> String {
+        let word = match k {
+            Some(k) => self.t - 2 - k,
+            None => self.t - 1,
+        };
+        Self::addr(word, "state")
     }
 
     /// Sum of values into the variable `name`, reducing only when a partial
@@ -869,14 +898,36 @@ impl<'a> Builder<'a> {
                     self.p.mstore(addr, &self.p.constant(d))?;
                 }
             }
-            if diag_in_memory > 0 {
+            let entries = diag_in_memory - diag_fixed;
+            if self.layout.table_absolute && entries > 0 {
+                self.p.comment(
+                    "the caller's words at 0x80 .. and the free memory pointer, kept in the state array (free while the state is in locals) and restored after the internal rounds",
+                );
+                for k in 0..entries {
+                    let line = format!(
+                        "mstore({}, mload({}))",
+                        self.saved_addr(Some(k)),
+                        self.table_addr(t - diag_in_memory + k)
+                    );
+                    self.p.line(&line);
+                }
+                if diag_fixed > 0 {
+                    let line = format!("mstore({}, mload(0x40))", self.saved_addr(None));
+                    self.p.line(&line);
+                }
+                self.p.comment(
+                    "diag constants that would not fit the code size as PUSH32, at 0x80 ..",
+                );
+            } else if diag_in_memory > 0 {
                 self.p.comment(
                     "diag constants that would not fit the code size as PUSH32, in free memory",
                 );
                 let table = self.p.input("mload(0x40)", Vec::new());
                 self.p.let_("table", &table)?;
+            }
+            if diag_in_memory > 0 {
                 let table = d.iter().enumerate().skip(t - diag_in_memory);
-                for (i, &d) in table.take(diag_in_memory - diag_fixed) {
+                for (i, &d) in table.take(entries) {
                     let addr = self.table_addr(i);
                     self.p.mstore(&addr, &self.p.constant(d))?;
                 }
@@ -892,11 +943,24 @@ impl<'a> Builder<'a> {
             }
             self.p.blank();
             internal(&mut self)?;
-            if diag_fixed > 0 {
+            if diag_fixed > 0 && self.layout.table_absolute {
+                let line = format!("mstore(0x40, mload({}))", self.saved_addr(None));
+                self.p.line(&line);
+            } else if diag_fixed > 0 {
                 self.p.line("mstore(0x40, table)");
             }
             if diag_fixed > 1 {
                 self.p.line("mstore(0x60, 0)");
+            }
+            if self.layout.table_absolute {
+                for k in 0..entries {
+                    let line = format!(
+                        "mstore({}, mload({}))",
+                        self.table_addr(t - diag_in_memory + k),
+                        self.saved_addr(Some(k))
+                    );
+                    self.p.line(&line);
+                }
             }
             self.p.close();
         } else {

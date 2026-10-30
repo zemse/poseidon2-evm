@@ -103,7 +103,14 @@ pub fn render_array_library(
             layout.stack_elements as i64 - 1
         )
     };
-    let table = if layout.diag_fixed > 0 {
+    let table = if layout.table_absolute {
+        format!(
+            "\n/// @dev {} of the {t} internal diag constants are kept at 0x80 .. 0x{:x} and {} at 0x40 and 0x60 to stay within the code size limit; the caller's words there and the free memory pointer are saved in the state array and restored, with the zero slot, after the internal rounds",
+            layout.diag_in_memory - layout.diag_fixed,
+            0x80 + 32 * (layout.diag_in_memory - layout.diag_fixed) - 32,
+            layout.diag_fixed
+        )
+    } else if layout.diag_fixed > 0 {
         format!(
             "\n/// @dev {} of the {t} internal diag constants are kept in free memory (not allocated) and {} at 0x40 and 0x60 to stay within the code size limit; the free memory pointer and the zero slot are restored after the internal rounds",
             layout.diag_in_memory - layout.diag_fixed,
@@ -168,7 +175,12 @@ contract Poseidon2YulT{t} {{
 
 /// with_huff adds a fuzz test against the Huff permutation of the same
 /// width.
-pub fn render_forge_test(params: &Params, vectors: &[Vector], with_huff: bool) -> String {
+pub fn render_forge_test(
+    params: &Params,
+    vectors: &[Vector],
+    with_huff: bool,
+    restores: bool,
+) -> String {
     let t = params.t;
     let lib = library_name(t);
     let wrapper = format!("Poseidon2YulT{t}");
@@ -205,6 +217,45 @@ pub fn render_forge_test(params: &Params, vectors: &[Vector], with_huff: bool) -
     }}
 "
         )
+    } else {
+        String::new()
+    };
+    let below = if restores {
+        let test = |name: &str, words: usize, what: &str| {
+            format!(
+                "
+    /// @dev the library restores the caller's words at 0x80 .. that hold its diag table during the internal rounds{what}
+    function {name}() public view {{
+        uint256[{words}] memory below;
+        uint256 start;
+        assembly {{
+            start := below
+        }}
+        assertEq(start, 0x80, \"below at 0x80\");
+        for (uint256 i = 0; i < {words}; i++) {{
+            below[i] = i + 1;
+        }}
+        uint256[{t}] memory state;
+        uint256[{t}] memory input;
+        for (uint256 i = 0; i < {t}; i++) {{
+            state[i] = i + 3;
+            input[i] = i + 3;
+        }}
+        {lib}.permute(state);
+        for (uint256 i = 0; i < {words}; i++) {{
+            assertEq(below[i], i + 1, \"word below the state\");
+        }}
+        assertEq(state, _permute(input), \"state\");
+    }}
+"
+            )
+        };
+        test("test_memory_below_kept", 8, "")
+            + &test(
+                "test_memory_below_kept_overlap",
+                3,
+                ", with the state array across them",
+            )
     } else {
         String::new()
     };
@@ -282,7 +333,7 @@ contract {wrapper}Test is Test {{
         assertEq(fmpAfter, fmp, \"free memory pointer\");
         assertEq(zero, 0, \"zero slot\");
     }}
-{fuzz}}}
+{below}{fuzz}}}
 ",
         prime = hex(PRIME),
     )
