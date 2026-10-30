@@ -1,6 +1,6 @@
 # Poseidon2 for EVM
 
-Gas-optimized implementations of the [Poseidon2 hash function](https://eprint.iacr.org/2023/323.pdf) for the EVM.
+Gas-optimized, formally verified implementations of the [Poseidon2 hash function](https://eprint.iacr.org/2023/323.pdf) for the EVM.
 
 ## Implementation Details
 
@@ -13,6 +13,8 @@ See impl-specific documentation:
 ## Gas Costs
 
 Call gas of the current sources, each figure proven exact in Lean (see [Formal verification](#formal-verification)).
+
+> The Huff contracts (every width, Amsterdam and Osaka builds) are proven in Lean 4, on their runtime bytecode, to return the Poseidon2 output over BN254 for every input, with exactly the gas below. The Yul contracts carry the same proof for the compiler settings listed in [Formal verification](#formal-verification).
 
 ### t = 4 hash (`IPoseidon2`)
 
