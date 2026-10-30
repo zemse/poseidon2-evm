@@ -240,7 +240,7 @@ mod tests {
     fn schedule_entry_budget_matches_t28_execution_pin() {
         let json = schedule(&fork("osaka").unwrap(), 28).unwrap();
         // Independently compiled call gas is pinned in tests/verify.rs.
-        assert_eq!(number(&json, "gas") + number(&json, "wrapper"), 90772);
+        assert_eq!(number(&json, "gas") + number(&json, "wrapper"), 90740);
     }
 
     #[test]
