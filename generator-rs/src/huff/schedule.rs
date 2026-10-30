@@ -116,7 +116,9 @@ pub struct BuildOptions {
     /// (internal4): one dead value a round instead of five, for three SWAPs;
     /// t = 3 uses periodic bound-checked reductions, with internal3 fallbacks
     pub internal_template: bool,
-    /// t = 3: stream the last internal outputs into the next external round
+    /// stream the last internal outputs into the next external round: t = 3
+    /// through its own programs, from t = 8 the consuming round runs the
+    /// S-boxes on its outputs over stacked copies (with prime_early)
     pub external_seam: bool,
     /// t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
     /// s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
@@ -392,11 +394,11 @@ pub fn held_slots(t: usize, reach: usize, consume_slots: usize) -> usize {
 }
 
 /// How many of the elements a consuming round swaps up, at `depths` under
-/// [m0, sum], can have their PRIME copies stacked under m0 at once: the
-/// k-th sits under the copies left over its turn, so its swap must still
-/// reach it.
-fn stacked_copies(depths: &[usize], reach: usize) -> usize {
-    let fits = |n: usize| (0..n).all(|k| depths[k] + n - k - 1 <= reach);
+/// [m0, sum], can have their PRIME copies (`per` each) stacked under m0 at
+/// once: the k-th sits under the copies left over its turn, so its swap
+/// must still reach it.
+fn stacked_copies(depths: &[usize], per: usize, reach: usize) -> usize {
+    let fits = |n: usize| (0..n).all(|k| depths[k] + per * (n - k) - 1 <= reach);
     (0..=depths.len()).rev().find(|&n| fits(n)).unwrap_or(0)
 }
 
@@ -2742,13 +2744,25 @@ impl<'a> Builder<'a> {
         // with prime_early the copies of the stacked elements go under the
         // sum's own now, and the MULMOD of s0^5 lands m0 on them
         let early = self.opts.prime_early && self.opts.prime_stack && mem == 0;
+        // the last round of a streamed schedule runs the next round's S-box
+        // on each output as it lands over the copies (external_seam): a
+        // second copy per element, which the S-box consumes
+        let seam = early
+            && self.opts.external_seam
+            && !next_internal
+            && round + 2 < self.range.to
+            && self.stream();
+        let per = if seam { 2 } else { 1 };
         let early_stacked = if early {
             let chains = self.consume_chains(&old, mem, next_internal, 1)?;
             let order: Vec<usize> = chains.iter().flatten().copied().collect();
             // the depths at the chain, under [m0, sum]
             let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i]) + 1).collect();
-            let stacked = stacked_copies(&depths, self.e.max_reach);
-            for _ in 0..stacked {
+            let stacked = stacked_copies(&depths, per, self.e.max_reach);
+            if seam && stacked < order.len() {
+                bail!("the seam's copies leave the reach");
+            }
+            for _ in 0..stacked * per {
                 self.e.push_prime()?;
             }
             stacked
@@ -2778,6 +2792,7 @@ impl<'a> Builder<'a> {
             (1..=mem).all(|j| loads.contains(&j)) && loads.iter().all(|&j| j <= mem)
         };
         let mut out = vec![0; t];
+        let mut xs = vec![0; t];
         if fuse {
             let mut acc: Option<Id> = None;
             if self.opts.fused_tree != FusedTree::Serial {
@@ -2850,7 +2865,7 @@ impl<'a> Builder<'a> {
             self.e.swap(1)?;
             self.e.dup(x5)?;
         } else {
-            self.e.swap(2 + early_stacked)?;
+            self.e.swap(2 + early_stacked * per)?;
         }
         let d0 = self.diag(0);
         let m0 = self
@@ -2859,7 +2874,7 @@ impl<'a> Builder<'a> {
         self.e.end_line();
 
         // [m0, sum, ...], or [m0, P, ..., P, sum, ...] with the early copies
-        let top = 2 + early_stacked;
+        let top = 2 + early_stacked * per;
         let loads = if fuse {
             Vec::new()
         } else {
@@ -2886,7 +2901,7 @@ impl<'a> Builder<'a> {
                 early_stacked
             } else {
                 let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i])).collect();
-                let stacked = stacked_copies(&depths, self.e.max_reach);
+                let stacked = stacked_copies(&depths, 1, self.e.max_reach);
                 if stacked > 0 {
                     for _ in 0..stacked {
                         self.e.push_prime()?;
@@ -2905,7 +2920,15 @@ impl<'a> Builder<'a> {
                         self.e.push_prime()?;
                         self.e.swap(1)?;
                     }
-                    self.consume_finish(i, s, sum, mem, &mut out)?;
+                    if seam {
+                        // the output lands over its second copy: the next
+                        // round's constant and S-box take its place
+                        self.consume_out(i, s, sum, &mut out)?;
+                        xs[i] = self.seam_lane(round + 1, i, out[i])?;
+                        self.e.end_line();
+                    } else {
+                        self.consume_finish(i, s, sum, mem, &mut out)?;
+                    }
                     if i <= mem {
                         // the output went to memory: one that comes back to
                         // the stack takes its place on top, with its own
@@ -2953,6 +2976,15 @@ impl<'a> Builder<'a> {
         }
         let (a, b) = (self.e.top(0)?, self.e.top(1)?);
         out[0] = self.e.compute(Op::Add, &[inplace(a), inplace(b)], "s0'")?;
+        if seam {
+            // s0' over no copy: the lane of the streamed S-boxes
+            let c = self.params.round_constants[round + 1][0];
+            xs[0] = self.stream_lane(out[0], c, "x0")?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
         if mem > 0 && self.e.at(slots + 1) != Some(p) {
             // the PRIME copy the rounds DUP from, in place of the slot under
             // the region
@@ -2980,6 +3012,16 @@ impl<'a> Builder<'a> {
         }
         self.state = out;
         Ok(())
+    }
+
+    /// s + c and the S-box of lane i of `round` for s on top over a PRIME
+    /// copy (the seam of the last consuming round)
+    fn seam_lane(&mut self, round: usize, i: usize, s: Id) -> Result<Id> {
+        let c = self.params.round_constants[round][i];
+        let y = self
+            .e
+            .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?;
+        self.sbox(y, &format!("x{i}"))
     }
 
     /// m_i + sum on top; the output of an index in memory goes there
@@ -3883,7 +3925,8 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
     let extra: Vec<usize> = (reach - 3..=reach - 2).filter(|&n| n < t).collect();
     list.into_iter()
         .flat_map(|opts| {
-            let seam = t == 3 && opts.external_template && opts.internal_template && !shadow;
+            let seam = (t == 3 && opts.external_template && opts.internal_template && !shadow)
+                || (opts.prime_early && opts.external_stream);
             std::iter::once(opts).chain(seam.then_some(BuildOptions {
                 external_seam: true,
                 ..opts

@@ -1251,3 +1251,76 @@ fn t8_prime_early_lands_m0_on_the_stacked_copies() {
     assert!(build(osaka, stored, true).is_err());
     assert!(build(osaka, stored, false).is_ok());
 }
+
+#[test]
+fn t8_seam_runs_the_next_s_boxes_in_the_last_consuming_round() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    let build = |external_seam: bool| -> (Builder<'_>, Vec<Id>) {
+        let opts = BuildOptions {
+            external_d: true,
+            external_stream: true,
+            internal_consume: true,
+            prime_stack: true,
+            prime_early: true,
+            external_seam,
+            external_template: true,
+            tree_sums: true,
+            ..DEFAULT_OPTIONS
+        };
+        let mut b = Builder::new(
+            &params,
+            &inputs,
+            opts,
+            fork("amsterdam").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            true,
+            &Boundary::default(),
+        )
+        .unwrap();
+        let out = b.build().unwrap();
+        (b, out)
+    };
+    let (plain, _) = build(false);
+    let (seam, out) = build(true);
+    // every lane but s0' lands over its second copy: no copy and no DUP of
+    // the output for its S-box in the external round
+    assert_eq!(plain.e.gas - seam.e.gas, 3 * (params.t as u64 - 1));
+    assert!(seam.e.max_depth < plain.e.max_depth);
+    let last = params.rounds_f / 2 + params.rounds_p - 1;
+    let from = seam
+        .e
+        .lines
+        .iter()
+        .position(|l| l.contains(&format!("Round {last} (internal)")))
+        .unwrap();
+    let to = seam
+        .e
+        .lines
+        .iter()
+        .position(|l| l.contains(&format!("Round {} (external)", last + 1)))
+        .unwrap();
+    let text = seam.e.lines[from..to].join("\n");
+    assert_eq!(
+        text.matches("mulmod dup1 mulmod mulmod").count(),
+        1 + params.t
+    );
+    assert!(
+        !seam.e.lines[to + 1].contains("mulmod"),
+        "{}",
+        seam.e.lines[to + 1]
+    );
+    for (i, input) in inputs.iter().enumerate() {
+        let expected = permutation_steps(&params, input, 0, step_count(&params));
+        for (&id, expected) in out.iter().zip(expected) {
+            assert_eq!(seam.e.value(id).vals[i], expected);
+            assert_eq!(seam.e.bound(id), p1());
+        }
+    }
+}
