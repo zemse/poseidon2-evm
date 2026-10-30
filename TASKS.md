@@ -15,16 +15,17 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 
 ## Yul, open directions
 
-- [ ] t2/t3/t4 tuned for via-IR 1M (their least-gas setting); all shape work so far measured on legacy. In progress (`gas-yul`).
-- [ ] t12 `diagInMemory 7` (-216 at legacy 1M) and balanced internal sum tree (up to ~114). In progress.
-- [ ] t8 via-IR: solc 0.8.30 stack layout assertion after 224 s / 48 GB; retry with a memory-state or smaller-function shape.
+- [ ] t12 via-IR: one function and 8-round chunks exceed 40 GB; 2-round chunks too deep. Memory-held state est. a net loss.
+- [x] t2/t3/t4/t8 tuned for via-IR 1M (999f493, d7fd8be): t2 7,560, t3 9,505, t4 13,904, t8 29,321.
+- [x] t12 all diag constants as PUSH32 and tree sum (4ac47ed, 870682a, fcb1904): 46,272 to 43,682 at legacy 1M.
+- [x] t8 via-IR compiles with a rounds function (aa12830).
 - [ ] t2/t3 legacy: ~10-15 gas/round of stack moves left; needs a simulator of solc's CodeTransform + CSE to search shapes. Est. 300-600.
 - [ ] `Poseidon2Yul_BN254` fallback dispatch to hash_1/2/3 by calldatasize: ~-60/-20/+15.
 
 ## Lean
 
-- [ ] Refresh proofs for every Huff/Yul bytecode changed since b4afc03 (handoff log per commit).
-- [ ] Prove the via-IR 1M builds of t2/t3/t4 (now the recommended settings; only legacy builds are proven today).
+- [x] Refresh proofs for every Huff/Yul bytecode changed since b4afc03 (5b2903a, aa1e499).
+- [x] Prove the via-IR 1M builds of t2/t3/t4/t8 (04f2d61, 75518ae); 39 targets proven.
 
 ## Optimality proof roadmap
 
@@ -36,5 +37,9 @@ Unrestricted "no faster EVM program exists" is out of reach: it is a circuit low
 - [ ] L3 stack floor: minimal DUP/SWAP/PUSH gas per segment for fixed boundary layouts; exact search with checkable certificate.
 - [ ] Composition: min-plus DP over boundary layouts across rounds, so per-round bounds sum to a whole-permutation bound.
 - [ ] Gap report: proven floor vs shipped gas per width; zero gap = optimal in the model.
+- [ ] First: prove floor B (arith gas + 3 per net consumed slot, `gas-floor.mjs`) in Lean for every width. Current gaps 7-10%, ~9.5% at t8-t20, mostly SWAP gas in internal consuming rounds.
+- [ ] Certificate pipeline: SAT/PB encoding of "segment gas <= C-1", LRAT (Lean core checker) or VeriPB (pb-catcher) refutation; verified encoder is ours to write.
+- [ ] Normal-form lemma for cutting at round boundaries; recent cross-seam savings may falsify a strict one.
+- [ ] Research: `evm-gas-optimality-proofs/evm-gas-optimality-proofs.md`.
 
 Prior art: ebso (Nagele, Schett, LOPSTR 2019, SMT superoptimizer for loop-free EVM code), SYRUP (Albert, Gordillo, Rubio, Schett, CAV 2020 Max-SMT; TOSEM 2022 "Super-optimization of Smart Contracts").
