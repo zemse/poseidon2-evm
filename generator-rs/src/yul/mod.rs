@@ -62,18 +62,18 @@ fn layout_for(t: usize) -> Layout {
             diag_fixed: 0,
             diag_lets: 0,
             diag_scratch: 0,
-            m4_temps: 4,
+            m4_temps: 2,
             internal_let: false,
             prime_first: false,
             internal_reduce_outputs: false,
             periodic_internal: false,
-            raw_inputs: 8,
-            fold_constants: true,
+            raw_inputs: 0,
+            fold_constants: false,
             nested_x5: false,
             external_lets: false,
             fold_first: false,
             table_absolute: false,
-            m4_add_double: false,
+            m4_add_double: true,
             tree_sum: false,
             rounds_function: true,
         };
@@ -141,7 +141,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,855 / 13,913 / 13,979 gas per hash_1 / hash_2 / hash_3 call of a consumer, which is then about 32,400 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 15,193 / 15,279 / 15,365 gas"
         }
         8 => {
-            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,822 gas per permute of the test wrapper, which is then about 62,100 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 30,597 gas (about 27,000 bytes)"
+            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,321 gas per permute of the test wrapper, which is then about 61,600 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 31,229 gas (about 27,500 bytes)"
         }
         12 => {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 43,682 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"

@@ -7,7 +7,7 @@ pragma solidity >=0.6.0;
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
 /// @dev The rounds are an internal function of their own (`rounds`), which via-IR compiles where one function of the whole permutation does not
-/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,822 gas per permute of the test wrapper, which is then about 62,100 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 30,597 gas (about 27,000 bytes)
+/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,321 gas per permute of the test wrapper, which is then about 61,600 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 31,229 gas (about 27,500 bytes)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT8 {
     function permute(uint256[8] memory state) internal pure {
@@ -20,57 +20,53 @@ library LibPoseidon2YulT8 {
         uint256 state6;
         uint256 state7;
         assembly {
-            // inputs reduced mod PRIME by the first addmod or mulmod of the initial linear layer
-            state0 := mload(state)
-            state1 := mload(add(state, 0x20))
-            state2 := mload(add(state, 0x40))
-            state3 := mload(add(state, 0x60))
-            state4 := mload(add(state, 0x80))
-            state5 := mload(add(state, 0xa0))
-            state6 := mload(add(state, 0xc0))
-            state7 := mload(add(state, 0xe0))
+            // inputs reduced mod PRIME
+            state0 := mod(mload(state), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state1 := mod(mload(add(state, 0x20)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state2 := mod(mload(add(state, 0x40)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state3 := mod(mload(add(state, 0x60)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state4 := mod(mload(add(state, 0x80)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state5 := mod(mload(add(state, 0xa0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state6 := mod(mload(add(state, 0xc0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
+            state7 := mod(mload(add(state, 0xe0)), 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001)
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
             // initial linear layer
             {
-                let t0 := addmod(state1, state0, PRIME)
-                let t1 := addmod(state3, state2, PRIME)
-                let t2 := addmod(mulmod(state1, 2, PRIME), t1, PRIME)
-                let t3 := addmod(mulmod(state3, 2, PRIME), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := addmod(state5, state4, PRIME)
-                let t1 := addmod(state7, state6, PRIME)
-                let t2 := addmod(mulmod(state5, 2, PRIME), t1, PRIME)
-                let t3 := addmod(mulmod(state7, 2, PRIME), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x0dad22d08a6b8d81d4a5ffc34b9677a7c5254c85e953551f9eba9a0a97590c10)
-                state4 := add(add(z, state4), 0x0a3943390fe4939fa2e931e18094c7c93aa107ced2bfaefcfe5e613a3f1262d5)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x03cfc441111f1bab6e75957b9f0274e92d17aefc2d8da460435dfaf259bd1039)
-                state5 := add(add(z, state5), 0x2a8f37d8da8f2319e188f8909007408b57fba3555bb784c1ad6c7b0755805456)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x27c6d1b8a2e2ce670376cd2970192a2a08e4290883f6ca49e7976c6c447d6392)
-                state6 := add(add(z, state6), 0x0cef8658e33f20c39649528f353ef5d03198c75683f8493534add693a4ff4f0f)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x28f2882b9abfda8efc2d121da0c871d2d5313a53c67d0407eef4e93ee23e6c2d)
-                state7 := add(add(z, state7), 0x1cdc2a6f0f0e7c6c62ee1c0cad4fd11363a48db7095171faaf9a7b6e01c3e52b)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
         }
         rounds(state, state0, state1, state2, state3, state4, state5, state6, state7);
@@ -92,285 +88,298 @@ library LibPoseidon2YulT8 {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
             // round 0 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0dad22d08a6b8d81d4a5ffc34b9677a7c5254c85e953551f9eba9a0a97590c10)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x03cfc441111f1bab6e75957b9f0274e92d17aefc2d8da460435dfaf259bd1039)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x27c6d1b8a2e2ce670376cd2970192a2a08e4290883f6ca49e7976c6c447d6392)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x28f2882b9abfda8efc2d121da0c871d2d5313a53c67d0407eef4e93ee23e6c2d)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x0a3943390fe4939fa2e931e18094c7c93aa107ced2bfaefcfe5e613a3f1262d5)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x2a8f37d8da8f2319e188f8909007408b57fba3555bb784c1ad6c7b0755805456)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x0cef8658e33f20c39649528f353ef5d03198c75683f8493534add693a4ff4f0f)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x1cdc2a6f0f0e7c6c62ee1c0cad4fd11363a48db7095171faaf9a7b6e01c3e52b)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x0a2e681a2db19c8d1cfb0c28f0b7b3d9830d35fca8c0b076b4e64328060139d6)
-                state4 := add(add(z, state4), 0x07c00db8c50a8c860fbcb8ebd234a54350bdbcb8747891a4e5adab1c4abc6909)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x16f013cd703be7de16b4361ce5c67cc2997f858e8a808885da67fbafd30d2717)
-                state5 := add(add(z, state5), 0x22bc08fc054d08a3dbb6094396d0de373a4c33205c49a1254cf25ebec1747765)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x29af57131c9cf548be669fe76c675e6d90bee17a76cccf4ddc5d35f9a936ebb8)
-                state6 := add(add(z, state6), 0x2dad58bdf3e24c78f21146de084d9b8afad58956fedce67d43f7d375a813bb2e)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x21807b1ec6258bb155ed159da90b815dee119eae8138b1bdf950111bf5205b3b)
-                state7 := add(add(z, state7), 0x292cee6bc19a64dc5a8a74036e676e238f60b4577db86213ced417906f1d6e91)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 1 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0a2e681a2db19c8d1cfb0c28f0b7b3d9830d35fca8c0b076b4e64328060139d6)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x16f013cd703be7de16b4361ce5c67cc2997f858e8a808885da67fbafd30d2717)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x29af57131c9cf548be669fe76c675e6d90bee17a76cccf4ddc5d35f9a936ebb8)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x21807b1ec6258bb155ed159da90b815dee119eae8138b1bdf950111bf5205b3b)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x07c00db8c50a8c860fbcb8ebd234a54350bdbcb8747891a4e5adab1c4abc6909)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x22bc08fc054d08a3dbb6094396d0de373a4c33205c49a1254cf25ebec1747765)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x2dad58bdf3e24c78f21146de084d9b8afad58956fedce67d43f7d375a813bb2e)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x292cee6bc19a64dc5a8a74036e676e238f60b4577db86213ced417906f1d6e91)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x27d655ae125928ad6b48bba54593b74ca0c23002b32a0a9ef375939a22387a8c)
-                state4 := add(add(z, state4), 0x1de6d5f356a92c48c7b9f6aa45c8a6216e0a6adbc799c0bec242054674cb8f09)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x0e0e2e781fe9ac0a97f0d961c7b359a415d1ead41c99eccee90e56b68fbfa2a8)
-                state5 := add(add(z, state5), 0x14c5347c4580363f74c885d1fbb378c61d953e490892b10baf84f6e1f3a3f39d)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x13fec23e678d1c9943b6daed8ed8212289116ab96344ded7ced8aac2f09f1672)
-                state6 := add(add(z, state6), 0x27f2768023c4df7952ca0d967f14034e98c4ca76973ae1cddfccd212cbd78683)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x27550dd21647e37fc31640684e02cb07810669b1c1545443fd58204b2cde73c2)
-                state7 := add(add(z, state7), 0x1f4f499fc4853f7e189ad6d2269c467f77e15bbd28963c516b4fbf1ba7b88f95)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 2 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x27d655ae125928ad6b48bba54593b74ca0c23002b32a0a9ef375939a22387a8c)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x0e0e2e781fe9ac0a97f0d961c7b359a415d1ead41c99eccee90e56b68fbfa2a8)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x13fec23e678d1c9943b6daed8ed8212289116ab96344ded7ced8aac2f09f1672)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x27550dd21647e37fc31640684e02cb07810669b1c1545443fd58204b2cde73c2)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x1de6d5f356a92c48c7b9f6aa45c8a6216e0a6adbc799c0bec242054674cb8f09)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x14c5347c4580363f74c885d1fbb378c61d953e490892b10baf84f6e1f3a3f39d)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x27f2768023c4df7952ca0d967f14034e98c4ca76973ae1cddfccd212cbd78683)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x1f4f499fc4853f7e189ad6d2269c467f77e15bbd28963c516b4fbf1ba7b88f95)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x0d62ba9a8de3b97c72a5425a97a7f027fbad23f299ff46bafa12dcffb0e72bf1)
-                state4 := add(add(z, state4), 0x1c66258f103a955274ed71de56169bba34ff6aea97a2c32b98805dc3b011a383)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x22b649ae468f20c7cbfb435d932ba9ba4be14ea40c0c54e6bec970ab4c513f04)
-                state5 := add(add(z, state5), 0x29403b00757a647671a3691094aef420ad830f95743d45894d6d7f40aa356e4b)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x03a1aae439e47e7e14186d5513da5e263e063a3da6d042c16e55cab2e81a8e95)
-                state6 := add(add(z, state6), 0x13496363ef5f7d0e91fd1319fd5dc0269c5190d05d8a0ad28a3ce0638a133e0e)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x25c7eee1fce422600f5b1e78323f2e99cceee803f62763217eadbd046c1e0e6c)
-                state7 := add(add(z, state7), 0x1c6a4586c15c4638a1686921d7c204e2b6e1a88c1fc49dcfb87ded2a1ed7edc5)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 3 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0d62ba9a8de3b97c72a5425a97a7f027fbad23f299ff46bafa12dcffb0e72bf1)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x22b649ae468f20c7cbfb435d932ba9ba4be14ea40c0c54e6bec970ab4c513f04)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x03a1aae439e47e7e14186d5513da5e263e063a3da6d042c16e55cab2e81a8e95)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x25c7eee1fce422600f5b1e78323f2e99cceee803f62763217eadbd046c1e0e6c)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x1c66258f103a955274ed71de56169bba34ff6aea97a2c32b98805dc3b011a383)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x29403b00757a647671a3691094aef420ad830f95743d45894d6d7f40aa356e4b)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x13496363ef5f7d0e91fd1319fd5dc0269c5190d05d8a0ad28a3ce0638a133e0e)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x1c6a4586c15c4638a1686921d7c204e2b6e1a88c1fc49dcfb87ded2a1ed7edc5)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(
-                    addmod(z, state0, PRIME),
-                    0x0da23df12d0bf47bb92f15ee189386c20f552d0bc66ae492b92d69556b2fe75a
-                )
+                state0 := addmod(z, state0, PRIME)
                 state4 := addmod(z, state4, PRIME)
             }
             {
@@ -391,8 +400,9 @@ library LibPoseidon2YulT8 {
 
             // round 4 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0da23df12d0bf47bb92f15ee189386c20f552d0bc66ae492b92d69556b2fe75a)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -402,8 +412,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x155be88bc5ddf8e0c6c741286cdd5ddd559279a455b9bbb61d5a0b004e545d5e
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -437,8 +447,9 @@ library LibPoseidon2YulT8 {
 
             // round 5 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x155be88bc5ddf8e0c6c741286cdd5ddd559279a455b9bbb61d5a0b004e545d5e)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -451,8 +462,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0553fbb5b32db860e0bb12cef3aab4e0dbbdb1ea8704d335a18fa8b4df112c36
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -486,8 +497,9 @@ library LibPoseidon2YulT8 {
 
             // round 6 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0553fbb5b32db860e0bb12cef3aab4e0dbbdb1ea8704d335a18fa8b4df112c36)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -500,8 +512,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x12f6a3a61a3139221cb5875cf455b942580c00942499932dfcacf6f75cb80ad6
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -535,8 +547,9 @@ library LibPoseidon2YulT8 {
 
             // round 7 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x12f6a3a61a3139221cb5875cf455b942580c00942499932dfcacf6f75cb80ad6)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -549,8 +562,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2faf9e95457781b3c61de8a1faadda67f76f52bb81255fac8819bcc104071e05
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -584,8 +597,9 @@ library LibPoseidon2YulT8 {
 
             // round 8 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2faf9e95457781b3c61de8a1faadda67f76f52bb81255fac8819bcc104071e05)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -598,8 +612,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1c7639cb68d3cfa69f3d795d1a1dd4eba176d0c29701e7b677ea0750b4ccd1db
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -633,8 +647,9 @@ library LibPoseidon2YulT8 {
 
             // round 9 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1c7639cb68d3cfa69f3d795d1a1dd4eba176d0c29701e7b677ea0750b4ccd1db)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -647,8 +662,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0d9d85a46281f81502fbcfb430f4d08ab504c502d2feae2ab4a26d87bebea0dd
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -682,8 +697,9 @@ library LibPoseidon2YulT8 {
 
             // round 10 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0d9d85a46281f81502fbcfb430f4d08ab504c502d2feae2ab4a26d87bebea0dd)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -696,8 +712,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x00a9b7074ea11d9931cf4af16952f398777aaa36413df14cedc101c7693812d3
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -731,8 +747,9 @@ library LibPoseidon2YulT8 {
 
             // round 11 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x00a9b7074ea11d9931cf4af16952f398777aaa36413df14cedc101c7693812d3)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -745,8 +762,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x07fab349ddb7d62a5edc0b6a62b300715634e5dccab808d8fa6ae62b406705a3
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -780,8 +797,9 @@ library LibPoseidon2YulT8 {
 
             // round 12 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x07fab349ddb7d62a5edc0b6a62b300715634e5dccab808d8fa6ae62b406705a3)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -794,8 +812,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x11f8f3afbd6fe6bda7d055a536ab3de9c40c8155b31d397f63ef21ac974cf52d
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -829,8 +847,9 @@ library LibPoseidon2YulT8 {
 
             // round 13 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x11f8f3afbd6fe6bda7d055a536ab3de9c40c8155b31d397f63ef21ac974cf52d)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -843,8 +862,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0007c569f8f49899805d22a1930883968a3cf058993e0adfd06da437ae50e830
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -878,8 +897,9 @@ library LibPoseidon2YulT8 {
 
             // round 14 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0007c569f8f49899805d22a1930883968a3cf058993e0adfd06da437ae50e830)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -892,8 +912,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x15dfb18bf1b6087c0e638f2189a7b34534549ffe8fca5afccf7e528a3338cc92
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -927,8 +947,9 @@ library LibPoseidon2YulT8 {
 
             // round 15 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x15dfb18bf1b6087c0e638f2189a7b34534549ffe8fca5afccf7e528a3338cc92)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -941,8 +962,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2140caa062d2fa72722ad48fb71bbc9f534043dab90dfa24b96664eaa2f0ac6a
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -976,8 +997,9 @@ library LibPoseidon2YulT8 {
 
             // round 16 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2140caa062d2fa72722ad48fb71bbc9f534043dab90dfa24b96664eaa2f0ac6a)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -990,8 +1012,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x11c06fe4e5398d4704271b84e6023b07b189dd1d2023dd599b33defe4251b715
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1025,8 +1047,9 @@ library LibPoseidon2YulT8 {
 
             // round 17 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x11c06fe4e5398d4704271b84e6023b07b189dd1d2023dd599b33defe4251b715)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1039,8 +1062,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0775f90bae5f8f8157eb73bbc7ae69b74d44761cf0df3b4666eeb2860878c0df
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1074,8 +1097,9 @@ library LibPoseidon2YulT8 {
 
             // round 18 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0775f90bae5f8f8157eb73bbc7ae69b74d44761cf0df3b4666eeb2860878c0df)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1088,8 +1112,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0225befb64b758b837a4305e104d5e510d893653559d8768dc79325ff89d6b9f
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1123,8 +1147,9 @@ library LibPoseidon2YulT8 {
 
             // round 19 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0225befb64b758b837a4305e104d5e510d893653559d8768dc79325ff89d6b9f)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1137,8 +1162,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x201a730245d9227f1232cc02f486c18cfa1fba40665ed3d1bbbdcd19b03cac4f
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1172,8 +1197,9 @@ library LibPoseidon2YulT8 {
 
             // round 20 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x201a730245d9227f1232cc02f486c18cfa1fba40665ed3d1bbbdcd19b03cac4f)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1186,8 +1212,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x128b63b12a6647f80c686aaab15b0563c1a33f475dc18caa434ab64f1e290acb
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1221,8 +1247,9 @@ library LibPoseidon2YulT8 {
 
             // round 21 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x128b63b12a6647f80c686aaab15b0563c1a33f475dc18caa434ab64f1e290acb)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1235,8 +1262,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0a34ce8153d4e2e1158de05d276530cf3c749c16c7e09f3b671a973b0efb0839
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1270,8 +1297,9 @@ library LibPoseidon2YulT8 {
 
             // round 22 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0a34ce8153d4e2e1158de05d276530cf3c749c16c7e09f3b671a973b0efb0839)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1284,8 +1312,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2809c5d323665513c8c4a96ea4dc08e3aba43699bca1198f2b559915082495ce
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1319,8 +1347,9 @@ library LibPoseidon2YulT8 {
 
             // round 23 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2809c5d323665513c8c4a96ea4dc08e3aba43699bca1198f2b559915082495ce)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1333,8 +1362,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x23b929e7d71fe425f36f32975e9a68bbf83c16622678f061ed78a0c9ce318be3
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1368,8 +1397,9 @@ library LibPoseidon2YulT8 {
 
             // round 24 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x23b929e7d71fe425f36f32975e9a68bbf83c16622678f061ed78a0c9ce318be3)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1382,8 +1412,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1ca1a93d02ae448ab773f95c6b88c0d01f89c0c3d25ad625042771dd5a7e74a9
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1417,8 +1447,9 @@ library LibPoseidon2YulT8 {
 
             // round 25 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1ca1a93d02ae448ab773f95c6b88c0d01f89c0c3d25ad625042771dd5a7e74a9)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1431,8 +1462,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x03c7381ccdfd209a8cba5627a058c33f472b24d2b1a55d9dd47f60dc7b474e7e
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1466,8 +1497,9 @@ library LibPoseidon2YulT8 {
 
             // round 26 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x03c7381ccdfd209a8cba5627a058c33f472b24d2b1a55d9dd47f60dc7b474e7e)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1480,8 +1512,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x00be1a29bb668a25eaedffccef6c01c90688229e8fc4be9812e371d4d61c3015
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1515,8 +1547,9 @@ library LibPoseidon2YulT8 {
 
             // round 27 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x00be1a29bb668a25eaedffccef6c01c90688229e8fc4be9812e371d4d61c3015)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1529,8 +1562,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2c821bfbd5c415fc076fc83895edab9e5256ee826946a865b8c82f0189af4626
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1564,8 +1597,9 @@ library LibPoseidon2YulT8 {
 
             // round 28 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2c821bfbd5c415fc076fc83895edab9e5256ee826946a865b8c82f0189af4626)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1578,8 +1612,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0b8ff5b252182f6a15cff90144c1e7ac1678739882c90fe46d0a29db7a0cba77
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1613,8 +1647,9 @@ library LibPoseidon2YulT8 {
 
             // round 29 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0b8ff5b252182f6a15cff90144c1e7ac1678739882c90fe46d0a29db7a0cba77)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1627,8 +1662,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1c0e94b15306baf1b017623888b8d4c5402ee81fd213c4a5e42f52729deb7d5c
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1662,8 +1697,9 @@ library LibPoseidon2YulT8 {
 
             // round 30 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1c0e94b15306baf1b017623888b8d4c5402ee81fd213c4a5e42f52729deb7d5c)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1676,8 +1712,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2031deb0f13ce17a5b44edbacf5a0410e23348c2c7657383a8ffdeb5c5ca1cd4
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1711,8 +1747,9 @@ library LibPoseidon2YulT8 {
 
             // round 31 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2031deb0f13ce17a5b44edbacf5a0410e23348c2c7657383a8ffdeb5c5ca1cd4)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1725,8 +1762,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0e34d14f44e8eb98ac078ec90eb718c3034249fbaeb13d24f3d5b6a4002018ac
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1760,8 +1797,9 @@ library LibPoseidon2YulT8 {
 
             // round 32 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0e34d14f44e8eb98ac078ec90eb718c3034249fbaeb13d24f3d5b6a4002018ac)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1774,8 +1812,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2a10f1b76f8b1cc429820030c58b3d23ebfb775a43b07928b9868891c2cb4cca
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1809,8 +1847,9 @@ library LibPoseidon2YulT8 {
 
             // round 33 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2a10f1b76f8b1cc429820030c58b3d23ebfb775a43b07928b9868891c2cb4cca)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1823,8 +1862,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0535bf4f7fb763f981d2c0c7ecd2237a461ac385e2235fb35222b512f1dbd1b7
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1858,8 +1897,9 @@ library LibPoseidon2YulT8 {
 
             // round 34 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0535bf4f7fb763f981d2c0c7ecd2237a461ac385e2235fb35222b512f1dbd1b7)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1872,8 +1912,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x12ccb3fbffeff74fb7ce3b9943f609dc0d7fe34e3b5e6b199628e86d5576cc18
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1907,8 +1947,9 @@ library LibPoseidon2YulT8 {
 
             // round 35 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x12ccb3fbffeff74fb7ce3b9943f609dc0d7fe34e3b5e6b199628e86d5576cc18)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1921,8 +1962,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1f44cd78220a2e66be6c9eb3bcffc498a47f22c3eb476591cf456d518e3e126c
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -1956,8 +1997,9 @@ library LibPoseidon2YulT8 {
 
             // round 36 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1f44cd78220a2e66be6c9eb3bcffc498a47f22c3eb476591cf456d518e3e126c)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -1970,8 +2012,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1d60e9e3444a748b8c22d7d10e825c536290b723fcdfa046436353d6f9abc073
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2005,8 +2047,9 @@ library LibPoseidon2YulT8 {
 
             // round 37 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1d60e9e3444a748b8c22d7d10e825c536290b723fcdfa046436353d6f9abc073)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2019,8 +2062,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x05a3ccc67bd014ef2544927f9b96ff58e348954e40af67861ab88d78ff4b6688
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2054,8 +2097,9 @@ library LibPoseidon2YulT8 {
 
             // round 38 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x05a3ccc67bd014ef2544927f9b96ff58e348954e40af67861ab88d78ff4b6688)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2068,8 +2112,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1be5b195896e9ec23b9d3eb898734c385272ed64bdcb236223f5a3436986dc6d
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2103,8 +2147,9 @@ library LibPoseidon2YulT8 {
 
             // round 39 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1be5b195896e9ec23b9d3eb898734c385272ed64bdcb236223f5a3436986dc6d)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2117,8 +2162,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1d6427dd07a0b46a8ebacaa82e8c04de8e7e94a18849c9275b8b4827a873cdab
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2152,8 +2197,9 @@ library LibPoseidon2YulT8 {
 
             // round 40 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1d6427dd07a0b46a8ebacaa82e8c04de8e7e94a18849c9275b8b4827a873cdab)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2166,8 +2212,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2f09a403f946b692704fe4d5ae69625441c93a7f93dcb4f8f7d337baa735ad9a
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2201,8 +2247,9 @@ library LibPoseidon2YulT8 {
 
             // round 41 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2f09a403f946b692704fe4d5ae69625441c93a7f93dcb4f8f7d337baa735ad9a)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2215,8 +2262,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1807540511593488e084b7297b6ff67b748c71731b6ca64aa8d3823e81f41b37
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2250,8 +2297,9 @@ library LibPoseidon2YulT8 {
 
             // round 42 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1807540511593488e084b7297b6ff67b748c71731b6ca64aa8d3823e81f41b37)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2264,8 +2312,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0f1daab7a702ac80d108b24845bda04b732f3564ebe57392e470380199522e1d
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2299,8 +2347,9 @@ library LibPoseidon2YulT8 {
 
             // round 43 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0f1daab7a702ac80d108b24845bda04b732f3564ebe57392e470380199522e1d)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2313,8 +2362,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1797d0f72bf0b47a45ceaf82df261439bc5e3b0ae55cf1069733d5a0b51765ca
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2348,8 +2397,9 @@ library LibPoseidon2YulT8 {
 
             // round 44 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1797d0f72bf0b47a45ceaf82df261439bc5e3b0ae55cf1069733d5a0b51765ca)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2362,8 +2412,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2adbb9b4003631c5e3d02ce959930c75d4d25281c86febc61dfdf35e00cfbdad
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2397,8 +2447,9 @@ library LibPoseidon2YulT8 {
 
             // round 45 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2adbb9b4003631c5e3d02ce959930c75d4d25281c86febc61dfdf35e00cfbdad)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2411,8 +2462,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1347ad87393ef928d2800fa2a548328ef9bddf5646da79d507d2f2055db335d6
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2446,8 +2497,9 @@ library LibPoseidon2YulT8 {
 
             // round 46 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1347ad87393ef928d2800fa2a548328ef9bddf5646da79d507d2f2055db335d6)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2460,8 +2512,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x15658e02d31e2c200dadf6a985652eccd30cb959168cde7b74c7239539d2df1e
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2495,8 +2547,9 @@ library LibPoseidon2YulT8 {
 
             // round 47 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x15658e02d31e2c200dadf6a985652eccd30cb959168cde7b74c7239539d2df1e)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2509,8 +2562,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x01f00dc28bced12a74c3ce687dd3fa996d6f8bb29bc60cda4f3aed191a6fe8d0
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2544,8 +2597,9 @@ library LibPoseidon2YulT8 {
 
             // round 48 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x01f00dc28bced12a74c3ce687dd3fa996d6f8bb29bc60cda4f3aed191a6fe8d0)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2558,8 +2612,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x154ebcc230244b68b9a8f51a56ff0541a92ea2cbb3e77b263cb03a8bd89491f7
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2593,8 +2647,9 @@ library LibPoseidon2YulT8 {
 
             // round 49 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x154ebcc230244b68b9a8f51a56ff0541a92ea2cbb3e77b263cb03a8bd89491f7)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2607,8 +2662,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x1f65f74b523a8c875885378e93d1946c7a3f810e2eecdea94b80c4f741ea6cf9
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2642,8 +2697,9 @@ library LibPoseidon2YulT8 {
 
             // round 50 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x1f65f74b523a8c875885378e93d1946c7a3f810e2eecdea94b80c4f741ea6cf9)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2656,8 +2712,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2504a559a4bd23ed689acc9b6cb4062479a6b29692e2b8cce40058daf0505778
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2691,8 +2747,9 @@ library LibPoseidon2YulT8 {
 
             // round 51 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2504a559a4bd23ed689acc9b6cb4062479a6b29692e2b8cce40058daf0505778)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2705,8 +2762,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x24496d9926e4e565ef860e52396a2935689c87ca99abd046bc279ce1bfc43206
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2740,8 +2797,9 @@ library LibPoseidon2YulT8 {
 
             // round 52 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x24496d9926e4e565ef860e52396a2935689c87ca99abd046bc279ce1bfc43206)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2754,8 +2812,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2c9ccd22b143f4d8d483846d1960e7144a5c9354ea48cd1a71bdc82fbb929838
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2789,8 +2847,9 @@ library LibPoseidon2YulT8 {
 
             // round 53 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2c9ccd22b143f4d8d483846d1960e7144a5c9354ea48cd1a71bdc82fbb929838)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2803,8 +2862,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2b9bd02e1b064a8db321a1cd212a7a6dc47274f6eb5fcfa4f17d6f690dddf8c4
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2838,8 +2897,9 @@ library LibPoseidon2YulT8 {
 
             // round 54 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2b9bd02e1b064a8db321a1cd212a7a6dc47274f6eb5fcfa4f17d6f690dddf8c4)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2852,8 +2912,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x0b21f0004118382f32fe441fbf36c0a38ae41873ae42d3b6ea5f0c6816e00472
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2887,8 +2947,9 @@ library LibPoseidon2YulT8 {
 
             // round 55 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0b21f0004118382f32fe441fbf36c0a38ae41873ae42d3b6ea5f0c6816e00472)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2901,8 +2962,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x10756efb491852587059f3e48b605a3bebabaab0a1ee5ff1758eb30623b7602c
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2936,8 +2997,9 @@ library LibPoseidon2YulT8 {
 
             // round 56 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x10756efb491852587059f3e48b605a3bebabaab0a1ee5ff1758eb30623b7602c)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2950,8 +3012,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x127574a38823886d1f4841b540e29d67efe35aa8b3c685f969b6bc6cbab5064a
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -2985,8 +3047,9 @@ library LibPoseidon2YulT8 {
 
             // round 57 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x127574a38823886d1f4841b540e29d67efe35aa8b3c685f969b6bc6cbab5064a)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -2999,8 +3062,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x24751d620ed2a3db4382265b8c33b666b85beae7aa87f38e28bd2f8d637ff9d0
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -3034,8 +3097,9 @@ library LibPoseidon2YulT8 {
 
             // round 58 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x24751d620ed2a3db4382265b8c33b666b85beae7aa87f38e28bd2f8d637ff9d0)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -3048,8 +3112,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x2e3d7208892e8a92e887fccccfe04d8d0fe994bc443641a9fc76c43da02f453d
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -3083,8 +3147,9 @@ library LibPoseidon2YulT8 {
 
             // round 59 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2e3d7208892e8a92e887fccccfe04d8d0fe994bc443641a9fc76c43da02f453d)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -3097,8 +3162,8 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x11c3f6719071e6810699be20e1b1858b9ed00d8166bf15434cd5e43507b9d62b
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
                     sum,
@@ -3132,8 +3197,9 @@ library LibPoseidon2YulT8 {
 
             // round 60 (internal)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x11c3f6719071e6810699be20e1b1858b9ed00d8166bf15434cd5e43507b9d62b)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
                 let sum :=
@@ -3146,311 +3212,327 @@ library LibPoseidon2YulT8 {
                         PRIME
                     )
                 state0 := add(
-                    add(sum, mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)),
-                    0x00b86112693a4e7f3ac4eadfcc3f04d24a7afe51a87f82d4a435ad27f30aa2f9
+                    sum,
+                    mulmod(0x05bffb5e301d8c468c35e24eb2165b6b71725fb7ac9a48efe5ce041bdb05676d, state0, PRIME)
                 )
                 state1 := add(
-                    add(sum, mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)),
-                    0x1a77348400a87f0180e294286a7a06c857f590e8ed17eed7a6b4cc1ca5a97929
+                    sum,
+                    mulmod(0x2aa7a81812688343fc6d78073312996d75f4c5505db0ed22af5ec0df7888cdc7, state1, PRIME)
                 )
                 state2 := add(
-                    add(sum, mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)),
-                    0x207feb0ffff2e419bc967dd544abbdd2dcc601316f49957f2319c9a04f56157d
+                    sum,
+                    mulmod(0x2f5856fd71dab60d78cc3af15a89c1e4d61ba189849a4cea10acc1dd228faf00, state2, PRIME)
                 )
                 state3 := add(
-                    add(sum, mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)),
-                    0x0df4aac4e6483265aa3fc462835a90380bc84004fc46d1a85e61baed3196ba48
+                    sum,
+                    mulmod(0x12299a260999ac95d271e184968cda40bd4358877a6dcf43d779251fffa61348, state3, PRIME)
                 )
                 state4 := add(
-                    add(sum, mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)),
-                    0x2f2df3db6ed0e27d3151201dfe7f57fc2e5ccc69c2458535dbdbb5d88aeabb4f
+                    sum,
+                    mulmod(0x1443aad4693d692a62a8e21f03d5643a123f0c8783a3d27c275f9d01089685fb, state4, PRIME)
                 )
                 state5 := add(
-                    add(sum, mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)),
-                    0x2f51811c3568dbae396f86838c5c8b1bbf9b5bcb2ce98542e289184b95f74b7e
+                    sum,
+                    mulmod(0x21561b0204a44488082e31472f5885a3adc179bb278233aedc4b316369ec9937, state5, PRIME)
                 )
                 state6 := add(
-                    add(sum, mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)),
-                    0x1198ec466dc8c3f55b048369eac0490e835928891325d4cf4461da1d22230219
+                    sum,
+                    mulmod(0x0c7cc2afa53f9898f30a69b294a4e24f6b2176e1ae0ca49b021792d55e34e97d, state6, PRIME)
                 )
                 state7 := add(
-                    add(sum, mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)),
-                    0x19036827eb0714a1ee4fdd653d8667df192402e290dfdfc39bf005fdfa86c043
+                    sum,
+                    mulmod(0x2dd221096053de389fae88e7caa5c43ab55e22aeb758ee130d1246c1dff47b53, state7, PRIME)
                 )
             }
 
             // round 61 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x00b86112693a4e7f3ac4eadfcc3f04d24a7afe51a87f82d4a435ad27f30aa2f9)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x1a77348400a87f0180e294286a7a06c857f590e8ed17eed7a6b4cc1ca5a97929)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x207feb0ffff2e419bc967dd544abbdd2dcc601316f49957f2319c9a04f56157d)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x0df4aac4e6483265aa3fc462835a90380bc84004fc46d1a85e61baed3196ba48)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x2f2df3db6ed0e27d3151201dfe7f57fc2e5ccc69c2458535dbdbb5d88aeabb4f)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x2f51811c3568dbae396f86838c5c8b1bbf9b5bcb2ce98542e289184b95f74b7e)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x1198ec466dc8c3f55b048369eac0490e835928891325d4cf4461da1d22230219)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x19036827eb0714a1ee4fdd653d8667df192402e290dfdfc39bf005fdfa86c043)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x0978d774018c29f2818df365312371ce4082a6c8c52d2a965516b76436349069)
-                state4 := add(add(z, state4), 0x15ba9fc4b175278a12a5ab39ee0121b06dd09b923bdedb69a26182821445ba00)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x231ed2d94767eb9ace111af9317b233fee037214e3f6d7e366a5812c8fd1dce5)
-                state5 := add(add(z, state5), 0x0c3c9aec9048b10a06d062675b63417a1ae8704f2918382466bf575e22a654d3)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x0fbd8502ceba8ab93eb04d1db535d25f4c3be8acac4e8e0467b9d606653456c2)
-                state6 := add(add(z, state6), 0x2795a46eb4c79595a9de2191c524f0aaf92f764153b23c357ed50bf3a91cddf0)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x20e9fac35dda464e436a4d2eae4cdd5b52c9b712d5b4bfa43334463f8478d4bb)
-                state7 := add(add(z, state7), 0x10ab7893c4253d861276ea30f229eb86b90c69985fb6dde4aa50e24828caa81a)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 62 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x0978d774018c29f2818df365312371ce4082a6c8c52d2a965516b76436349069)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x231ed2d94767eb9ace111af9317b233fee037214e3f6d7e366a5812c8fd1dce5)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x0fbd8502ceba8ab93eb04d1db535d25f4c3be8acac4e8e0467b9d606653456c2)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x20e9fac35dda464e436a4d2eae4cdd5b52c9b712d5b4bfa43334463f8478d4bb)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x15ba9fc4b175278a12a5ab39ee0121b06dd09b923bdedb69a26182821445ba00)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x0c3c9aec9048b10a06d062675b63417a1ae8704f2918382466bf575e22a654d3)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x2795a46eb4c79595a9de2191c524f0aaf92f764153b23c357ed50bf3a91cddf0)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x10ab7893c4253d861276ea30f229eb86b90c69985fb6dde4aa50e24828caa81a)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x2d4509d8159af62c44503f64fc01e953e90c6dced8ba75c58df2aa090a5fd359)
-                state4 := add(add(z, state4), 0x24531c784663d57639928f0a8f152038a779eebbd70f6585dacc971668ebec55)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x157946957f4feb94eae09b9a6c272204d107ea7b0e31b67524a6c9ee7f04e7b9)
-                state5 := add(add(z, state5), 0x2202070df8f85b79bf7debf24a9cc0f2cf30370f26a9372e01718dae7cb6171d)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x30464efe02b65b862f9a0b59fea6d6934b393e65cdc3d29ae67a751a0d0f136a)
-                state6 := add(add(z, state6), 0x08282fc0baa2e9eb76167b9ab2405db9c78f1f37b168be6435d5385a806e745a)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x0965b3a2d05666d38ffcdac4e5ed020c742ba41d760e70f74dcd8f8b1324c901)
-                state7 := add(add(z, state7), 0x178c3d6e47cd33e5570311ec8ad8dbca0dbf54aadd1393738d898384c57795e7)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 63 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x2d4509d8159af62c44503f64fc01e953e90c6dced8ba75c58df2aa090a5fd359)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x157946957f4feb94eae09b9a6c272204d107ea7b0e31b67524a6c9ee7f04e7b9)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x30464efe02b65b862f9a0b59fea6d6934b393e65cdc3d29ae67a751a0d0f136a)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x0965b3a2d05666d38ffcdac4e5ed020c742ba41d760e70f74dcd8f8b1324c901)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x24531c784663d57639928f0a8f152038a779eebbd70f6585dacc971668ebec55)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x2202070df8f85b79bf7debf24a9cc0f2cf30370f26a9372e01718dae7cb6171d)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x08282fc0baa2e9eb76167b9ab2405db9c78f1f37b168be6435d5385a806e745a)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x178c3d6e47cd33e5570311ec8ad8dbca0dbf54aadd1393738d898384c57795e7)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
                 let z := addmod(state4, state0, PRIME)
-                state0 := add(add(z, state0), 0x12ad905f9d82f33643b1fefb90dcefffeb818d1ec3f4fc3d6857203eff5ed1ea)
-                state4 := add(add(z, state4), 0x2ba5e88adcbe025760f2c8654935f0557d14c6d4125a838f312f2ba439e2e94c)
+                state0 := add(z, state0)
+                state4 := add(z, state4)
             }
             {
                 let z := addmod(state5, state1, PRIME)
-                state1 := add(add(z, state1), 0x229682c9e4165b6ed1a2870c14a1c8bb7b1c7d3b52f42ce0228b85480666b4c4)
-                state5 := add(add(z, state5), 0x1376bbae85699dcc294f850c858b4b370e51ff3139bc3e0a1e52eb58d08ca41b)
+                state1 := add(z, state1)
+                state5 := add(z, state5)
             }
             {
                 let z := addmod(state6, state2, PRIME)
-                state2 := add(add(z, state2), 0x25190d853744dc11d155de5e479640302a333d47cf18dbf1ff241ce42c88d4c9)
-                state6 := add(add(z, state6), 0x1333fda1e3d58e0747f5c7361d5075526933ea283eee2ac37b6042c6083b6a42)
+                state2 := add(z, state2)
+                state6 := add(z, state6)
             }
             {
                 let z := addmod(state7, state3, PRIME)
-                state3 := add(add(z, state3), 0x00db47fadc76bf4fd8dcfe26908fe48ab42d399da939ac1f167ca8600cfbe7bc)
-                state7 := add(add(z, state7), 0x28bfc4dc9594e9add687744b79f4feb979e2143d742d4e4d1d5bb64bb799a02a)
+                state3 := add(z, state3)
+                state7 := add(z, state7)
             }
 
             // round 64 (external)
             {
-                let x2 := mulmod(state0, state0, PRIME)
-                state0 := mulmod(mulmod(x2, x2, PRIME), state0, PRIME)
+                let y := add(state0, 0x12ad905f9d82f33643b1fefb90dcefffeb818d1ec3f4fc3d6857203eff5ed1ea)
+                let x2 := mulmod(y, y, PRIME)
+                state0 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state1, state1, PRIME)
-                state1 := mulmod(mulmod(x2, x2, PRIME), state1, PRIME)
+                let y := add(state1, 0x229682c9e4165b6ed1a2870c14a1c8bb7b1c7d3b52f42ce0228b85480666b4c4)
+                let x2 := mulmod(y, y, PRIME)
+                state1 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state2, state2, PRIME)
-                state2 := mulmod(mulmod(x2, x2, PRIME), state2, PRIME)
+                let y := add(state2, 0x25190d853744dc11d155de5e479640302a333d47cf18dbf1ff241ce42c88d4c9)
+                let x2 := mulmod(y, y, PRIME)
+                state2 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state3, state3, PRIME)
-                state3 := mulmod(mulmod(x2, x2, PRIME), state3, PRIME)
+                let y := add(state3, 0x00db47fadc76bf4fd8dcfe26908fe48ab42d399da939ac1f167ca8600cfbe7bc)
+                let x2 := mulmod(y, y, PRIME)
+                state3 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state4, state4, PRIME)
-                state4 := mulmod(mulmod(x2, x2, PRIME), state4, PRIME)
+                let y := add(state4, 0x2ba5e88adcbe025760f2c8654935f0557d14c6d4125a838f312f2ba439e2e94c)
+                let x2 := mulmod(y, y, PRIME)
+                state4 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state5, state5, PRIME)
-                state5 := mulmod(mulmod(x2, x2, PRIME), state5, PRIME)
+                let y := add(state5, 0x1376bbae85699dcc294f850c858b4b370e51ff3139bc3e0a1e52eb58d08ca41b)
+                let x2 := mulmod(y, y, PRIME)
+                state5 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state6, state6, PRIME)
-                state6 := mulmod(mulmod(x2, x2, PRIME), state6, PRIME)
+                let y := add(state6, 0x1333fda1e3d58e0747f5c7361d5075526933ea283eee2ac37b6042c6083b6a42)
+                let x2 := mulmod(y, y, PRIME)
+                state6 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let x2 := mulmod(state7, state7, PRIME)
-                state7 := mulmod(mulmod(x2, x2, PRIME), state7, PRIME)
+                let y := add(state7, 0x28bfc4dc9594e9add687744b79f4feb979e2143d742d4e4d1d5bb64bb799a02a)
+                let x2 := mulmod(y, y, PRIME)
+                state7 := mulmod(mulmod(x2, x2, PRIME), y, PRIME)
             }
             {
-                let t0 := add(state1, state0)
-                let t1 := add(state3, state2)
-                let t2 := addmod(add(state1, state1), t1, PRIME)
-                let t3 := addmod(add(state3, state3), t0, PRIME)
-                state3 := add(mulmod(t1, 4, PRIME), t3)
-                state1 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
+                state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
+                state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t0 := add(state5, state4)
-                let t1 := add(state7, state6)
-                let t2 := addmod(add(state5, state5), t1, PRIME)
-                let t3 := addmod(add(state7, state7), t0, PRIME)
-                state7 := add(mulmod(t1, 4, PRIME), t3)
-                state5 := add(mulmod(t0, 4, PRIME), t2)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
+                state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
+                state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
