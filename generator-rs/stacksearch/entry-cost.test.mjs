@@ -80,8 +80,8 @@ test("selected entry accounting matches compiled small-state execution on three 
       );
     }
     for (const [i, gas] of (paris
-      ? [11890, 11897, 11970]
-      : [11889, 11896, 11969]
+      ? [11884, 11891, 11964]
+      : [11883, 11890, 11963]
     ).entries()) {
       assert(execution.includes(`hash_${i + 1} ${gas} (model ${gas}, +0)`));
     }

@@ -2100,8 +2100,8 @@ impl<'a> Builder<'a> {
     /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
     /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
     /// the S-boxes instead of the M4 temporaries. A PRIME copy for the final
-    /// ADDMOD goes down first. The first three terms accumulate below 3p;
-    /// the last product fits uint256 at 5(p-1) and joins them with ADDMOD.
+    /// ADDMOD goes down first. Both the first three terms and the last
+    /// product fit uint256 at 5(p-1); ADDMOD joins them.
     fn final_round_row0(&mut self, round: usize) -> Result<()> {
         if self.t != 4 {
             bail!("finalRoundRow0 is t = 4 only");
@@ -2113,9 +2113,10 @@ impl<'a> Builder<'a> {
         for i in (0..4).rev() {
             let s = self.state[i];
             let k = row[i];
+            let lazy_product = matches!(k, 3 | 5);
             let mut coeff = None;
             if k != 1 {
-                if i != 0 {
+                if !lazy_product {
                     self.e.push_prime()?;
                 }
                 coeff = Some(self.e.push(u256(k), None)?);
@@ -2132,7 +2133,7 @@ impl<'a> Builder<'a> {
             };
             let mut term = self.sbox(y, &format!("s{i}'"))?;
             if let Some(coeff) = coeff {
-                term = if i == 0 {
+                term = if lazy_product {
                     self.e.compute(
                         Op::Mul,
                         &[inplace(term), inplace(coeff)],
@@ -5033,6 +5034,60 @@ mod tests {
                         assert_eq!(count(round, "mulmod"), 4);
                         assert_eq!(count(round, "add"), 4);
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t4_row0_constant_add_thresholds() {
+        let params = generate_params_uncached(4);
+        for name in ["amsterdam", "osaka", "paris"] {
+            for mode in 0..3 {
+                let bounds: Vec<_> = params.round_constants[63]
+                    .iter()
+                    .map(|&c| {
+                        assert!(!c.is_zero());
+                        match mode {
+                            0 => UINT256_MAX - c,
+                            1 => UINT256_MAX - c + u256(1),
+                            _ => UINT256_MAX,
+                        }
+                    })
+                    .collect();
+                let vectors = vec![vec![U256::ZERO; 4], bounds.clone()];
+                let mut b = Builder::new(
+                    &params,
+                    &vectors,
+                    DEFAULT_OPTIONS,
+                    fork(name).unwrap(),
+                    Range { from: 64, to: 65 },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &Boundary {
+                        bounds: Some(bounds.clone()),
+                        prime_second: true,
+                        prime_below: Some(HASH_DEAD),
+                        ..Boundary::default()
+                    },
+                )
+                .unwrap();
+                for (&bound, &c) in bounds.iter().zip(&params.round_constants[63]) {
+                    assert_eq!(b.e.fits_add(bound, c), mode == 0);
+                }
+                let before = b.e.from_top();
+                b.final_round_row0(63).unwrap();
+                assert_eq!(b.e.bound(b.state[0]), p1());
+                assert_eq!(&b.e.from_top()[1..], &before);
+                assert_eq!(b.e.top(2).unwrap(), b.p());
+                let text = b.e.lines.join(" ");
+                let addmods = text.split_whitespace().filter(|&op| op == "addmod").count();
+                assert_eq!(addmods, if mode == 0 { 1 } else { 5 });
+                for (i, input) in vectors.iter().enumerate() {
+                    let reduced: Vec<_> = input.iter().copied().map(crate::field::reduce).collect();
+                    let expected = permutation_steps(&params, &reduced, 64, 65);
+                    assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);
                 }
             }
         }
