@@ -431,6 +431,8 @@ fn t8_last_sum_stream_paths() {
     for (tree_sums, shadow, shared_body, prime_in_memory, loaded) in [
         (true, false, false, false, false),
         (false, false, false, false, false),
+        (true, false, false, true, false),
+        (true, false, true, false, false),
         (true, true, true, true, false),
         (false, true, false, true, true),
     ] {
@@ -556,6 +558,316 @@ fn t8_stream_lane_inclusive_bounds_and_prime_guard() {
                     "without a next round"
                 }));
                 assert_eq!(b.e.from_top(), stack);
+            }
+        }
+    }
+}
+
+fn take_stream_input(b: &mut Builder<'_>, input: Id, sum: Id) -> Result<Id> {
+    let state = b.state.clone();
+    assert_eq!(state[4], input);
+    let depth = b.e.find(input);
+    let mut stack = b.e.from_top();
+    let expected_fit = if depth >= 2 && depth - 1 <= b.e.max_reach {
+        stack.swap(0, depth - 1);
+        stack
+            .iter()
+            .position(|&v| v == sum)
+            .is_some_and(|i| i < b.e.max_reach)
+    } else {
+        false
+    };
+    assert_eq!(
+        b.stream_block_fits("takex0", 1, &state, &[sum; 4], true),
+        expected_fit
+    );
+    b.stream_block("takex0", 1, &state, &[sum; 4], Some(0), true, &mut [0; 8])?;
+    b.e.top(0)
+}
+
+#[test]
+fn t8_input_last_use_selection_and_fallback() {
+    let params = generate_params_uncached(8);
+    let inputs = crate::vectors::test_inputs(8);
+    for name in ["amsterdam", "osaka", "paris"] {
+        for moved in [false, true] {
+            let mut b = builder(&params, &inputs, fork(name).unwrap(), vec![p1(); 8]);
+            b.opts.external_d = true;
+            b.opts.external_stream = true;
+            b.opts.tree_sums = true;
+            let old = b.state.clone();
+            let tail = sentinels(&mut b, 3);
+            let mut stack = b.e.from_top();
+            if moved {
+                stack.swap(4, 5);
+            }
+            stack.extend_from_slice(&tail);
+            b.e.set_stack(&stack);
+            let before = b.e.gas;
+            b.stream_linear(Some(0)).unwrap();
+            let eligible = name == "amsterdam" && !moved;
+            assert_eq!(b.e.gas - before, if eligible { 759 } else { 762 });
+            assert_eq!(b.e.find(old[4]) == 0, eligible);
+            let top = b.e.from_top();
+            assert_eq!(&top[top.len() - tail.len()..], tail);
+            for (i, input) in inputs.iter().enumerate() {
+                let linear = permutation_steps(&params, input, 0, 1);
+                for (lane, &id) in b.state.iter().enumerate() {
+                    let y = field::add(linear[lane], params.round_constants[0][lane]);
+                    let y2 = field::mul(y, y);
+                    assert_eq!(b.e.value(id).vals[i], field::mul(field::mul(y2, y2), y));
+                }
+            }
+        }
+    }
+}
+
+fn input_last_use_pair(b: &mut Builder<'_>, round: usize, consume: bool) {
+    let before = b.e.gas;
+    let state = b.state.clone();
+    let values: Vec<Vec<U256>> = (0..b.vectors)
+        .map(|i| state.iter().map(|&v| b.e.value(v).vals[i]).collect())
+        .collect();
+    b.layers += 1;
+    b.e.push_prime().unwrap();
+    let mut sums = [0; 4];
+    for i in (0..4).rev() {
+        sums[i] = b
+            .chain_sum_in_place(&[state[i], state[i + 4]], &format!("S{i}"), p1())
+            .unwrap();
+    }
+    assert_eq!(b.e.gas - before, 71);
+    let floor = b.e.from_top();
+    let depth = b.e.find(state[4]);
+    assert!(matches!(depth, 9 | 10));
+    let mut out = [0; 8];
+    let first = b.e.gas;
+    if consume {
+        let suffix = TAKE_SUM_SUFFIX
+            .replace("dup12", &format!("dup{}", depth + 7))
+            .replace("swap11", &format!("swap{}", depth + 6));
+        let program = super::super::templates::first_stream_block8(depth).unwrap();
+        assert_eq!(program, format!("{TAKE_SUM_PREFIX} takex0 {suffix}"));
+        assert!(b.stream_block_fits(program, 1, &state, &sums, true));
+        b.stream_block(program, 1, &state, &sums, Some(round), true, &mut out)
+            .unwrap();
+    } else {
+        b.stream_block(
+            stream_blocks(true, true)[0],
+            1,
+            &state,
+            &sums,
+            Some(round),
+            true,
+            &mut out,
+        )
+        .unwrap();
+    }
+    assert_eq!(b.e.gas - first, if consume { 344 } else { 347 });
+    let mut first_layout = out[4..if consume { 7 } else { 8 }].to_vec();
+    let mut first_floor = floor.clone();
+    if consume {
+        first_floor[depth - 1] = out[7];
+        assert_eq!(b.e.find(state[4]), 0);
+    }
+    first_layout.extend_from_slice(&first_floor);
+    assert_eq!(b.e.from_top(), first_layout);
+    let sum_depth = if consume { 4 } else { 5 };
+    assert_eq!(b.e.find(sums[0]), sum_depth);
+    let last = b.e.gas;
+    let program = if consume {
+        let expected = last_stream_block8()
+            .replace("dup12", "dup11")
+            .replace("swap11", "swap10");
+        let program = super::super::templates::last_stream_block8_after_input();
+        assert_eq!(program, expected);
+        program.to_string()
+    } else {
+        last_stream_block8().to_string()
+    };
+    assert!(b.stream_block_fits(&program, 0, &state, &sums, true));
+    b.stream_block(&program, 0, &state, &sums, Some(round), true, &mut out)
+        .unwrap();
+    assert_eq!(b.e.gas - last, 344);
+    let mut layout = out[..3].to_vec();
+    first_layout[sum_depth - 1] = out[3];
+    layout.extend_from_slice(&first_layout);
+    assert_eq!(b.e.from_top(), layout);
+    assert_eq!(b.e.find(sums[0]), 0);
+    assert_eq!(b.e.gas - before, if consume { 759 } else { 762 });
+    for (i, input) in values.iter().enumerate() {
+        let linear = permutation_steps(b.params, input, 0, 1);
+        for (lane, &v) in out.iter().enumerate() {
+            let y = field::add(linear[lane], b.params.round_constants[round][lane]);
+            let y2 = field::mul(y, y);
+            assert_eq!(b.e.value(v).vals[i], field::mul(field::mul(y2, y2), y));
+            assert_eq!(b.e.bound(v), p1());
+        }
+    }
+    assert_eq!((b.e.memory, b.e.loads, b.e.stores, b.e.pops), (0, 0, 0, 0));
+    b.state = out.to_vec();
+    b.sboxed = true;
+}
+
+#[test]
+fn t8_input_last_use_paired_lifetimes() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    let half = params.rounds_f / 2;
+    let partial_end = half + params.rounds_p;
+    for round in (0..half).chain(partial_end + 1..params.rounds_f + params.rounds_p) {
+        for shape in 0..4 {
+            for consume in [false, true] {
+                let mut b = builder(&params, &inputs, fork("amsterdam").unwrap(), vec![p1(); 8]);
+                let s = b.state.clone();
+                let dead = sentinels(&mut b, 7);
+                let tail = sentinels(&mut b, 3);
+                let mut stack = match shape {
+                    0 => [s.clone(), vec![b.p()]].concat(),
+                    1 | 2 => {
+                        let mut stack = vec![s[0], s[1], s[2], s[4], s[5], s[6], s[3]];
+                        stack.extend_from_slice(&dead[..3]);
+                        stack.push(b.p());
+                        stack.extend_from_slice(&dead[3..if shape == 1 { 7 } else { 6 }]);
+                        stack.push(s[7]);
+                        stack
+                    }
+                    _ => [s.iter().rev().copied().collect(), vec![b.p()]].concat(),
+                };
+                stack.extend_from_slice(&tail);
+                b.e.set_stack(&stack);
+                b.e.max_depth = stack.len();
+                input_last_use_pair(&mut b, round, consume);
+                let top = b.e.from_top();
+                assert_eq!(&top[top.len() - tail.len()..], tail);
+                assert_eq!(b.e.max_depth, stack.len() + if consume { 20 } else { 21 });
+                if consume {
+                    assert_eq!(b.e.max_dup, [17, 21, 20, 22][shape]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn t8_input_last_use_recurrence_and_adapters() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    for final_layer in [false, true] {
+        let mut b = builder(&params, &inputs, fork("amsterdam").unwrap(), vec![p1(); 8]);
+        b.opts.external_d = true;
+        b.opts.external_stream = true;
+        b.opts.external_template = true;
+        b.opts.internal_consume = true;
+        b.opts.prime_stack = true;
+        b.opts.tree_sums = true;
+        let tail = sentinels(&mut b, 3);
+        let mut stack = b.e.from_top();
+        stack.extend_from_slice(&tail);
+        b.e.set_stack(&stack);
+        input_last_use_pair(&mut b, 0, true);
+        assert_eq!(b.e.find(b.state[7]), 16);
+        input_last_use_pair(&mut b, 1, true);
+        assert_eq!(b.e.find(b.state[7]), 15);
+        let input: Vec<Vec<U256>> = (0..b.vectors)
+            .map(|i| b.state.iter().map(|&v| b.e.value(v).vals[i]).collect())
+            .collect();
+        let before = b.e.gas;
+        b.external_matrix(final_layer, !final_layer, false).unwrap();
+        assert_eq!(b.e.gas - before, if final_layer { 436 } else { 375 });
+        for (i, input) in input.iter().enumerate() {
+            let expected = permutation_steps(&params, input, 0, 1);
+            for (&id, expected) in b.state.iter().zip(expected) {
+                assert_eq!(field::reduce(b.e.value(id).vals[i]), expected);
+            }
+        }
+        let mut prefix = b.state.clone();
+        if final_layer {
+            assert_eq!(b.e.max_dup, 25);
+            assert!(b.state.iter().all(|&s| b.e.bound(s) == p1()));
+        } else {
+            prefix.insert(1, b.p());
+        }
+        assert_eq!(&b.e.from_top()[..prefix.len()], prefix);
+        if !final_layer {
+            let x5 = b.round_start(4, None).unwrap();
+            assert_eq!(b.e.top(0).unwrap(), x5);
+            assert_eq!(b.e.find_prime(), 23);
+            let before = b.e.gas;
+            b.e.push_prime().unwrap();
+            b.e.swap(9).unwrap();
+            b.e.pop().unwrap();
+            assert_eq!(b.e.gas - before, 8);
+            let mut repaired = vec![x5];
+            repaired.extend_from_slice(&b.state[1..]);
+            repaired.push(b.p());
+            assert_eq!(&b.e.from_top()[..9], repaired);
+        }
+        let top = b.e.from_top();
+        assert_eq!(&top[top.len() - tail.len()..], tail);
+    }
+}
+
+#[test]
+fn t8_input_last_use_reach_and_bounds() {
+    let params = generate_params_uncached(8);
+    let inputs = vec![vec![U256::ZERO; 8]];
+    for name in ["paris", "osaka", "amsterdam"] {
+        let fork = fork(name).unwrap();
+        for (input_depth, sum_depth, accepted) in [
+            (0, 2, false),
+            (1, 2, false),
+            (2, 0, false),
+            (2, fork.reach, true),
+            (2, fork.reach + 1, false),
+            (fork.reach + 1, 2, true),
+            (fork.reach + 2, 2, false),
+        ] {
+            let mut b = builder(&params, &inputs, fork, vec![p1(); 8]);
+            let input = b.state[4];
+            let sum =
+                b.e.alloc(Value::new("S0".into(), p1(), vec![U256::ZERO], None).unwrap());
+            let mut stack = sentinels(&mut b, fork.reach + 2);
+            if input_depth > 0 {
+                stack[input_depth - 1] = input;
+            }
+            if sum_depth > 0 {
+                stack[sum_depth - 1] = sum;
+            }
+            b.e.set_stack(&stack);
+            let result = take_stream_input(&mut b, input, sum);
+            assert_eq!(
+                result.is_ok(),
+                accepted,
+                "{name} input={input_depth} sum={sum_depth}: {result:?}"
+            );
+            if accepted {
+                stack.swap(0, input_depth - 1);
+                stack[0] = result.unwrap();
+                assert_eq!(b.e.from_top(), stack);
+                assert_eq!(b.e.find(input), 0);
+            }
+        }
+        for excess in [false, true] {
+            let mut bounds = vec![p1(); 8];
+            bounds[4] = UINT256_MAX - p1() + u256(u64::from(excess));
+            let mut b = builder(&params, &inputs, fork, bounds);
+            let input = b.state[4];
+            let sum =
+                b.e.alloc(Value::new("S0".into(), p1(), vec![U256::ZERO], None).unwrap());
+            let tail = sentinels(&mut b, 2);
+            b.e.set_stack(&[tail[0], input, sum, tail[1]]);
+            let result = take_stream_input(&mut b, input, sum);
+            assert_eq!(
+                result.is_ok(),
+                !excess,
+                "{name} excess={excess}: {result:?}"
+            );
+            if !excess {
+                assert_eq!(b.e.bound(result.unwrap()), UINT256_MAX);
+                assert_eq!(&b.e.from_top()[1..], [tail[0], sum, tail[1]]);
             }
         }
     }

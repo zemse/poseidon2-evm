@@ -275,6 +275,24 @@ pub fn last_stream_block8() -> &'static str {
     "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup12 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap11 add=o2 lane=z2 swap4 add=o0 lane=z0"
 }
 
+/// The first kept t8 block parks z3 in its consumed input's slot.
+pub fn first_stream_block8(depth: usize) -> Option<&'static str> {
+    match depth {
+        9 => Some(
+            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup16 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap15 add=o2 lane=z2 swap4 add=o0 lane=z0",
+        ),
+        10 => Some(
+            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup17 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap16 add=o2 lane=z2 swap4 add=o0 lane=z0",
+        ),
+        _ => None,
+    }
+}
+
+/// The last kept t8 block after three shallow outputs of the first block.
+pub fn last_stream_block8_after_input() -> &'static str {
+    "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup11 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap10 add=o2 lane=z2 swap4 add=o0 lane=z0"
+}
+
 /// One block of an external layer with its outputs on top in order,
 /// [s0', s1', s2', s3'] ([s0', P, s1', s2', s3'] for Exit), from the column
 /// sums (stacksearch `sblock` exit / exit0 / final): the moves of

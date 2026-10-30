@@ -1753,9 +1753,30 @@ impl<'a> Builder<'a> {
             BlockKind::Final
         };
         let mut out = vec![0; t];
+        let mut input_taken = false;
         for (n, &b) in order.iter().enumerate() {
             if let Some(r) = next {
                 let kept = n + keep >= k;
+                let take_input = t == 8
+                    && n == 0
+                    && b == 1
+                    && keep == 2
+                    && !self.opts.shadow
+                    && self.e.max_reach > 16
+                    && on_stack(b, &self.e)
+                    && x[..4].iter().all(|&v| {
+                        let depth = self.e.find(v);
+                        depth > 0 && depth + 9 <= self.e.max_reach
+                    })
+                    && sums
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &s)| self.e.find(s) == i + 1);
+                let first = take_input
+                    .then(|| super::templates::first_stream_block8(self.e.find(x[4])))
+                    .flatten()
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let sum_depth = if input_taken { 4 } else { 5 };
                 let take_sum = t == 8
                     && kept
                     && n + 1 == k
@@ -1763,10 +1784,18 @@ impl<'a> Builder<'a> {
                     && sums
                         .iter()
                         .enumerate()
-                        .all(|(i, &s)| self.e.find(s) == i + 5);
-                let program = take_sum
-                    .then_some(last_stream_block8())
-                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                        .all(|(i, &s)| self.e.find(s) == i + sum_depth);
+                let last = if input_taken {
+                    super::templates::last_stream_block8_after_input()
+                } else {
+                    last_stream_block8()
+                };
+                let program = first
+                    .or_else(|| {
+                        take_sum
+                            .then_some(last)
+                            .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                    })
                     .or_else(|| {
                         stream_blocks(kept, on_stack(b, &self.e))
                             .iter()
@@ -1775,6 +1804,7 @@ impl<'a> Builder<'a> {
                     });
                 if let Some(program) = program {
                     self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
+                    input_taken |= first.is_some();
                     continue;
                 }
             }
@@ -1871,15 +1901,20 @@ impl<'a> Builder<'a> {
                     _ => {}
                 }
                 s.insert(0, None);
-            } else if mv == "take0" {
-                let Some(ks) = find(&s, sums[0]) else {
+            } else if mv == "take0" || mv == "takex0" {
+                let (taken, copied) = if mv == "takex0" {
+                    (x[4 * b], sums[0])
+                } else {
+                    (sums[0], x[4 * b])
+                };
+                let Some(ks) = find(&s, taken) else {
                     return false;
                 };
                 if ks < 2 || ks - 1 > reach {
                     return false;
                 }
                 s.swap(0, ks - 1);
-                if !find(&s, x[4 * b]).is_some_and(|k| k <= reach) {
+                if !find(&s, copied).is_some_and(|k| k <= reach) {
                     return false;
                 }
                 s[0] = None;
@@ -1946,11 +1981,16 @@ impl<'a> Builder<'a> {
             if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
                 let j = 4 * b + i;
                 self.pair_add(x[j], sums[i], &format!("u{j}"), false)?;
-            } else if mv == "take0" {
-                self.swap_up(sums[0])?;
+            } else if mv == "take0" || mv == "takex0" {
                 let j = 4 * b;
+                let (taken, copied) = if mv == "takex0" {
+                    (x[j], sums[0])
+                } else {
+                    (sums[0], x[j])
+                };
+                self.swap_up(taken)?;
                 self.e
-                    .compute(Op::Add, &[val(x[j]), inplace(sums[0])], &format!("u{j}"))?;
+                    .compute(Op::Add, &[val(copied), inplace(taken)], &format!("u{j}"))?;
             } else if mv == "P" {
                 self.e.push_prime()?;
             } else if let Some(k) = mv.strip_prefix("dup") {

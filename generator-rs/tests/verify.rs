@@ -48,7 +48,7 @@ fn amsterdam_t2_t3_t4() {
 fn amsterdam_t8_stream() {
     let reports = run("amsterdam", &[8]);
     within(&reports[0]);
-    assert_eq!(reports[0].gas.measured, 23786);
+    assert_eq!(reports[0].gas.measured, 23765);
     assert_eq!(reports[0].bytes.len(), 1);
 }
 
