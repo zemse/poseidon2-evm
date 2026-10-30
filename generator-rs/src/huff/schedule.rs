@@ -1852,9 +1852,36 @@ impl<'a> Builder<'a> {
         } else {
             &[]
         };
-        let program = programs
-            .iter()
-            .find(|p| self.stream_block_fits(p, b, x, sums, true));
+        let park_prime = self.stream()
+            && self.t == 8
+            && b == 0
+            && kind == BlockKind::Exit
+            && self.opts.internal_consume
+            && !self.opts.shadow
+            && !self.opts.prime_in_memory
+            && !self.opts.shared_body
+            && !self.state_in_memory
+            && self.range.from == 0
+            && self.range.to == step_count(self.params)
+            && self.e.max_reach > 16
+            && held_slots(self.t, self.e.max_reach, self.opts.consume_slots) == self.t - 1
+            && self.input_slots.iter().all(Option::is_none)
+            && self.dead.is_empty()
+            && self.e.find_prime() > 0
+            && x.iter().all(|&v| self.e.find(v) > 0)
+            && sums
+                .iter()
+                .enumerate()
+                .all(|(i, &s)| self.e.find(s) == i + 5);
+        let program = park_prime
+            .then_some(super::templates::exit_prime_block8())
+            .filter(|p| self.stream_block_fits(p, b, x, sums, true))
+            .or_else(|| {
+                programs
+                    .iter()
+                    .copied()
+                    .find(|p| self.stream_block_fits(p, b, x, sums, true))
+            });
         if let Some(program) = program {
             let o = self.stream_block(program, b, x, sums, None, true, &mut [])?;
             return Ok(o.to_vec());

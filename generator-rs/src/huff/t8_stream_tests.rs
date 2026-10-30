@@ -776,7 +776,7 @@ fn t8_input_last_use_recurrence_and_adapters() {
             .collect();
         let before = b.e.gas;
         b.external_matrix(final_layer, !final_layer, false).unwrap();
-        assert_eq!(b.e.gas - before, if final_layer { 436 } else { 375 });
+        assert_eq!(b.e.gas - before, if final_layer { 436 } else { 378 });
         for (i, input) in input.iter().enumerate() {
             let expected = permutation_steps(&params, input, 0, 1);
             for (&id, expected) in b.state.iter().zip(expected) {
@@ -792,18 +792,15 @@ fn t8_input_last_use_recurrence_and_adapters() {
         }
         assert_eq!(&b.e.from_top()[..prefix.len()], prefix);
         if !final_layer {
-            let x5 = b.round_start(4, None).unwrap();
-            assert_eq!(b.e.top(0).unwrap(), x5);
-            assert_eq!(b.e.find_prime(), 23);
             let before = b.e.gas;
-            b.e.push_prime().unwrap();
-            b.e.swap(9).unwrap();
-            b.e.pop().unwrap();
-            assert_eq!(b.e.gas - before, 8);
-            let mut repaired = vec![x5];
-            repaired.extend_from_slice(&b.state[1..]);
-            repaired.push(b.p());
-            assert_eq!(&b.e.from_top()[..9], repaired);
+            let x5 = b.round_start(4, None).unwrap();
+            assert_eq!(b.e.gas - before, 45);
+            assert_eq!(b.e.top(0).unwrap(), x5);
+            assert_eq!(b.e.find_prime(), 9);
+            let mut ready = vec![x5];
+            ready.extend_from_slice(&b.state[1..]);
+            ready.push(b.p());
+            assert_eq!(&b.e.from_top()[..9], ready);
         }
         let top = b.e.from_top();
         assert_eq!(&top[top.len() - tail.len()..], tail);
@@ -869,6 +866,314 @@ fn t8_input_last_use_reach_and_bounds() {
                 assert_eq!(b.e.bound(result.unwrap()), UINT256_MAX);
                 assert_eq!(&b.e.from_top()[1..], [tail[0], sum, tail[1]]);
             }
+        }
+    }
+}
+
+#[test]
+fn t8_exit_prime_selection_and_configurations() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    assert_eq!(
+        super::super::templates::exit_prime_block8(),
+        ordered_blocks(BlockKind::Exit)[0].replacen("u1 u0 ", "u1 P take0 ", 1)
+    );
+    for case in 0..9 {
+        let mut opts = BuildOptions {
+            external_d: true,
+            external_stream: true,
+            external_template: true,
+            internal_consume: true,
+            prime_stack: true,
+            tree_sums: true,
+            ..DEFAULT_OPTIONS
+        };
+        match case {
+            1 => opts.internal_consume = false,
+            2 => opts.shadow = true,
+            3 => opts.prime_in_memory = true,
+            4 => opts.shared_body = true,
+            5 => opts.consume_slots = 6,
+            _ => {}
+        }
+        let range = Range {
+            from: usize::from(case == 7),
+            to: if case == 8 {
+                params.rounds_f / 2 + 2
+            } else {
+                step_count(&params)
+            },
+        };
+        let shadow = if case == 6 {
+            HashSet::from([Key::In(0)])
+        } else {
+            HashSet::new()
+        };
+        let mut b = Builder::new(
+            &params,
+            &inputs,
+            opts,
+            fork("amsterdam").unwrap(),
+            range,
+            shadow,
+            false,
+            true,
+            &Boundary {
+                store_inputs: true,
+                ..Boundary::default()
+            },
+        )
+        .unwrap();
+        if case == 6 {
+            b.e.spill(b.state[0]).unwrap();
+            assert_eq!(b.e.find(b.state[0]), 0);
+            assert!(b.input_slots[0].is_some());
+        }
+        let tail = sentinels(&mut b, 3);
+        let mut stack = b.e.from_top();
+        stack.extend_from_slice(&tail);
+        b.e.set_stack(&stack);
+        let out = b.build().unwrap();
+        let parked =
+            b.e.lines
+                .iter()
+                .filter(|line| {
+                    let ops = line.split_once("//").map_or(line.as_str(), |(ops, _)| ops);
+                    ops.contains(" swap6 ") && ops.contains(" add dup2 add")
+                })
+                .count();
+        assert_eq!(parked, usize::from(case == 0), "configuration {case}");
+        if case == 6 {
+            assert!(b.e.loads > 0 && b.e.memory > 0);
+            assert!(b.e.lines.iter().any(|line| {
+                line.split_once("//")
+                    .is_some_and(|(ops, _)| ops.split_whitespace().any(|op| op == "mstore"))
+            }));
+        }
+        for (i, input) in inputs.iter().enumerate() {
+            let expected = permutation_steps(&params, input, range.from, range.to);
+            for (&id, expected) in out.iter().zip(expected) {
+                assert_eq!(
+                    field::reduce(b.e.value(id).vals[i]),
+                    expected,
+                    "configuration {case}"
+                );
+                assert!(b.e.bound(id) <= handover_bound());
+            }
+        }
+        let top = b.e.from_top();
+        assert_eq!(&top[top.len() - tail.len()..], tail);
+        assert!(b.e.max_dup <= b.e.max_reach);
+        assert!(b.e.max_depth <= 1000);
+        println!(
+            "T8_EXIT_CONFIG case={case} parked={parked} gas={} loads={} stores={}",
+            b.e.gas, b.e.loads, b.e.stores
+        );
+    }
+}
+
+#[test]
+fn t8_exit_prime_sum_slot_fallback() {
+    let params = generate_params_uncached(8);
+    let inputs = crate::vectors::test_inputs(8);
+    for moved in [false, true] {
+        let mut b = builder(&params, &inputs, fork("amsterdam").unwrap(), vec![p1(); 8]);
+        b.opts.external_d = true;
+        b.opts.external_stream = true;
+        b.opts.external_template = true;
+        b.opts.internal_consume = true;
+        let state = b.state.clone();
+        let sums: [Id; 4] = std::array::from_fn(|i| {
+            b.e.alloc(
+                Value::new(
+                    format!("S{i}"),
+                    p1(),
+                    inputs.iter().map(|v| field::add(v[i], v[i + 4])).collect(),
+                    None,
+                )
+                .unwrap(),
+            )
+        });
+        let previous = sentinels(&mut b, 4);
+        let tail = sentinels(&mut b, 3);
+        let mut stack = previous.clone();
+        stack.extend_from_slice(&sums);
+        stack.extend_from_slice(&state);
+        stack.push(b.p());
+        stack.extend_from_slice(&tail);
+        if moved {
+            stack.swap(4, 5);
+        }
+        b.e.set_stack(&stack);
+        let out = b.ordered_block(BlockKind::Exit, 0, &state, &sums).unwrap();
+        assert_eq!(b.e.find(sums[0]) == 0, !moved);
+        if !moved {
+            stack[4] = b.p();
+        }
+        let mut layout = vec![out[0], b.p(), out[1], out[2], out[3]];
+        layout.extend_from_slice(&stack);
+        assert_eq!(b.e.from_top(), layout);
+        for (i, input) in inputs.iter().enumerate() {
+            let expected = permutation_steps(&params, input, 0, 1);
+            for (j, &id) in out.iter().enumerate() {
+                assert_eq!(field::reduce(b.e.value(id).vals[i]), expected[j]);
+            }
+        }
+    }
+}
+
+fn exit_prime_layer(b: &mut Builder<'_>, park: bool) -> Id {
+    let state = b.state.clone();
+    let before = b.e.gas;
+    b.layers += 1;
+    let mut sums = [0; 4];
+    for i in (0..4).rev() {
+        sums[i] = b
+            .chain_sum(&[state[i], state[i + 4]], &format!("S{i}"), p1())
+            .unwrap();
+        b.e.end_line();
+    }
+    assert_eq!(b.e.gas - before, 68);
+    let program = ordered_blocks(BlockKind::Block)[0];
+    assert!(b.stream_block_fits(program, 1, &state, &sums, true));
+    let first = b
+        .stream_block(program, 1, &state, &sums, None, true, &mut [])
+        .unwrap();
+    assert_eq!(b.e.gas - before, 220);
+    let mut floor = b.e.from_top();
+    assert_eq!(&floor[..4], first);
+    assert_eq!(b.e.find(sums[0]), 5);
+    assert_eq!(b.e.find_prime(), 19);
+    let ordinary = ordered_blocks(BlockKind::Exit)[0];
+    let suffix = ordinary.strip_prefix("u1 u0 dup2 add=t0 ").unwrap();
+    let prefix = if park {
+        "u1 P take0 dup2 add=t0"
+    } else {
+        "u1 u0 dup2 add=t0"
+    };
+    let program = format!("{prefix} {suffix}");
+    assert!(b.stream_block_fits(&program, 0, &state, &sums, true));
+    let start = b.e.gas;
+    b.stream_block(prefix, 0, &state, &sums, None, true, &mut [])
+        .unwrap();
+    assert_eq!(b.e.gas - start, if park { 27 } else { 24 });
+    if park {
+        floor[4] = b.p();
+        assert_eq!(b.e.find(sums[0]), 0);
+    }
+    assert_eq!(&b.e.from_top()[2..], floor);
+    let u0 = b.e.values.iter().rev().find(|v| v.name == "u0").unwrap();
+    assert_eq!(u0.bound, p1() + p1());
+    let last = b
+        .stream_block(suffix, 0, &state, &sums, None, true, &mut [])
+        .unwrap();
+    b.state = last.into_iter().chain(first).collect();
+    let mut expected = vec![last[0], b.p(), last[1], last[2], last[3]];
+    expected.extend_from_slice(&floor);
+    assert_eq!(b.e.from_top(), expected);
+    assert_eq!(b.e.gas - before, if park { 378 } else { 375 });
+    sums[0]
+}
+
+#[test]
+fn t8_exit_prime_lifetime_and_real_internal_entry() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    let round = params.rounds_f / 2;
+    for whole_round in [false, true] {
+        let mut baseline = None;
+        for park in [false, true] {
+            let mut b = builder(&params, &inputs, fork("amsterdam").unwrap(), vec![p1(); 8]);
+            b.opts.external_d = true;
+            b.opts.external_stream = true;
+            b.opts.external_template = true;
+            b.opts.internal_consume = true;
+            b.opts.prime_stack = true;
+            b.opts.tree_sums = true;
+            let tail = sentinels(&mut b, 3);
+            let mut stack = b.e.from_top();
+            stack.extend_from_slice(&tail);
+            b.e.set_stack(&stack);
+            input_last_use_pair(&mut b, 0, true);
+            input_last_use_pair(&mut b, 1, true);
+            let values: Vec<Vec<U256>> = (0..b.vectors)
+                .map(|i| b.state.iter().map(|&v| b.e.value(v).vals[i]).collect())
+                .collect();
+            let before = b.e.gas;
+            let sum = exit_prime_layer(&mut b, park);
+            let linear: Vec<Vec<U256>> = values
+                .iter()
+                .map(|v| permutation_steps(&params, v, 0, 1))
+                .collect();
+            for (i, expected) in linear.iter().enumerate() {
+                for (j, &id) in b.state.iter().enumerate() {
+                    assert_eq!(field::reduce(b.e.value(id).vals[i]), expected[j]);
+                }
+            }
+            let state = b.state.clone();
+            let line = b.e.lines.len();
+            let pops = b.e.pops;
+            if whole_round {
+                b.internal_round_consume(round, true, None).unwrap();
+                assert_eq!(b.e.pops - pops, usize::from(!park));
+                let ops: Vec<String> = b.e.lines[line..]
+                    .iter()
+                    .map(|line| line.split_once("//").unwrap().0.trim().to_string())
+                    .collect();
+                let mut body = ops.clone();
+                let repair = if park { 0 } else { 8 };
+                if !park {
+                    assert_eq!(body.remove(1), "dupn 23 swap9 pop");
+                }
+                assert!(!body.iter().any(|line| line.contains("pop")));
+                assert_eq!(
+                    (if park { 378 } else { 375 }) + 45 + repair,
+                    if park { 423 } else { 428 }
+                );
+                for (i, input) in linear.iter().enumerate() {
+                    let expected = permutation_steps(&params, input, round + 1, round + 2);
+                    for (&id, expected) in b.state.iter().zip(expected) {
+                        assert_eq!(field::reduce(b.e.value(id).vals[i]), expected);
+                    }
+                }
+                let signature: Vec<_> =
+                    b.e.from_top()
+                        .iter()
+                        .map(|&id| {
+                            let v = b.e.value(id);
+                            (id, v.bound, v.vals.clone())
+                        })
+                        .collect();
+                if let Some((gas, prior_stack, prior_body)) = &baseline {
+                    assert_eq!(b.e.gas - before + 5, *gas);
+                    assert_eq!(&signature, prior_stack);
+                    assert_eq!(&body, prior_body);
+                } else {
+                    baseline = Some((b.e.gas - before, signature, body));
+                }
+                println!(
+                    "T8_EXIT_PRIME park={park} boundary={} through_round={}",
+                    if park { 423 } else { 428 },
+                    b.e.gas - before
+                );
+            } else {
+                let before_sbox = b.e.gas;
+                let x5 = b.round_start(round, None).unwrap();
+                assert_eq!(b.e.gas - before_sbox, 45);
+                let top = b.e.from_top();
+                assert_eq!(top[0], x5);
+                assert_eq!(&top[1..8], &state[1..]);
+                assert_eq!(top[8], if park { b.p() } else { sum });
+                assert_eq!(b.e.bound(x5), p1());
+                assert_eq!(b.e.gas - before, if park { 423 } else { 420 });
+            }
+            let top = b.e.from_top();
+            assert_eq!(&top[top.len() - tail.len()..], tail);
+            assert!(b.e.max_dup <= b.e.max_reach);
+            assert!(b.e.max_depth <= 1000);
+            assert_eq!((b.e.loads, b.e.stores), (0, 0));
         }
     }
 }
