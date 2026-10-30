@@ -305,9 +305,9 @@ fn streaming_fused_replays_fixed_legacy_bodies() {
                 before,
                 match (name, t) {
                     ("paris", 24) => 76017,
-                    ("paris", 28) => 92100,
+                    ("paris", 28) => 92068,
                     (_, 24) => 75843,
-                    (_, 28) => 91920,
+                    (_, 28) => 91888,
                     _ => unreachable!(),
                 }
             );
@@ -376,9 +376,9 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
                 before,
                 match (name, t) {
                     ("paris", 24) => 75522,
-                    ("paris", 28) => 90960,
+                    ("paris", 28) => 90928,
                     (_, 24) => 75348,
-                    (_, 28) => 90780,
+                    (_, 28) => 90748,
                     _ => unreachable!(),
                 }
             );
@@ -401,9 +401,9 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
                 runtime_bytes(&params, fork, &result),
                 match (name, t) {
                     ("paris", 24) => 23771,
-                    ("paris", 28) => 24424,
+                    ("paris", 28) => 24420,
                     (_, 24) => 23720,
-                    (_, 28) => 24391,
+                    (_, 28) => 24387,
                     _ => unreachable!(),
                 }
             );

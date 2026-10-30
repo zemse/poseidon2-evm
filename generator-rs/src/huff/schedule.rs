@@ -1571,7 +1571,13 @@ impl<'a> Builder<'a> {
             let mut sums = [0; 4];
             for i in (0..4).rev() {
                 let column: Vec<Id> = (0..k).map(|b| self.state[4 * b + i]).collect();
-                sums[i] = self.chain_sum(&column, &format!("S{i}"), p1())?;
+                let name = format!("S{i}");
+                // a tree pairs the seven t = 28 columns in one reduction
+                sums[i] = if self.opts.tree_sums {
+                    self.chain_sum_in_place(&column, &name, p1())?
+                } else {
+                    self.chain_sum(&column, &name, p1())?
+                };
                 self.e.end_line();
             }
             let mut out = vec![0; t];

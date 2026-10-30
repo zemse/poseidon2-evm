@@ -55,7 +55,7 @@ fn amsterdam_t8_stream() {
 #[test]
 fn amsterdam_sum_trees() {
     let reports = run("amsterdam", &[12, 16, 20, 24, 28]);
-    for (report, gas) in reports.iter().zip([33917, 44254, 54583, 65225, 77550]) {
+    for (report, gas) in reports.iter().zip([33917, 44254, 54583, 65225, 77480]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);
@@ -110,5 +110,5 @@ fn osaka_t28() {
     let reports = run("osaka", &[28]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 90772);
+    assert_eq!(reports[0].gas.measured, 90740);
 }
