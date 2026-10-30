@@ -12,7 +12,7 @@
 use super::program::Program;
 use crate::bail;
 use crate::error::Result;
-use crate::field::{PRIME, U256, U512, UINT256_MAX, add, reduce, u256, wide};
+use crate::field::{PRIME, U256, U512, UINT256_MAX, add, reduce, sub, u256, wide};
 use crate::reference::{matmul_external, permutation};
 use crate::round_constants::Params;
 use crate::value::{Op, Value};
@@ -53,6 +53,15 @@ pub struct Layout {
     /// the initial linear layer first adds or doubles them (ADDMOD /
     /// MULMOD), instead of a MOD with a PRIME literal each
     pub raw_inputs: usize,
+    /// add the next round's constant where an element is written, so the
+    /// S-box reads the state local itself instead of a `y` let (a DUP and a
+    /// POP less per S-box)
+    pub fold_constants: bool,
+    /// the internal round's x5 let in a block of its own, so that it does not
+    /// take the dead x2 slot with a SWAP and a POP; the assembly CSE then
+    /// keeps that slot through the round's tail, which costs t = 3 more than
+    /// it saves
+    pub nested_x5: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +93,8 @@ struct Builder<'a> {
     inputs: &'a [Vec<U256>],
     state: Vec<Value>,
     diag_locals: Vec<Value>,
+    /// the round constant each element's next write adds (fold_constants)
+    pending: Vec<Option<U256>>,
 }
 
 /// An operand of a chain statement and whether the step that adds it
@@ -122,6 +133,7 @@ impl<'a> Builder<'a> {
             inputs,
             state: Vec::new(),
             diag_locals: Vec::new(),
+            pending: vec![None; params.t],
         })
     }
 
@@ -149,7 +161,16 @@ impl<'a> Builder<'a> {
         self.t - self.layout.stack_elements
     }
 
+    /// Writes v to element i, plus the pending round constant of i.
     fn set(&mut self, i: usize, v: &Value) -> Result<Value> {
+        let folded;
+        let v = match self.pending[i].take() {
+            Some(c) => {
+                folded = self.add(v, &self.p.constant(c), false)?;
+                &folded
+            }
+            None => v,
+        };
         let value = if self.is_local(i) {
             self.p.assign(&Self::name(i), v)?
         } else {
@@ -157,6 +178,48 @@ impl<'a> Builder<'a> {
         };
         self.state[i] = value.clone();
         Ok(value)
+    }
+
+    /// Writes v to element i whose result element j adds to: j's pending
+    /// constant is corrected by the one folded into i.
+    fn set_sharing(&mut self, i: usize, j: usize, v: &Value) -> Result<Value> {
+        if let (Some(ci), Some(cj)) = (self.pending[i], self.pending[j]) {
+            self.pending[j] = Some(sub(cj, ci));
+        }
+        self.set(i, v)
+    }
+
+    /// The constants the writes of `round` fold in: those of the next
+    /// round, element 0 only when that round is internal, or round 0's for
+    /// the entry (`round` None).
+    fn arm(&mut self, round: Option<usize>) {
+        if !self.layout.fold_constants {
+            return;
+        }
+        let next = round.map_or(0, |r| r + 1);
+        let rf_half = self.params.rounds_f / 2;
+        let total = self.params.rounds_f + self.params.rounds_p;
+        if next >= total {
+            return;
+        }
+        let internal = next >= rf_half && next < rf_half + self.params.rounds_p;
+        for i in 0..self.t {
+            self.pending[i] = if internal && i > 0 {
+                None
+            } else {
+                Some(self.params.round_constants[next][i])
+            };
+        }
+    }
+
+    /// The largest constant a pending write adds, for a lazy cap.
+    fn pending_max(&self) -> U256 {
+        self.pending
+            .iter()
+            .flatten()
+            .copied()
+            .max()
+            .unwrap_or(U256::ZERO)
     }
 
     /// Locals are stack slots in declaration order: state0 is the deepest,
@@ -220,7 +283,9 @@ impl<'a> Builder<'a> {
             return Ok(s.clone());
         }
         if d == u256(2) && Self::fits(s, s) {
-            return self.p.expr(Op::Shl, &[&self.p.constant(u256(1)), s]);
+            // add(s, s) rather than shl(1, s): the assembly CSE brings s up with
+            // one SWAP and a DUP1, the shift needs the constant moved around it
+            return self.p.expr(Op::Add, &[s, s]);
         }
         let diag = self.diag(i)?;
         self.p.expr(Op::Mulmod, &[&diag, s, &self.p.p])
@@ -363,16 +428,20 @@ impl<'a> Builder<'a> {
     }
 
     /// (s_i + c)^5 written back to element i; y and x2 are popped with the
-    /// block
+    /// block. With fold_constants the previous write added c and the S-box
+    /// reads the element itself.
     fn sbox(&mut self, i: usize, c: Option<U256>) -> Result<()> {
         self.p.open();
         let y = match c {
-            Some(c) => {
+            Some(c) if !self.layout.fold_constants => {
                 let y = self.add(&self.state[i], &self.p.constant(c), false)?;
                 self.p.let_("y", &y)?
             }
-            None => self.state[i].clone(),
+            _ => self.state[i].clone(),
         };
+        if !self.reachable(&y, 2) {
+            bail!("{} is out of reach", y.name);
+        }
         let x2 = self.p.expr(Op::Mulmod, &[&y, &y, &self.p.p])?;
         let x2 = self.p.let_("x2", &x2)?;
         let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
@@ -453,6 +522,8 @@ impl<'a> Builder<'a> {
         };
         let mut t4: Option<Value> = None;
         let mut t5: Option<Value> = None;
+        // out[2] and out[0] read the written out[3] and out[1], so a constant
+        // folded there is taken off theirs
         if needed[3] || needed[2] {
             let q = quad(&self.p, &t1)?;
             let e = if four_temps {
@@ -461,7 +532,7 @@ impl<'a> Builder<'a> {
                 self.add(&t3, &q, clean)?
             };
             t4 = Some(if needed[3] {
-                self.set(idx[3], &e)?
+                self.set_sharing(idx[3], idx[2], &e)?
             } else {
                 self.p.let_("t4", &e)?
             });
@@ -474,7 +545,7 @@ impl<'a> Builder<'a> {
                 self.add(&t2, &q, clean)?
             };
             t5 = Some(if needed[1] {
-                self.set(idx[1], &e)?
+                self.set_sharing(idx[1], idx[0], &e)?
             } else {
                 self.p.let_("t5", &e)?
             });
@@ -491,13 +562,19 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    fn external_matrix(&mut self, clean: bool, needed: [bool; 4]) -> Result<()> {
+    fn external_matrix(
+        &mut self,
+        round: Option<usize>,
+        clean: bool,
+        needed: [bool; 4],
+    ) -> Result<()> {
         let t = self.t;
         if t == 2 || t == 3 {
             // circ(2, 1[, 1]): out_i = s_i + sum
             self.p.open();
             let state = self.state.clone();
             let sum = self.chain_sum(&state, "sum", UINT256_MAX)?;
+            self.arm(round);
             for i in 0..t {
                 let e = self.add(&sum, &self.state[i], clean)?;
                 self.set(i, &e)?;
@@ -506,6 +583,7 @@ impl<'a> Builder<'a> {
             return Ok(());
         }
         if t == 4 {
+            self.arm(round);
             return self.m4([0, 1, 2, 3], clean, needed);
         }
         // y = M4 per block, z_i = sum over blocks of y_{b,i},
@@ -515,6 +593,7 @@ impl<'a> Builder<'a> {
         for b in 0..k {
             self.m4([4 * b, 4 * b + 1, 4 * b + 2, 4 * b + 3], false, [true; 4])?;
         }
+        self.arm(round);
         for i in 0..4 {
             self.p.open();
             let column: Vec<Value> = (0..k).map(|b| self.state[4 * b + i].clone()).collect();
@@ -522,7 +601,7 @@ impl<'a> Builder<'a> {
             let cap = if clean {
                 UINT256_MAX
             } else {
-                UINT256_MAX - widest
+                UINT256_MAX - widest - self.pending_max()
             };
             let z = self.chain_sum(&column, "z", cap)?;
             for b in 0..k {
@@ -547,13 +626,14 @@ impl<'a> Builder<'a> {
             };
             self.sbox(i, c)?;
         }
-        self.external_matrix(clean, needed)
+        self.external_matrix(Some(round), clean, needed)
     }
 
-    fn internal_outputs(&mut self, x5: &Value) -> Result<()> {
+    fn internal_outputs(&mut self, round: usize, x5: &Value) -> Result<()> {
         let lazy = self.layout.internal_reduce_outputs;
         let mut old = vec![x5.clone()];
         old.extend_from_slice(&self.state[1..]);
+        self.arm(Some(round));
         if self.layout.periodic_internal && self.t == 3 && !lazy && Self::fits(x5, &old[1]) {
             return self.periodic_outputs(&old);
         }
@@ -597,19 +677,29 @@ impl<'a> Builder<'a> {
             self.sbox(0, Some(c))?;
             self.p.open();
             let x5 = self.state[0].clone();
-            self.internal_outputs(&x5)?;
+            self.internal_outputs(round, &x5)?;
             self.p.close();
             return Ok(());
         }
         self.p.open();
-        let y = self.add(&self.state[0], &self.p.constant(c), false)?;
-        let y = self.p.let_("y", &y)?;
+        let y = if self.layout.fold_constants {
+            self.state[0].clone()
+        } else {
+            let y = self.add(&self.state[0], &self.p.constant(c), false)?;
+            self.p.let_("y", &y)?
+        };
         let x2 = self.p.expr(Op::Mulmod, &[&y, &y, &self.p.p])?;
         let x2 = self.p.let_("x2", &x2)?;
+        if self.layout.nested_x5 {
+            self.p.open();
+        }
         let x4 = self.p.expr(Op::Mulmod, &[&x2, &x2, &self.p.p])?;
         let x5 = self.p.expr(Op::Mulmod, &[&x4, &y, &self.p.p])?;
         let x5 = self.p.let_("x5", &x5)?;
-        self.internal_outputs(&x5)?;
+        self.internal_outputs(round, &x5)?;
+        if self.layout.nested_x5 {
+            self.p.close();
+        }
         self.p.close();
         Ok(())
     }
@@ -668,7 +758,7 @@ impl<'a> Builder<'a> {
         self.p.blank();
 
         self.p.comment("initial linear layer");
-        self.external_matrix(false, [true; 4])?;
+        self.external_matrix(None, false, [true; 4])?;
         self.p.blank();
         Ok(())
     }

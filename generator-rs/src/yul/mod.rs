@@ -42,6 +42,8 @@ fn layout_for(t: usize) -> Layout {
             internal_reduce_outputs: t == 2,
             periodic_internal: t == 3,
             raw_inputs: 0,
+            fold_constants: true,
+            nested_x5: t != 3,
         };
     }
     if t == 8 {
@@ -57,6 +59,8 @@ fn layout_for(t: usize) -> Layout {
             internal_reduce_outputs: false,
             periodic_internal: false,
             raw_inputs: 8,
+            fold_constants: true,
+            nested_x5: false,
         };
     }
     if t == 12 {
@@ -72,6 +76,8 @@ fn layout_for(t: usize) -> Layout {
             internal_reduce_outputs: false,
             periodic_internal: false,
             raw_inputs: 0,
+            fold_constants: false,
+            nested_x5: false,
         };
     }
     Layout {
@@ -86,6 +92,8 @@ fn layout_for(t: usize) -> Layout {
         internal_reduce_outputs: false,
         periodic_internal: false,
         raw_inputs: 0,
+        fold_constants: false,
+        nested_x5: false,
     }
 }
 
