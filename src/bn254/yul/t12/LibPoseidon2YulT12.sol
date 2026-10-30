@@ -7,8 +7,8 @@ pragma solidity >=0.6.0;
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
 /// @dev 2 internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation
-/// @dev 7 of the 12 internal diag constants are kept at 0x80 .. 0x140 and 2 at 0x40 and 0x60 to stay within the code size limit; the caller's words there and the free memory pointer are saved in the state array and restored, with the zero slot, after the internal rounds
-/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,488 gas per permute of the test wrapper (via-IR does not compile it)
+/// @dev 6 of the 12 internal diag constants are kept at 0x80 .. 0x120 and 2 at 0x40 and 0x60 to stay within the code size limit; the caller's words there and the free memory pointer are saved in the state array and restored, with the zero slot, after the internal rounds
+/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,272 gas per permute of the test wrapper (via-IR does not compile it)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT12 {
     function permute(uint256[12] memory state) internal pure {
@@ -495,16 +495,14 @@ library LibPoseidon2YulT12 {
                 mstore(add(state, 0xe0), mload(0xe0))
                 mstore(add(state, 0xc0), mload(0x100))
                 mstore(add(state, 0xa0), mload(0x120))
-                mstore(add(state, 0x80), mload(0x140))
                 mstore(add(state, 0x160), mload(0x40))
                 // diag constants that would not fit the code size as PUSH32, at 0x80 ..
-                mstore(0x80, 0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923)
-                mstore(0xa0, 0x0ee2e4f4a3c23a1b71834d1a95ea402504b8d68fab6f74855c884df898c286f9)
-                mstore(0xc0, 0x0a469d3f3cb250181cc1e70c8227dace349b1c52fe8f7375744c8be5b80771e5)
-                mstore(0xe0, 0x0cfa92ab38d116f1cdc24ecc083ad1cb17a215de9968726a81970dde9cca70d6)
-                mstore(0x100, 0x173df1a0df85f4533605f9578b1f58ccadf1f810e1fcca66808382efa84d684a)
-                mstore(0x120, 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4)
-                mstore(0x140, 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b)
+                mstore(0x80, 0x0ee2e4f4a3c23a1b71834d1a95ea402504b8d68fab6f74855c884df898c286f9)
+                mstore(0xa0, 0x0a469d3f3cb250181cc1e70c8227dace349b1c52fe8f7375744c8be5b80771e5)
+                mstore(0xc0, 0x0cfa92ab38d116f1cdc24ecc083ad1cb17a215de9968726a81970dde9cca70d6)
+                mstore(0xe0, 0x173df1a0df85f4533605f9578b1f58ccadf1f810e1fcca66808382efa84d684a)
+                mstore(0x100, 0x2ced3bf3cf641c12a311b16b4107663388876a894e70c28c5498946c7fd8dcd4)
+                mstore(0x120, 0x0912073a16428c84bfbb6170108adf6d168100ac5587c23c9405cf1f7ca8f13b)
                 // diag constants in the free memory pointer and the zero slot, restored after the internal rounds
                 mstore(0x40, 0x250b310cd13063ee49c78680c1434853968f464d2fc99166c23a2e330dd71d54)
                 mstore(0x60, 0x08b593b39852f7ad095a03a3eee546c388e02896d460454c6f1887c8d1c82e37)
@@ -550,13 +548,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -599,13 +600,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -648,13 +652,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -697,13 +704,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -746,13 +756,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -795,13 +808,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -844,13 +860,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -893,13 +912,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -942,13 +964,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -991,13 +1016,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1040,13 +1068,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1089,13 +1120,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1138,13 +1172,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1187,13 +1224,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1236,13 +1276,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1285,13 +1328,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1334,13 +1380,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1383,13 +1432,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1432,13 +1484,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1481,13 +1536,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1530,13 +1588,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1579,13 +1640,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1628,13 +1692,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1677,13 +1744,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1726,13 +1796,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1775,13 +1848,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1824,13 +1900,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1873,13 +1952,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1922,13 +2004,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -1971,13 +2056,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2020,13 +2108,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2069,13 +2160,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2118,13 +2212,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2167,13 +2264,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2216,13 +2316,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2265,13 +2368,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2314,13 +2420,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2363,13 +2472,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2412,13 +2524,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2461,13 +2576,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2510,13 +2628,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2559,13 +2680,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2608,13 +2732,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2657,13 +2784,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2706,13 +2836,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2755,13 +2888,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2804,13 +2940,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2853,13 +2992,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2902,13 +3044,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -2951,13 +3096,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3000,13 +3148,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3049,13 +3200,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3098,13 +3252,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3147,13 +3304,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3196,13 +3356,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3245,13 +3408,16 @@ library LibPoseidon2YulT12 {
                         sum,
                         mulmod(0x29107b18658b47d566f5063975d6bbc504382b81777e0796c7cb81f9b4e2cf46, state2, PRIME)
                     )
-                    state3 := add(sum, mulmod(mload(0x80), state3, PRIME))
-                    state4 := add(sum, mulmod(mload(0xa0), state4, PRIME))
-                    state5 := add(sum, mulmod(mload(0xc0), state5, PRIME))
-                    state6 := add(sum, mulmod(mload(0xe0), state6, PRIME))
-                    state7 := add(sum, mulmod(mload(0x100), state7, PRIME))
-                    state8 := add(sum, mulmod(mload(0x120), state8, PRIME))
-                    state9 := add(sum, mulmod(mload(0x140), state9, PRIME))
+                    state3 := add(
+                        sum,
+                        mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                    )
+                    state4 := add(sum, mulmod(mload(0x80), state4, PRIME))
+                    state5 := add(sum, mulmod(mload(0xa0), state5, PRIME))
+                    state6 := add(sum, mulmod(mload(0xc0), state6, PRIME))
+                    state7 := add(sum, mulmod(mload(0xe0), state7, PRIME))
+                    state8 := add(sum, mulmod(mload(0x100), state8, PRIME))
+                    state9 := add(sum, mulmod(mload(0x120), state9, PRIME))
                     state10 := add(sum, mulmod(mload(0x40), state10, PRIME))
                     state11 := add(sum, mulmod(mload(0x60), state11, PRIME))
                 }
@@ -3302,31 +3468,34 @@ library LibPoseidon2YulT12 {
                     )
                     state3 := add(
                         0x08fa33e2e1fd049d1bd92f5fe34e2098a0f56c99097e3f822fa3616fbfa18de1,
-                        add(sum, mulmod(mload(0x80), state3, PRIME))
+                        add(
+                            sum,
+                            mulmod(0x134ceec3ec069dd76fc9804ff029c2c27c5646986ff5dbeb17091d9c479ae923, state3, PRIME)
+                        )
                     )
                     state4 := add(
                         0x06c6ff6719dfd6214dbe3e9d894fc40eddc710ea85d29b73c5c0f0bbe7689d5a,
-                        add(sum, mulmod(mload(0xa0), state4, PRIME))
+                        add(sum, mulmod(mload(0x80), state4, PRIME))
                     )
                     state5 := add(
                         0x27a5642213df899e80b1365afd1ab8facf86fecb094277d74594384b3fe02eeb,
-                        add(sum, mulmod(mload(0xc0), state5, PRIME))
+                        add(sum, mulmod(mload(0xa0), state5, PRIME))
                     )
                     state6 := add(
                         0x21f5c7afcbbf04ac234adbb2edadb98ab1ceda1fda0e33858f2cf226b1cb7510,
-                        add(sum, mulmod(mload(0xe0), state6, PRIME))
+                        add(sum, mulmod(mload(0xc0), state6, PRIME))
                     )
                     state7 := add(
                         0x08173628fb47ce14a39d3b1c5a861e03bc76e4f677014fc8d0942b74eea4b815,
-                        add(sum, mulmod(mload(0x100), state7, PRIME))
+                        add(sum, mulmod(mload(0xe0), state7, PRIME))
                     )
                     state8 := add(
                         0x12575f8647b44d45e415c0c27edb5261640f50ab9cea63690ba60ddbcb9446ac,
-                        add(sum, mulmod(mload(0x120), state8, PRIME))
+                        add(sum, mulmod(mload(0x100), state8, PRIME))
                     )
                     state9 := add(
                         0x241f071e842262bd502aadbde4e0b3da3b78e6315ded09d262c95f747d1e69c3,
-                        add(sum, mulmod(mload(0x140), state9, PRIME))
+                        add(sum, mulmod(mload(0x120), state9, PRIME))
                     )
                     state10 := add(
                         0x0259650661345bbb098aaaaf58071b5e059731542b79f0e840e782a1b0d7c1e8,
@@ -3346,7 +3515,6 @@ library LibPoseidon2YulT12 {
                 mstore(0xe0, mload(add(state, 0xe0)))
                 mstore(0x100, mload(add(state, 0xc0)))
                 mstore(0x120, mload(add(state, 0xa0)))
-                mstore(0x140, mload(add(state, 0x80)))
             }
             // round 61 (external)
             {

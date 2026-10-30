@@ -74,7 +74,7 @@ fn layout_for(t: usize) -> Layout {
     if t == 12 {
         return Layout {
             stack_elements: 12,
-            diag_in_memory: 9,
+            diag_in_memory: 8,
             diag_fixed: 2,
             diag_lets: 0,
             diag_scratch: 2,
@@ -134,7 +134,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,488 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,272 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }
