@@ -82,6 +82,12 @@ pub struct Layout {
     /// by one add in a single expression instead, the deeper operands'
     /// chain evaluated first
     pub tree_sum: bool,
+    /// array mode with the whole state in locals: the rounds in an internal
+    /// function of their own, `rounds(state, state0, ...)`, which stores the
+    /// outputs, with the inputs and the initial linear layer in permute; via-IR
+    /// compiles that for t = 8 where one function of the whole permutation
+    /// exhausts its stack layout search
+    pub rounds_function: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +105,10 @@ pub enum Mode {
 
 pub struct BuildResult {
     pub lines: Vec<String>,
+    /// with rounds_function: the lines before `entry` are the inputs and the
+    /// initial linear layer, those from it the rounds and the stores of the
+    /// outputs
+    pub entry: usize,
 }
 
 /// rank of a value that is not a local: always within reach
@@ -154,6 +164,9 @@ impl<'a> Builder<'a> {
                 || layout.diag_in_memory - layout.diag_fixed + 2 > params.t)
         {
             bail!("an absolute table needs the whole state in locals and t - 2 entries at most");
+        }
+        if layout.rounds_function && (mode != Mode::Array || layout.stack_elements != params.t) {
+            bail!("a rounds function needs the whole state in locals");
         }
         Ok(Builder {
             p: Program::new(inputs.len(), indent),
@@ -908,7 +921,12 @@ impl<'a> Builder<'a> {
             } else {
                 self.p.expr(Op::Mod, &[&raw(self, i), &prime])?
             };
-            self.state[i] = self.p.let_(&Self::name(i), &e)?;
+            // the rounds function's arguments are Solidity locals of permute
+            self.state[i] = if self.layout.rounds_function {
+                self.p.param(&Self::name(i), &e)?
+            } else {
+                self.p.let_(&Self::name(i), &e)?
+            };
         }
         if self.in_memory() > 0 {
             let mem = self.p.input("state", Vec::new());
@@ -953,6 +971,7 @@ impl<'a> Builder<'a> {
         } else {
             self.entry()?;
         }
+        let entry = self.p.lines.len();
 
         for r in 0..rf_half {
             self.p.comment(&format!("round {r} (external)"));
@@ -1108,6 +1127,7 @@ impl<'a> Builder<'a> {
 
         Ok(BuildResult {
             lines: self.p.lines,
+            entry,
         })
     }
 }
@@ -1233,5 +1253,8 @@ pub fn build_hash_entry(
             }
         }
     }
-    Ok(BuildResult { lines: p.lines })
+    Ok(BuildResult {
+        lines: p.lines,
+        entry: 0,
+    })
 }

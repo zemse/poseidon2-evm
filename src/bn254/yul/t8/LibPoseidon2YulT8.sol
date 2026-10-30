@@ -6,20 +6,29 @@ pragma solidity >=0.6.0;
 /// @notice Poseidon2 permutation for BN254 with t = 8, Rf = 8, Rp = 57, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, the state is held in Yul locals
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
-/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,523 gas per permute of the test wrapper, which is then about 26,900 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)
+/// @dev The rounds are an internal function of their own (`rounds`), which via-IR compiles where one function of the whole permutation does not
+/// @dev Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,822 gas per permute of the test wrapper, which is then about 62,100 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 30,597 gas (about 27,000 bytes)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT8 {
     function permute(uint256[8] memory state) internal pure {
+        uint256 state0;
+        uint256 state1;
+        uint256 state2;
+        uint256 state3;
+        uint256 state4;
+        uint256 state5;
+        uint256 state6;
+        uint256 state7;
         assembly {
             // inputs reduced mod PRIME by the first addmod or mulmod of the initial linear layer
-            let state0 := mload(state)
-            let state1 := mload(add(state, 0x20))
-            let state2 := mload(add(state, 0x40))
-            let state3 := mload(add(state, 0x60))
-            let state4 := mload(add(state, 0x80))
-            let state5 := mload(add(state, 0xa0))
-            let state6 := mload(add(state, 0xc0))
-            let state7 := mload(add(state, 0xe0))
+            state0 := mload(state)
+            state1 := mload(add(state, 0x20))
+            state2 := mload(add(state, 0x40))
+            state3 := mload(add(state, 0x60))
+            state4 := mload(add(state, 0x80))
+            state5 := mload(add(state, 0xa0))
+            state6 := mload(add(state, 0xc0))
+            state7 := mload(add(state, 0xe0))
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 
             // initial linear layer
@@ -63,7 +72,24 @@ library LibPoseidon2YulT8 {
                 state3 := add(add(z, state3), 0x28f2882b9abfda8efc2d121da0c871d2d5313a53c67d0407eef4e93ee23e6c2d)
                 state7 := add(add(z, state7), 0x1cdc2a6f0f0e7c6c62ee1c0cad4fd11363a48db7095171faaf9a7b6e01c3e52b)
             }
+        }
+        rounds(state, state0, state1, state2, state3, state4, state5, state6, state7);
+    }
 
+    /// @dev The rounds from round 0's S-boxes on, storing the outputs: state0 .. are the initial linear layer plus round 0's constants
+    function rounds(
+        uint256[8] memory state,
+        uint256 state0,
+        uint256 state1,
+        uint256 state2,
+        uint256 state3,
+        uint256 state4,
+        uint256 state5,
+        uint256 state6,
+        uint256 state7
+    ) internal pure {
+        assembly {
+            let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
             // round 0 (external)
             {
                 let x2 := mulmod(state0, state0, PRIME)

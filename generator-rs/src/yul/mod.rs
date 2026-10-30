@@ -24,7 +24,8 @@ use render::{
 use schedule::{Layout, Mode, build_hash_entry, build_permutation};
 
 /// Per-width placement, tuned for the solc 0.8.30 setting with the least
-/// runtime gas first (the legacy pipeline at 1,000,000 runs from t = 8):
+/// runtime gas first (via-IR at 1,000,000 runs up to t = 8, the legacy
+/// pipeline at 1,000,000 runs for t = 12):
 /// locals up to the DUP16 / SWAP16 reach and every diag constant a PUSH32
 /// literal (3 gas a read), with no regard to the 24,576 byte code size of a
 /// contract using the library (t = 12 is about 39,400 bytes at 1,000,000
@@ -51,6 +52,7 @@ fn layout_for(t: usize) -> Layout {
             table_absolute: false,
             m4_add_double: false,
             tree_sum: false,
+            rounds_function: false,
         };
     }
     if t == 8 {
@@ -73,6 +75,7 @@ fn layout_for(t: usize) -> Layout {
             table_absolute: false,
             m4_add_double: false,
             tree_sum: false,
+            rounds_function: true,
         };
     }
     if t == 12 {
@@ -95,6 +98,7 @@ fn layout_for(t: usize) -> Layout {
             table_absolute: false,
             m4_add_double: true,
             tree_sum: true,
+            rounds_function: false,
         };
     }
     Layout {
@@ -116,6 +120,7 @@ fn layout_for(t: usize) -> Layout {
         table_absolute: false,
         m4_add_double: false,
         tree_sum: false,
+        rounds_function: false,
     }
 }
 
@@ -123,8 +128,7 @@ fn layout_for(t: usize) -> Layout {
 /// runtime gas and the gas there (the permute test wrapper, or a consumer of
 /// hash_1 / hash_2 / hash_3 for t = 4), for the library's natspec. Measured
 /// with the legacy pipeline (optimizer off, 200 and 1,000,000 runs) and
-/// via-IR (200 and 1,000,000 runs); via-IR fails for t = 8 (a solc stack
-/// layout assertion after 48 GB) and exceeds 40 GB for t = 12.
+/// via-IR (200 and 1,000,000 runs); via-IR exceeds 40 GB for t = 12.
 fn settings_note(t: usize) -> &'static str {
     match t {
         2 => {
@@ -137,7 +141,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 13,882 / 13,940 / 14,003 gas per hash_1 / hash_2 / hash_3 call of a consumer, which is then about 32,400 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 14,883 / 14,969 / 15,055 gas"
         }
         8 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,523 gas per permute of the test wrapper, which is then about 26,900 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 via-IR, optimizer on, runs = 1,000,000: 29,822 gas per permute of the test wrapper, which is then about 62,100 bytes, over the 24,576 byte limit before EIP-7954; legacy pipeline, runs = 1,000,000: 30,597 gas (about 27,000 bytes)"
         }
         12 => {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 43,682 gas per permute of the test wrapper, which is then about 39,400 bytes, over the 24,576 byte limit before EIP-7954 (via-IR does not compile it)"

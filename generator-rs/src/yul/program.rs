@@ -126,6 +126,13 @@ impl Program {
         rename(v, name.to_string())
     }
 
+    /// Assigns v to a Solidity local declared outside the assembly: a stack
+    /// slot like a let's, without the declaration.
+    pub fn param(&mut self, name: &str, v: &Value) -> Result<Value> {
+        *self.frames.last_mut().expect("open frame") += 1;
+        self.assign(name, v)
+    }
+
     /// Store v at the address expression and return the value an mload of
     /// the same address yields from now on.
     pub fn mstore(&mut self, addr: &str, v: &Value) -> Result<Value> {

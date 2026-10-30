@@ -132,24 +132,67 @@ pub fn render_array_library(
     } else {
         String::new()
     };
+    let functions = if layout.rounds_function {
+        let locals: Vec<String> = (0..t).map(|i| format!("state{i}")).collect();
+        let declarations: Vec<String> = locals
+            .iter()
+            .map(|name| format!("        uint256 {name};"))
+            .collect();
+        let arguments: Vec<String> = locals
+            .iter()
+            .map(|name| format!("uint256 {name}"))
+            .collect();
+        format!(
+            "    function permute(uint256[{t}] memory state) internal pure {{
+{}
+        assembly {{
+{}
+        }}
+        rounds(state, {});
+    }}
+
+    /// @dev The rounds from round 0's S-boxes on, storing the outputs: state0 .. are the initial linear layer plus round 0's constants
+    function rounds(uint256[{t}] memory state, {}) internal pure {{
+        assembly {{
+            let PRIME := {}
+{}
+        }}
+    }}",
+            declarations.join("\n"),
+            result.lines[..result.entry].join("\n"),
+            locals.join(", "),
+            arguments.join(", "),
+            hex(PRIME),
+            result.lines[result.entry..].join("\n")
+        )
+    } else {
+        format!(
+            "    function permute(uint256[{t}] memory state) internal pure {{
+        assembly {{
+{}
+        }}
+    }}",
+            result.lines.join("\n")
+        )
+    };
+    let function_note = if layout.rounds_function {
+        "\n/// @dev The rounds are an internal function of their own (`rounds`), which via-IR compiles where one function of the whole permutation does not"
+    } else {
+        ""
+    };
     format!(
         "{HEADER}
 pragma solidity >=0.6.0;
 
 /// @notice Poseidon2 permutation for BN254 with t = {t}, Rf = {rounds_f}, Rp = {rounds_p}, optimized in Yul assembly
 /// @dev Permutes `state` in place; inputs are reduced mod PRIME, {placement}
-/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256{scratch}{table}
+/// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256{scratch}{table}{function_note}
 /// @dev {settings}
 /// {SECURITY}
 library {name} {{
-    function permute(uint256[{t}] memory state) internal pure {{
-        assembly {{
-{}
-        }}
-    }}
+{functions}
 }}
-",
-        result.lines.join("\n")
+"
     )
 }
 

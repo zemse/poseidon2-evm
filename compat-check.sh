@@ -4,8 +4,8 @@
 # a downstream project may use: legacy pipeline with the optimizer off and on
 # (200 and 1,000,000 runs) and via-IR with the optimizer on. The libraries
 # are internal and inlined into the consumer, so the stack and code size
-# limits apply there. via-IR is only checked for t <= 4: from t = 8 it needs
-# tens of GB of memory. Usage: ./compat-check.sh [library.sol ...]
+# limits apply there. via-IR is only checked for t <= 8: t = 12 needs tens
+# of GB of memory. Usage: ./compat-check.sh [library.sol ...]
 
 set -u
 cd "$(dirname "$0")"
@@ -67,8 +67,8 @@ SOL
   fi
   for mode in "${MODES[@]}"; do
     read -r label via_ir optimizer runs <<< "$mode"
-    if [ "$via_ir" = true ] && [[ "$name" =~ T(8|12)$ ]]; then
-      echo "skip $name $label (via-IR needs tens of GB of memory from t = 8)"
+    if [ "$via_ir" = true ] && [[ "$name" =~ T12$ ]]; then
+      echo "skip $name $label (via-IR needs tens of GB of memory for t = 12)"
       continue
     fi
     out=$(cd "$WORK" && FOUNDRY_VIA_IR=$via_ir FOUNDRY_OPTIMIZER=$optimizer FOUNDRY_OPTIMIZER_RUNS=$runs \
