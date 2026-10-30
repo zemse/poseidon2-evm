@@ -8,7 +8,7 @@ pragma solidity >=0.6.0;
 /// @dev Every add / mul in the assembly was checked by the generator's bound tracker to fit in uint256
 /// @dev 2 internal diag constants are kept in the scratch space (0x00 - 0x3f) during the permutation
 /// @dev 7 of the 12 internal diag constants are kept at 0x80 .. 0x140 and 2 at 0x40 and 0x60 to stay within the code size limit; the caller's words there and the free memory pointer are saved in the state array and restored, with the zero slot, after the internal rounds
-/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,542 gas per permute of the test wrapper (via-IR does not compile it)
+/// @dev Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,488 gas per permute of the test wrapper (via-IR does not compile it)
 /// Security: https://github.com/zemse/poseidon2-evm/blob/main/SECURITY.md
 library LibPoseidon2YulT12 {
     function permute(uint256[12] memory state) internal pure {
@@ -41,24 +41,24 @@ library LibPoseidon2YulT12 {
 
             // initial linear layer
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -139,24 +139,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -237,24 +237,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -335,24 +335,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -433,24 +433,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -3398,24 +3398,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -3496,24 +3496,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -3594,24 +3594,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)
@@ -3692,24 +3692,24 @@ library LibPoseidon2YulT12 {
                 state11 := mulmod(mulmod(x2, x2, PRIME), state11, PRIME)
             }
             {
-                let t2 := addmod(add(state3, state2), shl(1, state1), PRIME)
-                let t3 := addmod(add(state1, state0), shl(1, state3), PRIME)
+                let t2 := addmod(add(state3, state2), add(state1, state1), PRIME)
+                let t3 := addmod(add(state1, state0), add(state3, state3), PRIME)
                 state3 := add(t3, mulmod(4, add(state3, state2), PRIME))
                 state1 := add(t2, mulmod(4, add(state1, state0), PRIME))
                 state0 := add(t3, state1)
                 state2 := add(t2, state3)
             }
             {
-                let t2 := addmod(add(state7, state6), shl(1, state5), PRIME)
-                let t3 := addmod(add(state5, state4), shl(1, state7), PRIME)
+                let t2 := addmod(add(state7, state6), add(state5, state5), PRIME)
+                let t3 := addmod(add(state5, state4), add(state7, state7), PRIME)
                 state7 := add(t3, mulmod(4, add(state7, state6), PRIME))
                 state5 := add(t2, mulmod(4, add(state5, state4), PRIME))
                 state4 := add(t3, state5)
                 state6 := add(t2, state7)
             }
             {
-                let t2 := addmod(add(state11, state10), shl(1, state9), PRIME)
-                let t3 := addmod(add(state9, state8), shl(1, state11), PRIME)
+                let t2 := addmod(add(state11, state10), add(state9, state9), PRIME)
+                let t3 := addmod(add(state9, state8), add(state11, state11), PRIME)
                 state11 := add(t3, mulmod(4, add(state11, state10), PRIME))
                 state9 := add(t2, mulmod(4, add(state9, state8), PRIME))
                 state8 := add(t3, state9)

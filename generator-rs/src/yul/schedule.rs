@@ -74,6 +74,10 @@ pub struct Layout {
     /// words are free while the whole state is in locals, and restored after
     /// the internal rounds
     pub table_absolute: bool,
+    /// the two-temporary M4 doubles with add(x, x) rather than shl(1, x): the
+    /// assembly CSE brings x up with a SWAP and a DUP1, the shift has the
+    /// constant moved around it
+    pub m4_add_double: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -516,6 +520,7 @@ impl<'a> Builder<'a> {
         let two_c = self.p.constant(u256(2));
         let four = self.p.constant(u256(4));
         let four_temps = self.layout.m4_temps == 4;
+        let add_double = self.layout.m4_add_double;
         self.p.open();
         // t0 and t1 as locals, or recomputed where they are used
         let (l0, l1) = if four_temps {
@@ -554,6 +559,8 @@ impl<'a> Builder<'a> {
                     let tt = t(p)?;
                     let sh = if raw {
                         p.expr(Op::Mulmod, &[&two_c, x, &p.p])?
+                    } else if add_double {
+                        p.expr(Op::Add, &[x, x])?
                     } else {
                         p.expr(Op::Shl, &[&one, x])?
                     };

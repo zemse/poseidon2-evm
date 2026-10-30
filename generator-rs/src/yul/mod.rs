@@ -47,6 +47,7 @@ fn layout_for(t: usize) -> Layout {
             external_lets: t == 3,
             fold_first: false,
             table_absolute: false,
+            m4_add_double: false,
         };
     }
     if t == 8 {
@@ -67,6 +68,7 @@ fn layout_for(t: usize) -> Layout {
             external_lets: false,
             fold_first: false,
             table_absolute: false,
+            m4_add_double: false,
         };
     }
     if t == 12 {
@@ -87,6 +89,7 @@ fn layout_for(t: usize) -> Layout {
             external_lets: false,
             fold_first: true,
             table_absolute: true,
+            m4_add_double: true,
         };
     }
     Layout {
@@ -106,6 +109,7 @@ fn layout_for(t: usize) -> Layout {
         external_lets: false,
         fold_first: false,
         table_absolute: false,
+        m4_add_double: false,
     }
 }
 
@@ -130,7 +134,7 @@ fn settings_note(t: usize) -> &'static str {
             "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 30,845 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         12 => {
-            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,542 gas per permute of the test wrapper (via-IR does not compile it)"
+            "Lowest runtime gas with solc 0.8.30 legacy pipeline, optimizer on, runs = 1,000,000: 46,488 gas per permute of the test wrapper (via-IR does not compile it)"
         }
         _ => "Not measured: this width is not shipped",
     }
