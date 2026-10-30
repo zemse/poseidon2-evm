@@ -782,9 +782,16 @@ mod tests {
             assert_eq!(wrapper_bytes, 51);
             let entry = entry_bytes(fork, 2, &[], false, 0);
             assert_eq!(entry, 49);
-            let compact_budget = if name == "osaka" { 3918 } else { 4007 };
-            let compact_gas = if name == "osaka" { 5954 } else { 5915 };
-            for tight in [false, true] {
+            // on Amsterdam the floated candidate is the default now: the ADDMOD
+            // bridge supplies no backing copy there, so no compact body exists
+            let compact_budget = 3916;
+            let compact_gas = 5943;
+            let tights: &[bool] = if name == "osaka" {
+                &[false, true]
+            } else {
+                &[false]
+            };
+            for &tight in tights {
                 let budget = if tight {
                     compact_budget
                 } else {
@@ -808,13 +815,13 @@ mod tests {
                 assert!(best.result.max_dup <= fork.reach);
                 assert!(best.result.max_depth <= 1000);
                 assert_eq!(best.result.memory, 0);
-                let expected_gas = if tight { compact_gas } else { 5912 };
+                let expected_gas = if tight { compact_gas } else { 5901 };
                 let expected_bytes = if tight {
                     compact_budget - 2
                 } else if name == "osaka" {
-                    7422
+                    7388
                 } else {
-                    4012
+                    4009
                 };
                 assert_eq!(best.result.gas + 50, expected_gas);
                 let mut candidate = files.clone();

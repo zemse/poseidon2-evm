@@ -2469,13 +2469,13 @@ impl<'a> Builder<'a> {
 
         let p = self.p();
         let s1 = self.state[1];
-        if self.opts.internal_mul3
-            && t == 2
-            && !collect
-            && wide(p1()) * U512::from(3u64) + wide(self.bound(s1)) <= wmax()
-        {
+        if self.opts.internal_mul3 && t == 2 && !collect {
             // s1' = (3 s1 mod P) + s0^5 lazy on the PRIME copy for the next
-            // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share
+            // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share.
+            // Where s1 is too lazy for the next round's s0' + c to fit (the
+            // first round, after the external ones), s0' takes an ADDMOD on
+            // a second copy instead
+            let lazy = wide(p1()) * U512::from(3u64) + wide(self.bound(s1)) <= wmax();
             if self.opts.float_prime_internal {
                 self.float_prime()?;
             }
@@ -2490,8 +2490,16 @@ impl<'a> Builder<'a> {
             if next_internal {
                 self.e.push_prime()?;
             }
+            if !lazy {
+                self.e.push_prime()?;
+            }
             let d = self.e.compute(Op::Add, &[val(x5), val(x5)], "2s0^5")?;
-            let out0 = self.e.compute(Op::Add, &[val(s1), inplace(d)], "s0'")?;
+            let out0 = if lazy {
+                self.e.compute(Op::Add, &[val(s1), inplace(d)], "s0'")?
+            } else {
+                self.e
+                    .compute(Op::Addmod, &[val(s1), inplace(d), inplace(p)], "s0'")?
+            };
             self.e.end_line();
             self.dead.push(x5);
             self.state = vec![out0, out1];
@@ -5031,7 +5039,7 @@ mod tests {
                             .internal_round(round, round < 59 || final_prime)
                             .unwrap();
                         let expected = if bridge {
-                            vec![p1() * u256(2), p1()]
+                            vec![p1(), p1() * u256(2)]
                         } else {
                             vec![p1() * u256(2) + old_bound, p1() * u256(2)]
                         };
@@ -5123,7 +5131,7 @@ mod tests {
                     .unwrap();
                     let rounds = internal_counts(&result.lines);
                     assert_eq!(rounds.len(), 56);
-                    assert_eq!(count(&rounds[0], "addmod"), if b == 3 { 2 } else { 0 });
+                    assert_eq!(count(&rounds[0], "addmod"), if b == 3 { 1 } else { 0 });
                     for round in &rounds[1..] {
                         assert_eq!(count(round, "mul"), 0);
                         assert_eq!(count(round, "addmod"), 0);

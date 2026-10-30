@@ -112,7 +112,7 @@ fn check_terminal(production: bool) {
         );
         assert_eq!(checked.step_bytes, result.step_bytes);
         let model = super::super::entry_gas(&fork, 2, &result);
-        assert_eq!(model, if name == "paris" { 5914 } else { 5912 });
+        assert_eq!(model, if name == "paris" { 5903 } else { 5901 });
         let path = huff_name(&fork, 2, "Poseidon2");
         let permutation_path = huff_name(&fork, 2, "Permutation");
         let utils = if name == "amsterdam" {

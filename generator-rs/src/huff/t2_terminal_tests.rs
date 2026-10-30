@@ -269,7 +269,7 @@ fn t2_terminal_bounds_tails_and_store_guards() {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 2]], fork(name).unwrap(), memory, tail)
                         .unwrap();
-                assert_eq!(result.max_depth, 130 + tail);
+                assert_eq!(result.max_depth, 129 + tail);
                 assert!(result.max_dup <= fork(name).unwrap().reach);
             }
         }

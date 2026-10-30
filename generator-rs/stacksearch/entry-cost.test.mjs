@@ -85,9 +85,9 @@ test("selected entry accounting matches compiled small-state execution on three 
       assert.equal(Number(raw[3]), entry.call);
       assert.equal(Number(raw[4]), entry.call);
       assert.equal(Number(raw[5]), 0);
-      assert.equal(entry.call, (t === 2 ? 5909 : 7644) + (paris ? 2 : 0));
+      assert.equal(entry.call, (t === 2 ? 5898 : 7644) + (paris ? 2 : 0));
       const runtimeBytes =
-        t === 2 ? (hardfork === "amsterdam" ? 4011 : 7421) : 6713;
+        t === 2 ? (hardfork === "amsterdam" ? 4008 : 7387) : 6713;
       assert.equal(entry.runtimeBytes, runtimeBytes + (paris ? 2 : 0));
     }
     const t8 = hardfork === "amsterdam" ? 23568 : paris ? 24278 : 24217;
@@ -124,9 +124,9 @@ test("gas-floor keeps canonical floors separate from selected entry costs", () =
   );
   assert.deepEqual(
     rows.map((row) => row.call),
-    [5909, 7644, 12083],
+    [5898, 7644, 12083],
   );
-  assert.equal(rows[0].permutationCall, 5912);
+  assert.equal(rows[0].permutationCall, 5901);
   assert.equal(rows[1].permutationCall, 7650);
   assert.equal(rows[1].core.gas, 7578);
   for (const row of rows) {
