@@ -39,14 +39,15 @@ ADD, SUB, SHL with its PUSH: 6 a binary op (3 op + 3 for the consumed slot). ADD
    Middle kept block, TAKE=2 (x only), PARK_LIVE=1, window 8, five hand-picked op orders (the incumbent, u0 before t0, u1 and d1 first, the o3/o2 half first, u3/d3/t3 first): none below 344 in each (1 to 5 min, under 2 GB each).
    24 random op orders (random linear extensions of the block DAG with its lanes), same setting: none below 344 in any.
    Final block (six-reduction DAG) with takes: TAKE=1, window 8, UB 183, and the 183 program order with TAKE=2, window 9: both passed 13 GB within 5 min and were stopped, no program.
+   exit0 block, TAKE=1 with S takes, PARK_LIVE=1, window 8, UB 155: passed 12 GB in 10 min, stopped, no program.
 
 ## Where the lane stands
 
 - Arithmetic: 16 ops and 4 reductions a block is the least found; every row of M4 on u = x + S needs reductions for overflow, not for the output bound, and the column sums need one reduction a column from B = 3 on. B = 2 (t8) needed only two, now taken.
 - Copies: every x is read twice (its column sum, then its u), the last read is in its block, so the column sums must copy. One x (or S0 in the last block) a block is now read in place; more takes do not pay in any order searched (29 orders, window 8, two live takes) or in the incumbent order with three takes (window 9).
-- Exit and final blocks: a take in the exit block does not pay (window 8); the final block is 183 at window 9 (the 184 below window 8), 10 would pass the memory cap.
+- Exit and final blocks: a take in the exit block does not pay (window 8), the exit0 and final take searches pass the memory cap; the final block is 183 at window 9 (the 184 below window 8), 10 would pass the memory cap.
 - Left open: an exact take search of a kept block without a fixed order (it passes 11 GB at window 8), takes in the final and exit0 blocks, and a block program that interleaves two blocks (the ROLL bound of RESULTS.md says at most 6 gas a block within window 10, before takes).
 
 ## Landing
 
-be974ab (gas) and c63ca61 (tooling, notes) are rebased on opt fa54a9a and pass the gate (cargo test --lib, the Amsterdam verify tests, generate:huff with no diff, verify:huff, forge test 127/127; Osaka verified per width with the CLI). The sandbox of this lane refuses `git -C <main> merge --ff-only` (and a `cd` into the main checkout), so opt is not moved from here: the coordinator fast-forwards opt to this branch.
+be974ab (gas) and c63ca61 (tooling, notes) are rebased on opt fa54a9a and pass the gate (cargo test --release: lib 106, verify tests Amsterdam 3 and Osaka 5; generate:huff with no diff, verify:huff, forge test 127/127). The sandbox of this lane refuses `git -C <main> merge --ff-only` (and a `cd` into the main checkout), so opt is not moved from here: the coordinator fast-forwards opt to this branch.
