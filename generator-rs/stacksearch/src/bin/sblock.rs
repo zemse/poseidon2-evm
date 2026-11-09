@@ -52,6 +52,13 @@ const S0: u8 = 2; // + i
 const X0: u8 = 6; // + i
 const N0: u8 = 10; // + node
 const LANE: u32 = 45;
+/// the nodes computed are the low bits of `computed`; with TAKE=1 the
+/// floor slot a take parked a value in (plus one, 0 for none) and that
+/// value sit above them
+const NODES: u32 = 23;
+const MASK: u64 = (1 << NODES) - 1;
+/// parked values at most (TAKE=n)
+const PARKS: usize = 3;
 const STORE: u32 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -88,6 +95,39 @@ struct Dag {
     exchange: bool,
     /// the deepest slot a DUP reaches (REACH, 16)
     reach: usize,
+    /// TAKE=1: `takex<i>` / `takeS<i>` SWAPs x_i / S_i up from the floor
+    /// (its last read; S only with TAKE_S=1), parking the working top in
+    /// its slot, and adds the other operand of u_i; SWAP and DUP then reach
+    /// the parked value, which the goal accepts only dead or kept
+    take: usize,
+    take_s: bool,
+    /// ORDER=<names>: the ops run in this order (only the stack moves and
+    /// the way each u is made are searched)
+    order_ops: Vec<usize>,
+}
+
+/// the floor slots values are parked in, by slot
+fn parked(computed: u64) -> impl Iterator<Item = (usize, u8)> {
+    (0..PARKS).filter_map(move |e| {
+        let r = computed >> (NODES as usize + 9 * e);
+        let slot = (r & 15) as usize;
+        (slot > 0).then(|| (slot - 1, ((r >> 4) & 31) as u8))
+    })
+}
+
+fn parked_at(computed: u64, slot: usize) -> Option<u8> {
+    parked(computed).find(|p| p.0 == slot).map(|p| p.1)
+}
+
+fn park(computed: u64, slot: usize, v: u8) -> u64 {
+    let mut ps: Vec<(usize, u8)> = parked(computed).filter(|p| p.0 != slot).collect();
+    ps.push((slot, v));
+    ps.sort();
+    let mut c = computed & MASK;
+    for (e, (slot, v)) in ps.into_iter().enumerate() {
+        c |= ((slot as u64 + 1) | ((v as u64) << 4)) << (NODES as usize + 9 * e);
+    }
+    c
 }
 
 impl Dag {
@@ -96,15 +136,22 @@ impl Dag {
             t0=add(u0,u1);q0=q(t0);t1=add(u2,u3);d3=add(u3,u3);\
             t3=addmod(t0,d3);d1=add(u1,u1);q1=q(t1);o3=add(q1,t3);\
             t2=addmod(t1,d1);o2=add(o3,t2);o1=add(q0,t2);o0=add(t3,o1)";
-        let spec = match mode {
-            "stored" | "kept" => format!("{m4};z0=lane(o0);z1=lane(o1);z2=lane(o2);z3=lane(o3)"),
-            "exit" | "exit0" => m4.to_string(),
-            // the last round's outputs, reduced
-            "final" => m4
-                .replace("=add(q", "=addmod(q")
-                .replace("=add(o3", "=addmod(o3")
-                .replace("=add(t3,o1", "=addmod(t3,o1"),
-            _ => panic!("{mode}"),
+        // DAG=<spec>: another M4 DAG in the same syntax, used as is (its
+        // outputs o0..o3, its lanes z0..z3 when the mode keeps or stores)
+        let spec = match std::env::var("DAG") {
+            Ok(spec) => spec,
+            Err(_) => match mode {
+                "stored" | "kept" => {
+                    format!("{m4};z0=lane(o0);z1=lane(o1);z2=lane(o2);z3=lane(o3)")
+                }
+                "exit" | "exit0" => m4.to_string(),
+                // the last round's outputs, reduced
+                "final" => m4
+                    .replace("=add(q", "=addmod(q")
+                    .replace("=add(o3", "=addmod(o3")
+                    .replace("=add(t3,o1", "=addmod(t3,o1"),
+                _ => panic!("{mode}"),
+            },
         };
         let out = if matches!(mode, "stored" | "kept") {
             'z'
@@ -145,7 +192,7 @@ impl Dag {
             "exit0" => vec![lanes[0], P, lanes[1], lanes[2], lanes[3]],
             _ => Vec::new(),
         };
-        Dag {
+        let mut dag = Dag {
             nodes,
             floor,
             kept: mode != "stored",
@@ -156,7 +203,23 @@ impl Dag {
             roll: std::env::var("ROLL").is_ok_and(|v| v == "1"),
             exchange: std::env::var("EXCHANGE").is_ok_and(|v| v == "1"),
             reach: std::env::var("REACH").map_or(16, |v| v.parse().unwrap()),
+            take: std::env::var("TAKE").map_or(0, |v| v.parse::<usize>().unwrap().min(PARKS)),
+            take_s: std::env::var("TAKE_S").is_ok_and(|v| v == "1"),
+            order_ops: Vec::new(),
+        };
+        if let Ok(order) = std::env::var("ORDER") {
+            dag.order_ops = order
+                .split(',')
+                .map(|n| dag.nodes.iter().position(|x| x.name == n).expect(n))
+                .collect();
         }
+        dag
+    }
+
+    /// with ORDER, whether op j is the next one
+    fn next_op(&self, j: usize, computed: u64) -> bool {
+        self.order_ops.is_empty()
+            || self.order_ops.iter().find(|&&k| computed & (1 << k) == 0) == Some(&j)
     }
 
     /// gas units: 2 a gas with ROLL
@@ -191,7 +254,7 @@ impl Dag {
 
     /// the uses still to come of a value: the args of the nodes not yet
     /// computed, and a kept S-box output's place in the goal
-    fn uses(&self, it: u8, computed: u32) -> u32 {
+    fn uses(&self, it: u8, computed: u64) -> u32 {
         let mut u = 0;
         for (j, nd) in self.nodes.iter().enumerate() {
             if computed & (1 << j) == 0 && nd.op != Op::U {
@@ -205,7 +268,7 @@ impl Dag {
     }
 
     /// the PRIME copies the ops left consume
-    fn primes(&self, computed: u32) -> u32 {
+    fn primes(&self, computed: u64) -> u32 {
         self.order.iter().filter(|&&v| v == P).count() as u32
             + self
                 .nodes
@@ -217,7 +280,7 @@ impl Dag {
                 .count() as u32
     }
 
-    fn need(&self, v: u8, computed: u32) -> u32 {
+    fn need(&self, v: u8, computed: u64) -> u32 {
         match v {
             G => 0,
             P => self.primes(computed),
@@ -225,15 +288,22 @@ impl Dag {
         }
     }
 
-    fn canon(&self, s: &mut [u8], computed: u32) {
+    fn canon(&self, s: &mut [u8], computed: &mut u64) {
         for v in s.iter_mut() {
-            if *v >= N0 && self.uses(*v, computed) == 0 {
+            if *v >= N0 && self.uses(*v, *computed) == 0 {
                 *v = G;
             }
         }
+        let dead: Vec<usize> = parked(*computed)
+            .filter(|&(_, v)| v >= N0 && self.uses(v, *computed) == 0)
+            .map(|p| p.0)
+            .collect();
+        for slot in dead {
+            *computed = park(*computed, slot, G);
+        }
     }
 
-    fn h(&self, s: &[u8], computed: u32) -> u32 {
+    fn h(&self, s: &[u8], computed: u64) -> u32 {
         let mut h = 0;
         for j in 0..self.nodes.len() {
             if computed & (1 << j) == 0 {
@@ -253,19 +323,22 @@ impl Dag {
             let have = if computed & (1 << (it - N0)) == 0 {
                 1
             } else {
-                count(it)
+                count(it) + parked(computed).filter(|p| p.1 == it).count() as i32
             };
             h += 3 * m * (u - have).max(0) as u32;
-            h += pop * (have - u).max(0) as u32 * (computed >> (it - N0) & 1);
+            h += pop * (have - u).max(0) as u32 * (computed >> (it - N0) & 1) as u32;
         }
         h
     }
 
-    fn is_goal(&self, s: &[u8], computed: u32) -> bool {
+    fn is_goal(&self, s: &[u8], computed: u64) -> bool {
+        let pv_ok =
+            |kept: bool| parked(computed).all(|(_, v)| v == G || (kept && self.lanes.contains(&v)));
+        let done = computed & MASK == (1 << self.nodes.len()) - 1;
         if !self.order.is_empty() {
-            return computed == (1 << self.nodes.len()) - 1 && s == self.order;
+            return done && s == self.order && pv_ok(false);
         }
-        computed == (1 << self.nodes.len()) - 1
+        done && pv_ok(self.kept)
             && s.iter().all(|&v| {
                 (self.kept && self.lanes.contains(&v)) || (self.garbage && (v == G || v == P))
             })
@@ -282,17 +355,16 @@ impl Dag {
     }
 
     /// depth (1-based) of the nearest copy of v below the working stack s
-    fn depth(&self, s: &[u8], v: u8) -> Option<usize> {
+    fn depth(&self, s: &[u8], v: u8, computed: u64) -> Option<usize> {
         if let Some(k) = s.iter().position(|&x| x == v) {
             return Some(k + 1);
         }
-        self.floor
-            .iter()
-            .position(|&x| x == v)
+        (0..self.floor.len())
+            .find(|&k| parked_at(computed, k).unwrap_or(self.floor[k]) == v)
             .map(|k| s.len() + k + 1)
     }
 
-    fn moves(&self, s: &[u8], computed: u32, out: &mut Vec<(u32, String, Vec<u8>, u32)>) {
+    fn moves(&self, s: &[u8], computed: u64, out: &mut Vec<(u32, String, Vec<u8>, u64)>) {
         out.clear();
         let d = s.len();
         let top = |v: u8| {
@@ -301,7 +373,10 @@ impl Dag {
             t.extend_from_slice(s);
             t
         };
-        let count = |v: u8| s.iter().filter(|&&x| x == v).count() as u32;
+        let count = |v: u8| {
+            s.iter().filter(|&&x| x == v).count() as u32
+                + parked(computed).filter(|p| p.1 == v).count() as u32
+        };
         let m = self.m();
         // copies allowed beyond the uses left: one spare with GARBAGE (a
         // roll gives the same order of the live values for less)
@@ -322,7 +397,7 @@ impl Dag {
             let primes = self.primes(computed);
             if primes > 0
                 && primes + spare > count(P)
-                && self.depth(s, P).is_some_and(|k| k <= self.reach)
+                && self.depth(s, P, computed).is_some_and(|k| k <= self.reach)
             {
                 out.push((3 * m, "P".into(), top(P), computed));
             }
@@ -363,7 +438,7 @@ impl Dag {
             out.push((2 * m, "pop".into(), s[1..].to_vec(), computed));
         }
         for (j, nd) in self.nodes.iter().enumerate() {
-            if computed & (1 << j) != 0 {
+            if computed & (1 << j) != 0 || !self.next_op(j, computed) {
                 continue;
             }
             let a = &nd.args;
@@ -398,6 +473,54 @@ impl Dag {
                 op => format!("{}={}", format!("{op:?}").to_lowercase(), nd.name),
             };
             out.push((self.cost(j), name, t, computed | (1 << j)));
+        }
+        if self.take == 0 || d == 0 {
+            return;
+        }
+        let mut parks = 0;
+        for (slot, pv) in parked(computed) {
+            parks += 1;
+            // the parked value: a DUP, or a SWAP that parks the top instead
+            let n = d + slot;
+            if pv != G && d < self.max_working && n < self.reach {
+                let need = self.need(pv, computed);
+                if need > 0 && need + spare > count(pv) {
+                    out.push((3 * m, format!("dup{}", n + 1), top(pv), computed));
+                }
+            }
+            if n <= self.reach && s[0] != pv {
+                let mut t = s.to_vec();
+                t[0] = pv;
+                out.push((3 * m, format!("swap{n}"), t, park(computed, slot, s[0])));
+            }
+        }
+        if parks >= self.take {
+            return;
+        }
+        for (j, nd) in self.nodes.iter().enumerate() {
+            if nd.op != Op::U || computed & (1 << j) != 0 || !self.next_op(j, computed) {
+                continue;
+            }
+            let i = nd.args[0] - X0;
+            let mut ways = vec![(format!("takex{i}"), nd.args[0], nd.args[1])];
+            if self.take_s {
+                ways.push((format!("take{i}"), nd.args[1], nd.args[0]));
+            }
+            for (name, v, other) in ways {
+                let Some(slot) = self.floor.iter().position(|&x| x == v) else {
+                    continue;
+                };
+                // SWAP the top with the slot, DUP the other operand, ADD
+                let Some(o) = self.depth(s, other, computed) else {
+                    continue;
+                };
+                if parked_at(computed, slot).is_some() || d + slot > self.reach || o > self.reach {
+                    continue;
+                }
+                let mut t = s.to_vec();
+                t[0] = N0 + j as u8;
+                out.push((9 * m, name, t, park(computed | (1 << j), slot, s[0])));
+            }
         }
     }
 }
@@ -436,12 +559,12 @@ fn main() {
     assert!(max_working <= 16);
     let dag = Dag::build(floor, mode, max_working);
     let nn = dag.nodes.len();
-    assert!(nn <= 24);
+    assert!(nn <= NODES as usize);
     let show = |s: &[u8]| s.iter().map(|&v| dag.name(v)).collect::<Vec<_>>().join(",");
     let gas = |g: u32| format!("{}", g as f64 / dag.m() as f64);
     if args.get(4).is_some_and(|a| a == "trace") {
         // replay: every move must be one the search could make
-        let (mut s, mut c, mut g) = (Vec::new(), 0u32, 0u32);
+        let (mut s, mut c, mut g) = (Vec::new(), 0u64, 0u32);
         let mut buf = Vec::new();
         for m in args[5].split_whitespace() {
             dag.moves(&s, c, &mut buf);
@@ -451,7 +574,13 @@ fn main() {
             g += cost;
             s = t;
             c = tc;
-            dag.canon(&mut s, c);
+            dag.canon(&mut s, &mut c);
+            if std::env::var("VERBOSE").is_ok() {
+                let parked: String = parked(c)
+                    .map(|(k, v)| format!(" | slot {k}: {}", dag.name(v)))
+                    .collect();
+                println!("{g:4} {m:12} [{}]{parked}", show(&s));
+            }
         }
         println!("gas {} goal {}", gas(g), dag.is_goal(&s, c));
         println!("layout {}", show(&s));
@@ -461,22 +590,23 @@ fn main() {
     let ub: u32 = args
         .get(4)
         .map_or(u32::MAX, |s| s.parse::<u32>().unwrap() * dag.m());
-    let pack = |s: &[u8], c: u32| -> u128 {
+    assert!(max_working <= 12);
+    let pack = |s: &[u8], c: u64| -> u128 {
         let mut k: u128 = 0;
         for &v in s.iter().rev() {
             k = (k << 5) | v as u128;
         }
-        k | ((c as u128) << 80) | ((s.len() as u128) << 120)
+        k | ((s.len() as u128) << 60) | ((c as u128) << 64)
     };
-    let unpack = |k: u128| -> (Vec<u8>, u32) {
-        let len = (k >> 120) as usize;
+    let unpack = |k: u128| -> (Vec<u8>, u64) {
+        let len = ((k >> 60) & 15) as usize;
         let mut s = Vec::with_capacity(len);
         let mut x = k;
         for _ in 0..len {
             s.push((x & 31) as u8);
             x >>= 5;
         }
-        (s, ((k >> 80) as u32) & ((1u32 << 24) - 1))
+        (s, (k >> 64) as u64)
     };
     let weight: u32 = std::env::var("WEIGHT").map_or(10, |v| v.parse().unwrap());
     let start = pack(&[], 0);
@@ -516,7 +646,8 @@ fn main() {
         }
         dag.moves(&s, computed, &mut buf);
         for (c, m, mut t, tc) in buf.drain(..) {
-            dag.canon(&mut t, tc);
+            let mut tc = tc;
+            dag.canon(&mut t, &mut tc);
             let ng = g + c;
             let hh = dag.h(&t, tc);
             if ng + hh >= ub {
@@ -554,7 +685,7 @@ mod tests {
         dag
     }
 
-    fn replay(dag: &Dag, initial: &[u8], program: &str) -> (u32, Vec<u8>, u32) {
+    fn replay(dag: &Dag, initial: &[u8], program: &str) -> (u32, Vec<u8>, u64) {
         let (mut gas, mut s, mut computed) = (0, initial.to_vec(), 0);
         let mut moves = Vec::new();
         for op in program.split_whitespace() {
@@ -563,7 +694,7 @@ mod tests {
             gas += cost;
             s = next.clone();
             computed = *done;
-            dag.canon(&mut s, computed);
+            dag.canon(&mut s, &mut computed);
         }
         (gas, s, computed)
     }
