@@ -90,7 +90,7 @@ test("selected entry accounting matches compiled small-state execution on three 
         t === 2 ? (hardfork === "amsterdam" ? 4008 : 7387) : 6713;
       assert.equal(entry.runtimeBytes, runtimeBytes + (paris ? 2 : 0));
     }
-    const t8 = hardfork === "amsterdam" ? 23547 : paris ? 24278 : 24217;
+    const t8 = hardfork === "amsterdam" ? 23202 : paris ? 24278 : 24217;
     assert.match(
       execution,
       new RegExp(

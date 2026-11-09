@@ -145,6 +145,11 @@ pub struct BuildOptions {
     pub tree_adaptive_prime: bool,
     /// stream memory-held internal outputs into a planned sum tree
     pub fused_tree: FusedTree,
+    /// with prime_early, the consuming rounds that lead to another one DUP
+    /// their deepest element and swap every output into the next one's
+    /// slot, the last into s0^5's: n SWAPs and one dead value a round
+    /// instead of n + 3 SWAPs
+    pub lane_copy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -191,6 +196,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     tree_late_prime: false,
     tree_adaptive_prime: false,
     fused_tree: FusedTree::Serial,
+    lane_copy: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -336,6 +342,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.fused_tree != FusedTree::Serial {
         enabled.push(format!("fusedTree={:?}", opts.fused_tree));
+    }
+    if opts.lane_copy {
+        enabled.push("laneCopy".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -2746,7 +2755,12 @@ impl<'a> Builder<'a> {
         if self.e.top(0)? != x5 {
             self.swap_up(x5)?;
         }
-        if mem == 0 && self.e.at(t) != Some(p) {
+        let lane_copy = if next_internal {
+            self.lane_copy(round)
+        } else {
+            self.lane_copy_seam(round)
+        };
+        if mem == 0 && self.e.at(t) != Some(p) && !(lane_copy && self.e.find_prime() > 0) {
             // the PRIME copy the rounds DUP from, in place of the slot under
             // the state
             self.e.push_prime()?;
@@ -2757,6 +2771,12 @@ impl<'a> Builder<'a> {
 
         let mut old = vec![x5];
         old.extend_from_slice(&self.state[1..]);
+        if lane_copy {
+            // a round after it that is not one either takes its PRIME copy
+            // from under the state (a body round runs for every call)
+            let carrier = rc.is_none() && !self.lane_copy(round + 1);
+            return self.internal_round_lane_copy(round, &old, carrier, rc.is_some());
+        }
         if mem > 0 {
             // [0, 32t) holds the state only from the last round on
             if self.state_in_memory {
@@ -3038,6 +3058,102 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    /// A consuming round leading to another one takes the lane-copy shape
+    /// (internal4's): the state all on the stack
+    fn lane_copy(&self, round: usize) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.lane_copy_rounds() && round + 1 < p_end && round + 2 < self.range.to
+            || self.lane_copy_seam(round)
+    }
+
+    /// the last consuming round, which runs the next round's S-boxes on its
+    /// outputs (external_seam), in the lane-copy shape
+    fn lane_copy_seam(&self, round: usize) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.lane_copy_rounds()
+            && self.opts.external_seam
+            && self.stream()
+            && round + 1 == p_end
+            && round + 2 < self.range.to
+    }
+
+    fn lane_copy_rounds(&self) -> bool {
+        let slots = held_slots(self.t, self.e.max_reach, self.opts.consume_slots);
+        self.opts.lane_copy && self.opts.prime_early && self.opts.prime_stack && slots == self.t - 1
+    }
+
+    /// The consuming round as internal4: [sum, P] under the t PRIME copies
+    /// of the MULMODs, the deepest element DUPed (its original left dead),
+    /// every output swapped into the slot of the next element, the last
+    /// into the slot of s0^5, whose m0 lands on the sum: s0' over the PRIME
+    /// copy under it, n SWAPs and one DUP for n + 3 SWAPs. Every element
+    /// keeps its slot; the dead ones pile up under the state. With carrier
+    /// the deepest element is swapped up over one more PRIME copy instead,
+    /// which takes its slot: the copy under the state the next round wants.
+    fn internal_round_lane_copy(
+        &mut self,
+        round: usize,
+        old: &[Id],
+        carrier: bool,
+        body: bool,
+    ) -> Result<()> {
+        let t = self.t;
+        let p = self.p();
+        let x5 = old[0];
+        let seam = self.lane_copy_seam(round);
+        if body {
+            // the dead values move the copies under them a slot a round
+            self.e.push(PRIME, None)?;
+        } else {
+            self.e.push_prime()?;
+        }
+        let sum = self.chain_sum_in_place(old, "sum", p1())?;
+        self.e.end_line();
+        let mut order: Vec<usize> = (1..t).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.e.find(old[i])));
+        // with the seam each output lands on a second copy, which the next
+        // round's S-box of its lane takes
+        let copies = t + if seam { t - 1 } else { 0 } + usize::from(carrier);
+        for _ in 0..copies {
+            self.e.push_prime()?;
+        }
+        let mut out = vec![0; t];
+        let mut xs = vec![0; t];
+        for (k, &i) in order.iter().enumerate() {
+            if k == 0 && !carrier {
+                self.e.dup(old[i])?;
+            } else {
+                self.swap_up(old[i])?;
+            }
+            self.consume_out(i, old[i], sum, &mut out)?;
+            if seam {
+                xs[i] = self.seam_lane(round + 1, i, out[i])?;
+            }
+            self.e.end_line();
+        }
+        self.swap_up(x5)?;
+        let d0 = self.diag(0);
+        let m0 = self
+            .e
+            .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+        out[0] = self
+            .e
+            .compute(Op::Add, &[inplace(m0), inplace(sum)], "s0'")?;
+        if self.e.top(1)? != p {
+            bail!("lane copy: s0' over no PRIME copy");
+        }
+        if seam {
+            xs[0] = self.seam_lane(round + 1, 0, out[0])?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
+        self.e.end_line();
+        self.state = out;
+        Ok(())
+    }
+
     /// s + c and the S-box of lane i of `round` for s on top over a PRIME
     /// copy (the seam of the last consuming round)
     fn seam_lane(&mut self, round: usize, i: usize, s: Id) -> Result<Id> {
@@ -3136,6 +3252,10 @@ impl<'a> Builder<'a> {
     /// each sub-chain of the consuming rounds rotates its slots one place a
     /// round (consume_chains), under [s0, P].
     fn entry_swaps(&self, from: usize) -> Option<usize> {
+        if self.lane_copy_rounds() {
+            // every element keeps its slot
+            return Some(0);
+        }
         let slots = held_slots(self.t, self.e.max_reach, self.opts.consume_slots);
         let group = match self.opts.consume_group {
             0 => slots,
@@ -3223,7 +3343,13 @@ impl<'a> Builder<'a> {
                         Tag::Other(v) => v,
                     })
                     .collect();
-                let cur = self.e.from_top();
+                let mut cur = self.e.from_top();
+                let mut want = want;
+                if self.lane_copy_rounds() {
+                    // the dead values under the state grow a slot a round
+                    cur.truncate(self.t + 1);
+                    want.truncate(self.t + 1);
+                }
                 if cur.len() != want.len() {
                     bail!("the mid entry's stack differs in depth");
                 }
@@ -3928,6 +4054,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                                 false,
                                                                             fused_tree:
                                                                                 FusedTree::Serial,
+                                                                            lane_copy: false,
                                                                         });
                                                                     }
                                                                 }
@@ -3953,6 +4080,12 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                 || (opts.prime_early && opts.external_stream);
             std::iter::once(opts).chain(seam.then_some(BuildOptions {
                 external_seam: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.prime_early.then_some(BuildOptions {
+                lane_copy: true,
                 ..opts
             }))
         })

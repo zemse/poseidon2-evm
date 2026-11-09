@@ -1333,3 +1333,78 @@ fn t8_seam_runs_the_next_s_boxes_in_the_last_consuming_round() {
         }
     }
 }
+
+#[test]
+fn t8_lane_copy_rounds_take_one_swap_an_element() {
+    let params = generate_params_uncached(8);
+    let mut inputs = crate::vectors::test_inputs(8);
+    inputs.push(vec![p1(); 8]);
+    let build = |lane_copy: bool| -> (Builder<'_>, Vec<Id>) {
+        let opts = BuildOptions {
+            external_d: true,
+            external_stream: true,
+            internal_consume: true,
+            prime_stack: true,
+            prime_early: true,
+            external_seam: true,
+            external_template: true,
+            tree_sums: true,
+            lane_copy,
+            ..DEFAULT_OPTIONS
+        };
+        let mut b = Builder::new(
+            &params,
+            &inputs,
+            opts,
+            fork("amsterdam").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            true,
+            &Boundary::default(),
+        )
+        .unwrap();
+        let out = b.build().unwrap();
+        (b, out)
+    };
+    let (plain, _) = build(false);
+    let (copy, out) = build(true);
+    let round = |b: &Builder<'_>, r: usize| -> String {
+        let from =
+            b.e.lines
+                .iter()
+                .position(|l| l.contains(&format!("Round {r} (internal)")))
+                .unwrap();
+        let to =
+            b.e.lines
+                .iter()
+                .position(|l| l.contains(&format!("Round {} (internal)", r + 1)))
+                .unwrap();
+        b.e.lines[from + 1..to]
+            .iter()
+            .map(|l| l.split_once("//").map_or(l.as_str(), |(ops, _)| ops))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let swaps = |text: &str| {
+        text.split_whitespace()
+            .filter(|op| op.starts_with("swap"))
+            .count()
+    };
+    // a steady round: n SWAPs and one DUP of the deepest element for
+    // n + 3 SWAPs
+    let steady = round(&copy, 30);
+    assert_eq!(swaps(&steady), params.t - 1, "{steady}");
+    assert_eq!(swaps(&round(&plain, 30)), params.t + 2);
+    assert!(plain.e.gas - copy.e.gas >= 6 * (params.rounds_p as u64 - 2));
+    for (i, input) in inputs.iter().enumerate() {
+        let expected = permutation_steps(&params, input, 0, step_count(&params));
+        for (&id, expected) in out.iter().zip(expected) {
+            assert_eq!(copy.e.value(id).vals[i], expected);
+            assert_eq!(copy.e.bound(id), p1());
+        }
+    }
+}
