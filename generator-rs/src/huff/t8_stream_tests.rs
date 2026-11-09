@@ -297,21 +297,11 @@ fn t8_kept_last_sum_lifetime() {
             let before = b.e.gas;
             let mut out = vec![0; 8];
             if take_sum {
-                assert_eq!(
-                    last_stream_block8(),
-                    format!("{TAKE_SUM_PREFIX} take0 {TAKE_SUM_SUFFIX}")
-                );
-                assert!(b.stream_block_fits(last_stream_block8(), 0, &state, &sums, true));
-                b.stream_block(
-                    last_stream_block8(),
-                    0,
-                    &state,
-                    &sums,
-                    Some(round),
-                    true,
-                    &mut out,
-                )
-                .unwrap();
+                let last = take_stream_block("take0", 5);
+                assert_eq!(last, format!("{TAKE_SUM_PREFIX} take0 {TAKE_SUM_SUFFIX}"));
+                assert!(b.stream_block_fits(&last, 0, &state, &sums, true));
+                b.stream_block(&last, 0, &state, &sums, Some(round), true, &mut out)
+                    .unwrap();
             } else {
                 b.stream_block(
                     stream_blocks(true, true)[0],
@@ -598,7 +588,7 @@ fn t8_input_last_use_selection_and_fallback() {
             let old = b.state.clone();
             let tail = sentinels(&mut b, 3);
             let mut stack = b.e.from_top();
-            // x4 two slots deeper than any first-block program expects
+            // x4 two slots deeper: the first-block program follows it
             if moved {
                 stack.swap(4, 6);
             }
@@ -606,10 +596,10 @@ fn t8_input_last_use_selection_and_fallback() {
             b.e.set_stack(&stack);
             let before = b.e.gas;
             b.stream_linear(Some(0)).unwrap();
-            let eligible = name == "amsterdam" && !moved;
+            let eligible = name == "amsterdam";
             // Amsterdam pushes no floor PRIME copy (3 gas less)
             let floor = if name == "amsterdam" { 0 } else { 3 };
-            assert_eq!(b.e.gas - before, if eligible { 756 } else { 759 + floor });
+            assert_eq!(b.e.gas - before, if eligible { 740 } else { 743 + floor });
             assert_eq!(b.e.find(old[4]) == 0, eligible);
             let top = b.e.from_top();
             assert_eq!(&top[top.len() - tail.len()..], tail);
@@ -649,10 +639,10 @@ fn input_last_use_pair(b: &mut Builder<'_>, round: usize, consume: bool) {
         let suffix = TAKE_SUM_SUFFIX
             .replace("dup12", &format!("dup{}", depth + 7))
             .replace("swap11", &format!("swap{}", depth + 6));
-        let program = super::super::templates::first_stream_block8(depth).unwrap();
+        let program = take_stream_block("takex0", depth);
         assert_eq!(program, format!("{TAKE_SUM_PREFIX} takex0 {suffix}"));
-        assert!(b.stream_block_fits(program, 1, &state, &sums, true));
-        b.stream_block(program, 1, &state, &sums, Some(round), true, &mut out)
+        assert!(b.stream_block_fits(&program, 1, &state, &sums, true));
+        b.stream_block(&program, 1, &state, &sums, Some(round), true, &mut out)
             .unwrap();
     } else {
         b.stream_block(
@@ -679,14 +669,14 @@ fn input_last_use_pair(b: &mut Builder<'_>, round: usize, consume: bool) {
     assert_eq!(b.e.find(sums[0]), sum_depth);
     let last = b.e.gas;
     let program = if consume {
-        let expected = last_stream_block8()
+        let expected = take_stream_block("take0", 5)
             .replace("dup12", "dup11")
             .replace("swap11", "swap10");
-        let program = super::super::templates::last_stream_block8_after_input();
+        let program = take_stream_block("take0", 4);
         assert_eq!(program, expected);
-        program.to_string()
+        program
     } else {
-        last_stream_block8().to_string()
+        take_stream_block("take0", 5)
     };
     assert!(b.stream_block_fits(&program, 0, &state, &sums, true));
     b.stream_block(&program, 0, &state, &sums, Some(round), true, &mut out)
@@ -779,7 +769,7 @@ fn t8_input_last_use_recurrence_and_adapters() {
             .collect();
         let before = b.e.gas;
         b.external_matrix(final_layer, !final_layer, false).unwrap();
-        assert_eq!(b.e.gas - before, if final_layer { 436 } else { 378 });
+        assert_eq!(b.e.gas - before, if final_layer { 418 } else { 362 });
         for (i, input) in input.iter().enumerate() {
             let expected = permutation_steps(&params, input, 0, 1);
             for (&id, expected) in b.state.iter().zip(expected) {
@@ -788,7 +778,7 @@ fn t8_input_last_use_recurrence_and_adapters() {
         }
         let mut prefix = b.state.clone();
         if final_layer {
-            assert_eq!(b.e.max_dup, 25);
+            assert_eq!(b.e.max_dup, 22);
             assert!(b.state.iter().all(|&s| b.e.bound(s) == p1()));
         } else {
             prefix.insert(1, b.p());
@@ -1299,8 +1289,9 @@ fn t8_seam_runs_the_next_s_boxes_in_the_last_consuming_round() {
     let (seam, out) = build(true);
     // every lane but s0' lands over its second copy: no copy and no DUP of
     // the output for its S-box in the external round, whose layer pushes
-    // no floor PRIME copy on Amsterdam either (3 gas less to save)
-    assert_eq!(plain.e.gas - seam.e.gas, 3 * (params.t as u64 - 1) - 3);
+    // no floor PRIME copy on Amsterdam either (3 gas less to save), and
+    // whose first block takes x4 in place as the plain one does (3 more)
+    assert_eq!(plain.e.gas - seam.e.gas, 3 * (params.t as u64 - 1));
     assert!(seam.e.max_depth < plain.e.max_depth);
     let last = params.rounds_f / 2 + params.rounds_p - 1;
     let from = seam

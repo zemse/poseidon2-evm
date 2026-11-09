@@ -269,34 +269,17 @@ pub fn stream_blocks(kept: bool, on_stack: bool) -> &'static [&'static str] {
     }
 }
 
-/// The last kept t8 block consumes S0 below the previous four outputs.
-/// Its z3 replaces S0, below those outputs; the other three stay on top.
-pub fn last_stream_block8() -> &'static str {
-    "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup12 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap11 add=o2 lane=z2 swap4 add=o0 lane=z0"
-}
-
-/// The first kept t8 block parks z3 in its consumed input's slot. The
-/// depth is x4's under the column sums: 8 and 9 without the floor PRIME
-/// copy (x3 parked after x6 by the layer before, or the inputs in order),
-/// 9 and 10 with it.
-pub fn first_stream_block8(depth: usize) -> Option<&'static str> {
-    match depth {
-        8 => Some(
-            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup15 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap14 add=o2 lane=z2 swap4 add=o0 lane=z0",
-        ),
-        9 => Some(
-            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup16 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap15 add=o2 lane=z2 swap4 add=o0 lane=z0",
-        ),
-        10 => Some(
-            "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 takex0 add=t0 dup5 P dup3 q=q0 dup17 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap16 add=o2 lane=z2 swap4 add=o0 lane=z0",
-        ),
-        _ => None,
-    }
-}
-
-/// The last kept t8 block after three shallow outputs of the first block.
-pub fn last_stream_block8_after_input() -> &'static str {
-    "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 take0 add=t0 dup5 P dup3 q=q0 dup11 add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap10 add=o2 lane=z2 swap4 add=o0 lane=z0"
+/// A kept block of a streamed layer that consumes one of its operands in
+/// place: `take0` S0 (the last block, S0 below the outputs of the blocks
+/// before it), `takex0` x_{4b} (any other kept block, its last read).
+/// t2 goes down into the taken slot, at `depth`, and z3 replaces it there;
+/// the other three outputs stay on top.
+pub fn take_stream_block(take: &str, depth: usize) -> String {
+    format!(
+        "u3 u2 dup2 add=t1 P P u1 P dup2 dup1 add=d1 dup6 addmod=t2 {take} add=t0 dup5 P dup3 q=q0 dup{} add=o1 swap6 add=d3 addmod=t3 P P P dup7 lane=z1 swap5 q=q1 dup3 add=o3 P dup2 lane=z3 swap{} add=o2 lane=z2 swap4 add=o0 lane=z0",
+        depth + 7,
+        depth + 6
+    )
 }
 
 /// One block of an external layer with its outputs on top in order,
@@ -313,6 +296,10 @@ pub fn ordered_blocks(kind: BlockKind) -> &'static [&'static str] {
             "u1 u0 dup2 add=t0 u3 P P P dup4 dup1 add=d3 dup6 addmod=t3 swap3 u2 add=t1 P dup2 q=q1 dup5 add=o3 swap6 dup1 add=d1 addmod=t2 P dup2 dup7 add=o2 swap5 q=q0 add=o1 dup1 swap3 add=o0",
         ],
         BlockKind::Final => &[
+            // six reductions: o1 = q0 + 2 u1 + t1, o3 = q1 + 2 u3 + t0, o0 =
+            // o1 + 2 u3 + t0, o2 = o3 + 2 u1 + t1, each sum split in two
+            // halves within 5(p-1) for its ADDMOD
+            "u3 u2 dup2 add=t1 dup2 u1 swap3 add=d3 P u0 dup5 add=t0 dup5 P P dup7 q=q1 dup6 add=a3 dup4 addmod=o3 swap6 add=d1 P dup7 dup3 add=b2 dup7 addmod=o2 swap5 P dup4 q=q0 P swap3 add=a1 addmod=o1 dup1 swap4 add=b0 addmod=o0",
             "u1 u0 dup2 add=t0 u2 P P P u3 P dup2 dup1 add=d3 dup8 addmod=t3 swap5 add=t1 P P dup3 q=q1 dup7 addmod=o3 swap7 dup1 add=d1 addmod=t2 P P dup3 dup9 addmod=o2 swap6 q=q0 addmod=o1 dup1 swap3 addmod=o0",
         ],
     }

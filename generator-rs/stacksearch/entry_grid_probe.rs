@@ -304,10 +304,10 @@ fn streaming_fused_replays_fixed_legacy_bodies() {
             assert_eq!(
                 before,
                 match (name, t) {
-                    ("paris", 24) => 76017,
-                    ("paris", 28) => 92068,
-                    (_, 24) => 75843,
-                    (_, 28) => 91888,
+                    ("paris", 24) => 75999,
+                    ("paris", 28) => 92049,
+                    (_, 24) => 75825,
+                    (_, 28) => 91869,
                     _ => unreachable!(),
                 }
             );
@@ -375,10 +375,10 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
             assert_eq!(
                 before,
                 match (name, t) {
-                    ("paris", 24) => 75522,
-                    ("paris", 28) => 90928,
-                    (_, 24) => 75348,
-                    (_, 28) => 90748,
+                    ("paris", 24) => 75504,
+                    ("paris", 28) => 90909,
+                    (_, 24) => 75330,
+                    (_, 28) => 90729,
                     _ => unreachable!(),
                 }
             );
@@ -400,10 +400,10 @@ fn seeded_fused_replays_fixed_legacy_bodies() {
             assert_eq!(
                 runtime_bytes(&params, fork, &result),
                 match (name, t) {
-                    ("paris", 24) => 23771,
-                    ("paris", 28) => 24420,
-                    (_, 24) => 23720,
-                    (_, 28) => 24387,
+                    ("paris", 24) => 23781,
+                    ("paris", 28) => 24433,
+                    (_, 24) => 23730,
+                    (_, 28) => 24400,
                     _ => unreachable!(),
                 }
             );
@@ -461,7 +461,7 @@ fn seeded_slots_replays_fixed_legacy_bodies() {
         let result = build_permutation(&params, &inputs, &opts, fork, range, true).unwrap();
         let baseline = Best { opts, result };
         let before = compiled_with_inputs(&params, fork, &baseline, &extra_inputs);
-        assert_eq!(before, if name == "paris" { 75242 } else { 75068 });
+        assert_eq!(before, if name == "paris" { 75224 } else { 75050 });
         for prime_in_memory in [true, false] {
             let opts = BuildOptions {
                 consume_slots: 13,
@@ -482,10 +482,10 @@ fn seeded_slots_replays_fixed_legacy_bodies() {
             assert_eq!(
                 runtime_bytes(&params, fork, &candidate.result),
                 match (name, prime_in_memory) {
-                    ("paris", true) => 23741,
-                    ("paris", false) => 23997,
-                    (_, true) => 23690,
-                    (_, false) => 23946,
+                    ("paris", true) => 23751,
+                    ("paris", false) => 24007,
+                    (_, true) => 23700,
+                    (_, false) => 23956,
                 }
             );
             println!(

@@ -32,8 +32,8 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
-    internal3_periodic, internal3_seam, internal4, last_stream_block8, linear_final4,
-    ordered_blocks, round4, stream_blocks, templates,
+    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4,
+    stream_blocks, take_stream_block, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -459,6 +459,18 @@ fn p1() -> U256 {
     PRIME - u256(1)
 }
 
+/// The cap of column sum i of an external_d layer over k blocks: S1 and S3
+/// reduced, S0 and S2 lazy at 2(p-1) when two blocks leave them so, since
+/// u0 and u2 only feed t0 = u0 + u1 and t1 = u2 + u3, which stay within
+/// 5(p-1).
+fn column_cap(k: usize, i: usize) -> U256 {
+    if k == 2 && i % 2 == 0 {
+        p1() + p1()
+    } else {
+        p1()
+    }
+}
+
 /// Hooks of m4: the TS passes closures, every one of which pushes a PRIME
 /// copy, so they are flags here.
 #[derive(Default)]
@@ -543,6 +555,17 @@ fn swap_plan<T: PartialEq + Copy>(cur: &[T], want: &[T]) -> Option<Vec<usize>> {
         cur.swap(0, j);
         plan.push(j);
     }
+}
+
+/// `takex<i>` (true, i): u_i with x_i taken in place, `take<i>` (false,
+/// i) with S_i
+fn take_move(mv: &str) -> Option<(bool, usize)> {
+    let rest = mv.strip_prefix("take")?;
+    let (input, i) = match rest.strip_prefix('x') {
+        Some(i) => (true, i),
+        None => (false, rest),
+    };
+    i.parse().ok().filter(|&i| i < 4).map(|i| (input, i))
 }
 
 fn val(v: Id) -> Operand {
@@ -1583,9 +1606,9 @@ impl<'a> Builder<'a> {
                 let name = format!("S{i}");
                 // a tree pairs the seven t = 28 columns in one reduction
                 sums[i] = if self.opts.tree_sums {
-                    self.chain_sum_in_place(&column, &name, p1())?
+                    self.chain_sum_in_place(&column, &name, column_cap(k, i))?
                 } else {
-                    self.chain_sum(&column, &name, p1())?
+                    self.chain_sum(&column, &name, column_cap(k, i))?
                 };
                 self.e.end_line();
             }
@@ -1789,7 +1812,7 @@ impl<'a> Builder<'a> {
         let mut sums = [0; 4];
         for i in (0..4).rev() {
             let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();
-            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), p1())?;
+            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), column_cap(k, i))?;
             self.e.end_line();
         }
         let on_stack = |b: usize, e: &Emitter| (0..4).all(|i| e.find(x[4 * b + i]) > 0);
@@ -1801,58 +1824,40 @@ impl<'a> Builder<'a> {
             BlockKind::Final
         };
         let mut out = vec![0; t];
-        let mut input_taken = false;
         for (n, &b) in order.iter().enumerate() {
             if let Some(r) = next {
                 let kept = n + keep >= k;
-                let take_input = t == 8
-                    && n == 0
-                    && b == 1
-                    && keep == 2
+                // a kept block takes one operand in place: the last S0, any
+                // other its x_{4b} (Amsterdam)
+                let take_input = kept
+                    && n + 1 < k
+                    && keep == k
                     && !self.opts.shadow
                     && self.e.max_reach > 16
                     && on_stack(b, &self.e)
-                    && x[..4].iter().all(|&v| {
-                        let depth = self.e.find(v);
-                        depth > 0 && depth + 9 <= self.e.max_reach
-                    })
-                    && sums
-                        .iter()
-                        .enumerate()
-                        .all(|(i, &s)| self.e.find(s) == i + 1);
-                let first = take_input
-                    .then(|| super::templates::first_stream_block8(self.e.find(x[4])))
-                    .flatten()
-                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
-                let sum_depth = if input_taken { 4 } else { 5 };
-                let take_sum = t == 8
-                    && kept
+                    && x.iter().all(|&v| self.e.find(v) + 9 <= self.e.max_reach);
+                let sum_depth = self.e.find(sums[0]);
+                let take_sum = kept
                     && n + 1 == k
                     && on_stack(b, &self.e)
                     && sums
                         .iter()
                         .enumerate()
                         .all(|(i, &s)| self.e.find(s) == i + sum_depth);
-                let last = if input_taken {
-                    super::templates::last_stream_block8_after_input()
-                } else {
-                    last_stream_block8()
-                };
-                let program = first
-                    .or_else(|| {
-                        take_sum
-                            .then_some(last)
-                            .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept))
-                    })
-                    .or_else(|| {
-                        stream_blocks(kept, on_stack(b, &self.e))
-                            .iter()
-                            .copied()
-                            .find(|p| self.stream_block_fits(p, b, &x, &sums, kept))
-                    });
+                let first = take_input
+                    .then(|| take_stream_block("takex0", self.e.find(x[4 * b])))
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let last = take_sum
+                    .then(|| take_stream_block("take0", sum_depth))
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let program = first.as_deref().or(last.as_deref()).or_else(|| {
+                    stream_blocks(kept, on_stack(b, &self.e))
+                        .iter()
+                        .copied()
+                        .find(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                });
                 if let Some(program) = program {
                     self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
-                    input_taken |= first.is_some();
                     continue;
                 }
             }
@@ -1976,11 +1981,11 @@ impl<'a> Builder<'a> {
                     _ => {}
                 }
                 s.insert(0, None);
-            } else if mv == "take0" || mv == "takex0" {
-                let (taken, copied) = if mv == "takex0" {
-                    (x[4 * b], sums[0])
+            } else if let Some((input, i)) = take_move(mv) {
+                let (taken, copied) = if input {
+                    (x[4 * b + i], sums[i])
                 } else {
-                    (sums[0], x[4 * b])
+                    (sums[i], x[4 * b + i])
                 };
                 let Some(ks) = find(&s, taken) else {
                     return false;
@@ -2056,12 +2061,12 @@ impl<'a> Builder<'a> {
             if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
                 let j = 4 * b + i;
                 self.pair_add(x[j], sums[i], &format!("u{j}"), false)?;
-            } else if mv == "take0" || mv == "takex0" {
-                let j = 4 * b;
-                let (taken, copied) = if mv == "takex0" {
-                    (x[j], sums[0])
+            } else if let Some((input, i)) = take_move(mv) {
+                let j = 4 * b + i;
+                let (taken, copied) = if input {
+                    (x[j], sums[i])
                 } else {
-                    (sums[0], x[j])
+                    (sums[i], x[j])
                 };
                 self.swap_up(taken)?;
                 self.e

@@ -48,14 +48,14 @@ fn amsterdam_t2_t3_t4() {
 fn amsterdam_t8_stream() {
     let reports = run("amsterdam", &[8]);
     within(&reports[0]);
-    assert_eq!(reports[0].gas.measured, 23202);
+    assert_eq!(reports[0].gas.measured, 23056);
     assert_eq!(reports[0].bytes.len(), 1);
 }
 
 #[test]
 fn amsterdam_sum_trees() {
     let reports = run("amsterdam", &[12, 16, 20, 24, 28]);
-    for (report, gas) in reports.iter().zip([33573, 43910, 54239, 64881, 77124]) {
+    for (report, gas) in reports.iter().zip([33507, 43822, 54129, 64749, 76976]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);
@@ -65,7 +65,7 @@ fn amsterdam_sum_trees() {
 #[test]
 fn osaka_sum_trees() {
     let reports = run("osaka", &[8, 12, 20]);
-    for (report, gas) in reports.iter().zip([24217, 35047, 61768]) {
+    for (report, gas) in reports.iter().zip([24073, 35047, 61748]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);
@@ -92,7 +92,7 @@ fn osaka_body_t16() {
     let reports = run("osaka", &[16]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 47809);
+    assert_eq!(reports[0].gas.measured, 47790);
 }
 
 /// t = 24 fits one contract with the sums of its memory elements fused
@@ -101,7 +101,7 @@ fn osaka_t24() {
     let reports = run("osaka", &[24]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 74981);
+    assert_eq!(reports[0].gas.measured, 74963);
 }
 
 /// t = 28 fits one contract once the external rounds stream
@@ -110,5 +110,5 @@ fn osaka_t28() {
     let reports = run("osaka", &[28]);
     within(&reports[0]);
     assert_eq!(reports[0].bytes.len(), 1);
-    assert_eq!(reports[0].gas.measured, 90740);
+    assert_eq!(reports[0].gas.measured, 90721);
 }

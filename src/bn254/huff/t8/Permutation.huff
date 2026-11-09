@@ -7,14 +7,14 @@
 /// @dev takes [s0, s1, s2, s3, s4, s5, s6, s7, PRIME] with clean inputs, returns [s0', s1', s2', s3', s4', s5', s6', s7', ...garbage...] with clean outputs
 /// @dev Every ADD / MUL below was checked by the generator's bound tracker to fit in uint256
 /// @dev Uses EIP-8024 DUPN / SWAPN: runs on Amsterdam and later only
-/// @dev 23020 gas, max stack depth 167, max dup 65, 24583 bytes
+/// @dev 22874 gas, max stack depth 166, max dup 65, 24556 bytes
 /// @dev schedule options: externalD, internalConsume, primeStack, primeEarly, externalTemplate, externalSeam, externalStream, treeSums, laneCopy
 #define macro POSEIDON2_PERMUTATION() = {
     // Initial linear layer
     dup9 dup9 dup6 addmod                    // [S3, s0, s1, s2, s3, s4, s5, s6, s7, P]
-    dup10 dup9 dup6 addmod                   // [S2, S3, s0, s1, s2, s3, s4, s5, s6, s7, P]
+    dup8 dup5 add                            // [S2, S3, s0, s1, s2, s3, s4, s5, s6, s7, P]
     dup11 dup9 dup6 addmod                   // [S1, S2, S3, s0, s1, s2, s3, s4, s5, s6, s7, P]
-    dup12 dup9 dup6 addmod                   // [S0, S1, S2, S3, s0, s1, s2, s3, s4, s5, s6, s7, ...]
+    dup8 dup5 add                            // [S0, S1, S2, S3, s0, s1, s2, s3, s4, s5, s6, s7, ...]
     dup12 dup5 add dup12 dup5 add dup2 add   // [t1, u7, S0, S1, S2, S3, s0, s1, s2, s3, s4, s5, ...]
     dup15 dup1 dup14 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, s0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, s0, s1, ...]
@@ -50,9 +50,9 @@
 
     // Round 0 (external)
     dupn 19 dup16 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, s0, ...]
-    dupn 20 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 21 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 22 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dupn 19 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 25 dup1 dup13 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -88,9 +88,9 @@
 
     // Round 1 (external)
     dupn 29 dup15 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 30 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 31 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 32 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dupn 18 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 35 dup1 dup13 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -126,9 +126,9 @@
 
     // Round 2 (external)
     dupn 39 dup15 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 40 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 41 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 42 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dupn 18 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 45 dup1 dup13 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -164,9 +164,9 @@
 
     // Round 3 (external)
     dupn 49 dup15 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 50 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 51 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 52 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dup9 dup3 add dup9 dup3 add dup2 add     // [t0, u5, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 20 dup7 add dupn 56 dup1 dup3 dup1 add // [d3, P, P, u7, t0, u5, S0, S1, S2, S3, x0, x1, ...]
     dup5 addmod                              // [t3, P, u7, t0, u5, S0, S1, S2, S3, x0, x1, x2, ...]
@@ -878,9 +878,9 @@
 
     // Round 61 (external)
     dup9 dup9 dup6 addmod                    // [S3, x0, x1, x2, x3, x4, x5, x6, x7, P, s7', s7', ...]
-    dup10 dup9 dup6 addmod                   // [S2, S3, x0, x1, x2, x3, x4, x5, x6, x7, P, s7', ...]
+    dup8 dup5 add                            // [S2, S3, x0, x1, x2, x3, x4, x5, x6, x7, P, s7', ...]
     dup11 dup9 dup6 addmod                   // [S1, S2, S3, x0, x1, x2, x3, x4, x5, x6, x7, P, ...]
-    dup12 dup9 dup6 addmod                   // [S0, S1, S2, S3, x0, x1, x2, x3, x4, x5, x6, x7, ...]
+    dup8 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x3, x4, x5, x6, x7, ...]
     dup12 dup5 add dup12 dup5 add dup2 add   // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x3, x4, x5, ...]
     dup15 dup1 dup14 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -916,9 +916,9 @@
 
     // Round 62 (external)
     dupn 19 dup16 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 20 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 21 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 22 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dupn 19 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 25 dup1 dup13 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -954,9 +954,9 @@
 
     // Round 63 (external)
     dupn 29 dup15 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 30 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 31 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 32 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
     dupn 18 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
     dupn 35 dup1 dup13 dup7 add dup2 dup2 dup1 add // [d1, P, u5, P, P, t1, u7, S0, S1, S2, S3, x0, ...]
     dup6 addmod                              // [t2, u5, P, P, t1, u7, S0, S1, S2, S3, x0, x1, ...]
@@ -992,32 +992,36 @@
 
     // Round 64 (external)
     dupn 39 dup15 dup9 addmod                // [S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, x0, ...]
-    dupn 40 dup8 dup6 addmod                 // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, S3, ...]
     dupn 41 dup8 dup6 addmod                 // [S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, S2, ...]
-    dupn 42 dup8 dup6 addmod                 // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
-    dup9 dup3 add dup9 dup3 add dup2 add     // [t0, u5, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
-    dup12 dup6 add dupn 46 dup1 dup1 dupn 24 dup11 add dup2 dup2 dup1 add // [d3, P, u7, P, P, P, u6, t0, u5, S0, S1, S2, ...]
-    dup8 addmod                              // [t3, u7, P, P, P, u6, t0, u5, S0, S1, S2, S3, ...]
-    swap5 add                                // [t1, P, P, P, t3, t0, u5, S0, S1, S2, S3, x0, ...]
-    dup2 dup1 dup3 0x4 mulmod                // [q1, P, t1, P, P, P, t3, t0, u5, S0, S1, S2, ...]
-    dup7 addmod                              // [s7', t1, P, P, P, t3, t0, u5, S0, S1, S2, S3, ...]
-    swap7 dup1 add                           // [d1, t1, P, P, P, t3, t0, s7', S0, S1, S2, S3, ...]
-    addmod                                   // [t2, P, P, t3, t0, s7', S0, S1, S2, S3, x0, x1, ...]
-    dup2 dup1 dup3 dup9 addmod               // [s6', P, t2, P, P, t3, t0, s7', S0, S1, S2, S3, ...]
-    swap6 0x4 mulmod                         // [q0, t2, P, P, t3, s6', s7', S0, S1, S2, S3, x0, ...]
-    addmod                                   // [s5', P, t3, s6', s7', S0, S1, S2, S3, x0, x1, x2, ...]
-    dup1 swap3 addmod                        // [s4', s5', s6', s7', S0, S1, S2, S3, x0, x1, x2, x4, ...]
-    dup10 dup7 add dup10 dup7 add dup2 add   // [t0, u1, s4', s5', s6', s7', S0, S1, S2, S3, x0, x1, ...]
-    dup13 dup10 add dupn 50 dup1 dup1 dupn 21 dup15 add dup2 dup2 dup1 add // [d3, P, u3, P, P, P, u2, t0, u1, s4', s5', s6', ...]
-    dup8 addmod                              // [t3, u3, P, P, P, u2, t0, u1, s4', s5', s6', s7', ...]
-    swap5 add                                // [t1, P, P, P, t3, t0, u1, s4', s5', s6', s7', S0, ...]
-    dup2 dup1 dup3 0x4 mulmod                // [q1, P, t1, P, P, P, t3, t0, u1, s4', s5', s6', ...]
-    dup7 addmod                              // [s3', t1, P, P, P, t3, t0, u1, s4', s5', s6', s7', ...]
-    swap7 dup1 add                           // [d1, t1, P, P, P, t3, t0, s3', s4', s5', s6', s7', ...]
-    addmod                                   // [t2, P, P, t3, t0, s3', s4', s5', s6', s7', S0, S1, ...]
-    dup2 dup1 dup3 dup9 addmod               // [s2', P, t2, P, P, t3, t0, s3', s4', s5', s6', s7', ...]
-    swap6 0x4 mulmod                         // [q0, t2, P, P, t3, s2', s3', s4', s5', s6', s7', S0, ...]
-    addmod                                   // [s1', P, t3, s2', s3', s4', s5', s6', s7', S0, S1, S2, ...]
-    dup1 swap3 addmod                        // [s0', s1', s2', s3', s4', s5', s6', s7', S0, S1, S2, S3, ...]
+    dup7 dup5 add                            // [S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, x3, S1, ...]
+    dupn 18 dup5 add dup11 dup5 add dup2 add // [t1, u7, S0, S1, S2, S3, x0, x1, x2, x4, x5, x6, ...]
+    dup2 dup12 dup6 add swap3 add            // [d3, t1, u5, S0, S1, S2, S3, x0, x1, x2, x4, x5, ...]
+    dupn 46 dup12 dup6 add dup5 add          // [t0, P, d3, t1, u5, S0, S1, S2, S3, x0, x1, x2, ...]
+    dup5 dup3 dup1 dup7 0x4 mulmod           // [q1, P, u5, t0, P, d3, t1, u5, S0, S1, S2, S3, ...]
+    dup6 add                                 // [a3, P, u5, t0, P, d3, t1, u5, S0, S1, S2, S3, ...]
+    dup4 addmod                              // [s7', u5, t0, P, d3, t1, u5, S0, S1, S2, S3, x0, ...]
+    swap6 add                                // [d1, t0, P, d3, t1, s7', S0, S1, S2, S3, x0, x1, ...]
+    dup3 dup7 dup3 add                       // [b2, P, d1, t0, P, d3, t1, s7', S0, S1, S2, S3, ...]
+    dup7 addmod                              // [s6', d1, t0, P, d3, t1, s7', S0, S1, S2, S3, x0, ...]
+    swap5 dup4 dup4 0x4 mulmod               // [q0, t1, d1, t0, P, d3, s6', s7', S0, S1, S2, S3, ...]
+    dup5 swap3 add                           // [a1, t1, P, t0, P, d3, s6', s7', S0, S1, S2, S3, ...]
+    addmod                                   // [s5', t0, P, d3, s6', s7', S0, S1, S2, S3, x0, x1, ...]
+    dup1 swap4 add                           // [b0, t0, P, s5', s6', s7', S0, S1, S2, S3, x0, x1, ...]
+    addmod                                   // [s4', s5', s6', s7', S0, S1, S2, S3, x0, x1, x2, x4, ...]
+    dup15 dup9 add dup12 dup9 add dup2 add   // [t1, u3, s4', s5', s6', s7', S0, S1, S2, S3, x0, x1, ...]
+    dup2 dup13 dup10 add swap3 add           // [d3, t1, u1, s4', s5', s6', s7', S0, S1, S2, S3, x0, ...]
+    dupn 50 dup13 dup10 add dup5 add         // [t0, P, d3, t1, u1, s4', s5', s6', s7', S0, S1, S2, ...]
+    dup5 dup3 dup1 dup7 0x4 mulmod           // [q1, P, u1, t0, P, d3, t1, u1, s4', s5', s6', s7', ...]
+    dup6 add                                 // [a3, P, u1, t0, P, d3, t1, u1, s4', s5', s6', s7', ...]
+    dup4 addmod                              // [s3', u1, t0, P, d3, t1, u1, s4', s5', s6', s7', S0, ...]
+    swap6 add                                // [d1, t0, P, d3, t1, s3', s4', s5', s6', s7', S0, S1, ...]
+    dup3 dup7 dup3 add                       // [b2, P, d1, t0, P, d3, t1, s3', s4', s5', s6', s7', ...]
+    dup7 addmod                              // [s2', d1, t0, P, d3, t1, s3', s4', s5', s6', s7', S0, ...]
+    swap5 dup4 dup4 0x4 mulmod               // [q0, t1, d1, t0, P, d3, s2', s3', s4', s5', s6', s7', ...]
+    dup5 swap3 add                           // [a1, t1, P, t0, P, d3, s2', s3', s4', s5', s6', s7', ...]
+    addmod                                   // [s1', t0, P, d3, s2', s3', s4', s5', s6', s7', S0, S1, ...]
+    dup1 swap4 add                           // [b0, t0, P, s1', s2', s3', s4', s5', s6', s7', S0, S1, ...]
+    addmod                                   // [s0', s1', s2', s3', s4', s5', s6', s7', S0, S1, S2, S3, ...]
 
 }
