@@ -135,6 +135,7 @@ struct Pb {
     sb: bool,
     shl: bool,
     comp: bool,
+    exch: bool,
 }
 
 const NONE: u8 = 254; // an op with no result, or a result with no operand
@@ -783,6 +784,36 @@ impl Pb {
                 }
             }
         }
+        if self.exch {
+            // EXCHANGE of two values below the top, or of a value with a
+            // PRIME copy or constant: a move of it between two depths
+            for j in 1..s.len {
+                for k in j + 1..s.len {
+                    let (a, b) = (s.tok[j], s.tok[k]);
+                    if a != b {
+                        let mut ns = *s;
+                        ns.tok.swap(j, k);
+                        emit(ns, 3, out);
+                    }
+                    if a != G {
+                        let mut ns = *s;
+                        ns.tok.copy_within(j + 1..=k, j);
+                        ns.tok[k] = a;
+                        if ns.tok != s.tok {
+                            emit(ns, 3, out);
+                        }
+                    }
+                    if b != G {
+                        let mut ns = *s;
+                        ns.tok.copy_within(j..k, j + 1);
+                        ns.tok[j] = b;
+                        if ns.tok != s.tok {
+                            emit(ns, 3, out);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// one round from every source: the cheapest cost of every layout a
@@ -947,6 +978,7 @@ fn main() {
         sb: std::env::var_os("SBOX").is_some(),
         shl: t == 3 && std::env::var_os("SHL").is_some(),
         comp: t == 4 && std::env::var_os("COMP").is_some(),
+        exch: std::env::var_os("EXCHANGE").is_some(),
     };
     // the inputs in every order, nothing else on the stack
     let mut src: FxMap<u128, u32> = FxMap::default();
@@ -1020,11 +1052,12 @@ fn main() {
     let (reach, _) = pb.layer(&all);
     let mut d: FxMap<u128, u32> = reach.keys().map(|&k| (k, 0)).collect();
     println!(
-        "t = {t}, window {w} (split {}, sbox {}, shl {}, comp {}): {} end layouts",
+        "t = {t}, window {w} (split {}, sbox {}, shl {}, comp {}, exchange {}): {} end layouts",
         pb.split as u8,
         pb.sb as u8,
         pb.shl as u8,
         pb.comp as u8,
+        pb.exch as u8,
         d.len()
     );
     for k in 1..=layers {

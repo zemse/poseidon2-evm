@@ -124,6 +124,7 @@ struct Pb {
     w: usize,
     sym: [u8; NT],
     prime: bool,
+    exch: bool,
     memo: std::cell::RefCell<HashMap<u64, [u32; NT]>>,
 }
 
@@ -362,6 +363,29 @@ impl Pb {
                 push(out, t, 3);
             }
         }
+        if self.exch {
+            // EXCHANGE of two tokens below the top, or of one with a PRIME copy
+            // or constant left out: a move of it between two depths
+            for a in 1..n {
+                for b in a + 1..n {
+                    if s.tok[a] != s.tok[b] {
+                        let mut t = *s;
+                        t.tok.swap(a, b);
+                        push(out, t, 3);
+                    }
+                    let mut t = *s;
+                    let v = t.tok[a];
+                    t.tok.copy_within(a + 1..=b, a);
+                    t.tok[b] = v;
+                    push(out, t, 3);
+                    let mut t = *s;
+                    let v = t.tok[b];
+                    t.tok.copy_within(a..b, a + 1);
+                    t.tok[a] = v;
+                    push(out, t, 3);
+                }
+            }
+        }
         if self.prime && n < self.w {
             // a PRIME copy on top (DUP or PUSH32)
             let mut t = *s;
@@ -549,6 +573,7 @@ fn main() {
         w,
         sym,
         prime,
+        exch: std::env::var_os("EXCHANGE").is_some(),
         memo: Default::default(),
     };
     // the inputs in every order

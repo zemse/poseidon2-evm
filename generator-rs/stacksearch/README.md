@@ -68,6 +68,14 @@ The binaries, run from this directory after `cargo build --release`:
   sblock <floor> [stored|kept] [max_working=8] [ub | trace <program>]
   ```
 
+- `target/release/seam` (`src/bin/seam.rs`) searches the seams of t = 2 and 3 over single opcodes: values are linear forms over the S-box outputs (coefficients 0..2, bound in units of P-1), with PRIME copies, DUP, SWAP, EXCHANGE (`EXCHANGE=1`), POP, ADD, ADDMOD, the S-box of a lane on a PRIME copy (45) and `msize mstore` of the next output. The goal is `store` (the terminal round of the private entries) or a layout prefix. `LOADS=0,1,...` takes lanes from calldata reduced (14) for the entries; `ROUNDS=2` (t = 2) searches two external rounds at once. It found the terminal rounds of t = 2 (143) and t = 3 (219); LANE3-SMALL.md records the runs.
+
+  ```
+  seam <t> <init> <goal> [window=10] [ub]
+  ```
+
+`cycle` and `ecycle` take `EXCHANGE=1` too: a transposition of two values below the top, or a move of one between two depths (an EXCHANGE with a PRIME copy or constant), 3 gas.
+
 Layouts are comma separated class names, top first. `s<i>` is lane i of the state before its S-box, `x<i>` the S-box output, `P` a PRIME copy, `o<i>` (t = 2, 3) or `t4..t7` (t = 4: s3', s1', s0', s2') an output. In the goal `_` is a wildcard and `O` any output not yet placed. `final` reduces the outputs (the last round), `lazy` (t = 4) takes the inputs below 2P as the blocks of t >= 8 see them, `strict` counts leftover PRIME copies as garbage too. `max_garbage` is the number of dead values the program may leave on the stack.
 
 Examples:
