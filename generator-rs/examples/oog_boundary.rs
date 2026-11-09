@@ -45,8 +45,17 @@ struct Artifact {
 }
 
 fn parse_artifact(root: &Path, rel: &str) -> Option<Artifact> {
-    let src = fs::read_to_string(root.join("Bytecode").join(rel)).ok()?;
-    let proof = fs::read_to_string(root.join("Proofs").join(rel)).ok()?;
+    // a large artifact's proof is Proofs/Generated/<rel>, its cases in the parts beside it
+    let art = rel.strip_prefix("Generated/").unwrap_or(rel);
+    let src = fs::read_to_string(root.join("Bytecode").join(art)).ok()?;
+    let mut proof = fs::read_to_string(root.join("Proofs").join(rel)).ok()?;
+    let parts = root.join("Proofs").join(rel.trim_end_matches(".lean"));
+    for i in 0.. {
+        let Ok(part) = fs::read_to_string(parts.join(format!("Part{i}.lean"))) else {
+            break;
+        };
+        proof.push_str(&part);
+    }
     let field = |k: &str| -> String {
         let i = src.find(&format!("  {k} := ")).unwrap() + k.len() + 6;
         src[i..].lines().next().unwrap().trim().to_string()
@@ -346,7 +355,10 @@ fn main() {
         let Some(a) = parse_artifact(&root, &rel) else {
             continue;
         };
-        let specs: &[SpecId] = if rel.starts_with("Huff/Amsterdam") {
+        let specs: &[SpecId] = if rel
+            .trim_start_matches("Generated/")
+            .starts_with("Huff/Amsterdam")
+        {
             &[SpecId::AMSTERDAM]
         } else {
             &[SpecId::CANCUN, SpecId::OSAKA, SpecId::AMSTERDAM]
