@@ -46,3 +46,5 @@ import Poseidon2.Evm.Final
 import Poseidon2.Evm.Cancun
 import Poseidon2.Evm.ForkData
 import Poseidon2.Evm.Forks
+import Poseidon2.Evm.WordOps
+import Poseidon2.Evm.GasTable
