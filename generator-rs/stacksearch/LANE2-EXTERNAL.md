@@ -50,4 +50,4 @@ ADD, SUB, SHL with its PUSH: 6 a binary op (3 op + 3 for the consumed slot). ADD
 
 ## Landing
 
-be974ab (gas) and c63ca61 (tooling, notes) are rebased on opt fa54a9a and pass the gate (cargo test --release: lib 106, verify tests Amsterdam 3 and Osaka 5; generate:huff with no diff, verify:huff, forge test 127/127). The sandbox of this lane refuses `git -C <main> merge --ff-only` (and a `cd` into the main checkout), so opt is not moved from here: the coordinator fast-forwards opt to this branch.
+Rebased on opt 5dadff1 (lane 1, lane-copy internal rounds); the generator sources merged without conflict, the gas pins and generated files were regenerated. Amsterdam call gas against 5dadff1: t8 23,202 to 23,056, t12 33,573 to 33,507, t16 43,910 to 43,822, t20 54,239 to 54,129, t24 64,881 to 64,749, t28 77,124 to 76,976 (the same savings as on fa54a9a but 3 at t8). Osaka as before (lane 1 leaves it unchanged). Gate: cargo test --release (lib 107, verify 8, eip8024 3, generators 4), generate:huff, verify:huff, forge test 127/127. The coordinator fast-forwards opt.
