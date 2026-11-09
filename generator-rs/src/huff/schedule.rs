@@ -31,7 +31,7 @@ use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
-    BlockKind, Internal3Kind, Template, TemplateKind, blocks, hash_forms, internal3,
+    BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, hash_forms, internal3,
     internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4,
     stream_blocks, take_stream_block, templates,
 };
@@ -1316,6 +1316,120 @@ impl<'a> Builder<'a> {
         let inputs = self.state.clone();
         self.state = self.run_template(templates(self.t, kind), &inputs, &names, round)?;
         Ok(())
+    }
+
+    /// How many rounds the program of templates::chains that fits the layout
+    /// runs, if one does.
+    fn chain_rounds(&self, kind: TemplateKind) -> Option<usize> {
+        if self.t > 3 || !self.opts.external_template || self.lane_constants.is_some() {
+            return None;
+        }
+        let tpl = self.template(chains(self.t, kind), &self.state)?;
+        Some(1 + tpl.ops.split(' ').filter(|&mv| mv == "|").count())
+    }
+
+    /// External rounds from `round` on of t <= 3 from one program of
+    /// templates::chains, when one fits the layout and all its rounds belong
+    /// to this range; each later round's comment and step start at its first
+    /// S-box. Returns how many rounds it ran, 0 (emitting nothing) when no
+    /// program fits.
+    fn external_chain(&mut self, kind: TemplateKind, round: usize) -> Result<usize> {
+        let inputs = self.state.clone();
+        if self.t > 3 || !self.opts.external_template || self.lane_constants.is_some() {
+            return Ok(0);
+        }
+        let Some(tpl) = self.template(chains(self.t, kind), &inputs) else {
+            return Ok(0);
+        };
+        let n = 1 + tpl.ops.split(' ').filter(|&mv| mv == "|").count();
+        if round + n >= self.range.to {
+            return Ok(0);
+        }
+        // the outputs of every round of the program
+        let mut outs: Vec<Vec<Option<Id>>> = vec![vec![None; self.t]; n];
+        let p = self.p();
+        let mut stores = 0;
+        let mut k = 0;
+        for mv in tpl.ops.split(' ') {
+            if mv == "|" {
+                k += 1;
+                self.e.end_line();
+                self.e.comment("");
+                self.step_bytes.push(self.e.bytes);
+                self.e.next_round();
+                self.e.comment(&format!("Round {} (external)", round + k));
+            } else if let Some(n) = mv.strip_prefix("dup") {
+                let n: usize = n.parse().expect("dup slot");
+                let v = self.e.top(n - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(n) = mv.strip_prefix("swap") {
+                self.e.swap(n.parse().expect("swap slot"))?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Some(lane) = mv.strip_prefix("sbox") {
+                // sboxI: lane I of `round` on the inputs; sboxI@J: of round
+                // + J on the outputs of the program's round J - 1
+                match lane.split_once('@') {
+                    Some((i, j)) => {
+                        let i: usize = i.parse().expect("lane");
+                        let j: usize = j.parse().expect("round of the program");
+                        let Some(s) = outs[j - 1][i] else {
+                            bail!("chain S-box before its input");
+                        };
+                        self.template_lane(&vec![s; self.t], i, round + j, true)?;
+                    }
+                    None => {
+                        self.template_lane(&inputs, lane.parse().expect("lane"), round, true)?;
+                    }
+                }
+                self.e.end_line();
+            } else if mv == "store" {
+                let s = stores;
+                stores += 1;
+                if self.e.mstore_next(32 * s)? != outs[n - 1][s].unwrap_or(p) {
+                    bail!("chain stores s{s}' out of order");
+                }
+                self.e.end_line();
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => {
+                        operands.push(inplace(p));
+                        Op::Addmod
+                    }
+                    _ => bail!("unknown chain move {mv}"),
+                };
+                // oJ.I: output I of the program's round J
+                let slot = name
+                    .strip_prefix('o')
+                    .and_then(|r| r.split_once('.'))
+                    .and_then(|(j, i)| Some((j.parse::<usize>().ok()?, i.parse::<usize>().ok()?)));
+                let label = match slot {
+                    Some((_, i)) => format!("s{i}'"),
+                    None => name.to_string(),
+                };
+                let v = self.e.compute(op, &operands, &label)?;
+                if let Some((j, i)) = slot {
+                    outs[j][i] = Some(v);
+                }
+                self.e.end_line();
+            } else {
+                bail!("unknown chain move {mv}");
+            }
+        }
+        self.e.end_line();
+        // a program that ends with its last round's S-boxes leaves the state
+        // to its caller
+        let last = outs.pop().expect("one round at least");
+        if last.iter().any(Option::is_some) {
+            self.state = last
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| v.ok_or_else(|| Error(format!("chain leaves s{i}' unnamed"))))
+                .collect::<Result<Vec<_>>>()?;
+        }
+        Ok(n)
     }
 
     /// s_i + c then x^5 for lane i on top, consumed in place; with
@@ -3554,6 +3668,27 @@ impl<'a> Builder<'a> {
             let next = r + 2 < to;
             if r < rf_half {
                 self.e.comment(&format!("Round {r} (external)"));
+                // several rounds at once, the last one the exit when the
+                // internal rounds follow in this range, else ending before it
+                let exit = self
+                    .chain_rounds(TemplateKind::Exit)
+                    .is_some_and(|n| r + n == rf_half && rf_half + 1 < to);
+                let ran = if exit {
+                    self.external_chain(TemplateKind::Exit, r)?
+                } else if self
+                    .chain_rounds(TemplateKind::Round)
+                    .is_some_and(|n| r + n < rf_half)
+                {
+                    self.external_chain(TemplateKind::Round, r)?
+                } else {
+                    0
+                };
+                if ran > 0 {
+                    self.e.comment("");
+                    self.step_bytes.push(self.e.bytes);
+                    r += ran;
+                    continue;
+                }
                 let last = r == rf_half - 1;
                 if self.opts.external_template && self.t <= 4 {
                     let kind = if last && next {
@@ -3612,6 +3747,29 @@ impl<'a> Builder<'a> {
                 self.final_round_row0(r)?;
             } else {
                 self.e.comment(&format!("Round {r} (external)"));
+                // several rounds at once: up to the last one of the private
+                // entries (which stores), else ending before it
+                let ends = |n: Option<usize>, last: bool| {
+                    n.is_some_and(|n| if last { r + n == total } else { r + n < total })
+                };
+                let ran = match self.terminal {
+                    Some(kind) if ends(self.chain_rounds(TemplateKind::Final), true) => {
+                        match kind {
+                            t2_entry::Terminal::T2 => self.terminal_pair2(r)?,
+                            t2_entry::Terminal::T3 => self.terminal_pair3(r)?,
+                        }
+                    }
+                    _ if ends(self.chain_rounds(TemplateKind::Round), false) => {
+                        self.external_chain(TemplateKind::Round, r)?
+                    }
+                    _ => 0,
+                };
+                if ran > 0 {
+                    self.e.comment("");
+                    self.step_bytes.push(self.e.bytes);
+                    r += ran;
+                    continue;
+                }
                 if self.opts.external_template && self.t <= 4 {
                     let kind = if r == total - 1 {
                         TemplateKind::Final

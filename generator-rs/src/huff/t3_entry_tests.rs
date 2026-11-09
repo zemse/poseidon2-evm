@@ -81,10 +81,10 @@ fn t3_terminal_production_builder_and_selection_guards() {
                 candidate.max_depth,
                 candidate.max_dup
             ),
-            (7581, 6629, 96, 75, 9)
+            (7569, 6593, 96, 72, 9)
         );
         assert_eq!(candidate.step_bytes, fixture.step_bytes);
-        assert_eq!(&candidate.step_bytes[..64], &prior.result.step_bytes[..64]);
+        assert_eq!(&candidate.step_bytes[..62], &prior.result.step_bytes[..62]);
         assert_eq!(candidate.step_bytes.len(), 65);
         assert_eq!(candidate.step_bytes.last(), Some(&candidate.bytes));
         assert_eq!(candidate.input_slots, [None; 3]);
@@ -148,8 +148,8 @@ fn t3_terminal_production_builder_and_selection_guards() {
                 0 => bad.bytes = usize::MAX,
                 1 => bad.max_depth = 1001,
                 2 => bad.max_dup = fork.reach + 1,
-                3 => bad.gas += 12,
-                4 => bad.gas += 13,
+                3 => bad.gas += 18,
+                4 => bad.gas += 19,
                 _ => bad.bytes = fork.code_size,
             }
             let plan = select_terminal(3, fork, prior.clone(), Ok(Some(bad)));

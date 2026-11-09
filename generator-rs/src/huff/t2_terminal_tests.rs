@@ -73,8 +73,31 @@ pub(crate) fn build_fixture(
     b.external_template(TemplateKind::Entry, None)?;
     b.e.comment("");
     b.step_bytes.push(b.e.bytes);
-    for round in 0..64 {
+    let mut round = 0;
+    while round < 64 {
         b.e.next_round();
+        // rounds 0 to 3 (the exit) run as one program, 60 and 61 as a pair
+        if [0, 60].contains(&round) {
+            b.e.comment(&format!("Round {round} (external)"));
+            let (kind, n) = if round == 0 {
+                (TemplateKind::Exit, 4)
+            } else {
+                (TemplateKind::Round, 2)
+            };
+            assert_eq!(b.external_chain(kind, round)?, n);
+            b.e.comment("");
+            b.step_bytes.push(b.e.bytes);
+            round += n;
+            continue;
+        }
+        // the private entry runs the last two rounds as a pair that stores
+        if round == 62 && memory_output {
+            b.e.comment(&format!("Round {round} (external)"));
+            assert_eq!(b.terminal_pair2(round)?, 2);
+            b.e.comment("");
+            b.step_bytes.push(b.e.bytes);
+            break;
+        }
         if (4..60).contains(&round) {
             b.e.comment(&format!("Round {round} (internal)"));
             b.internal_round(round, true)?;
@@ -105,6 +128,7 @@ pub(crate) fn build_fixture(
         }
         b.e.comment("");
         b.step_bytes.push(b.e.bytes);
+        round += 1;
     }
     b.e.end_line();
     for (k, input) in inputs.iter().enumerate() {
@@ -231,7 +255,7 @@ fn t2_terminal_bounds_tails_and_store_guards() {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 2]], fork(name).unwrap(), memory, tail)
                         .unwrap();
-                assert_eq!(result.max_depth, if memory { 128 } else { 129 } + tail);
+                assert_eq!(result.max_depth, 125 + tail);
                 assert!(result.max_dup <= fork(name).unwrap().reach);
             }
         }

@@ -117,15 +117,11 @@ pub(crate) fn build_fixture(
     let mut b = builder(params, inputs, vec![p1(); 3], fork)?;
     b.e.next_round();
     b.external_template(TemplateKind::Entry, None)?;
-    for round in 0..4 {
-        b.e.next_round();
-        let kind = if round == 3 {
-            TemplateKind::Exit
-        } else {
-            TemplateKind::Round
-        };
-        b.external_template(kind, Some(round))?;
-    }
+    // rounds 0 to 2 as one program, as production runs them
+    b.e.next_round();
+    assert_eq!(b.external_chain(TemplateKind::Round, 0)?, 3);
+    b.e.next_round();
+    b.external_template(TemplateKind::Exit, Some(3))?;
     for round in 4..59 {
         b.e.next_round();
         b.internal_round(round, true)?;

@@ -38,8 +38,8 @@ fn amsterdam_t2_t3_t4() {
         within(report);
     }
     // forge: test/Poseidon2T2.t.sol and the hash_* of test/Poseidon2.t.sol
-    assert_eq!(reports[0].gas.measured, 5895);
-    assert_eq!(reports[1].gas.measured, 7638);
+    assert_eq!(reports[0].gas.measured, 5880);
+    assert_eq!(reports[1].gas.measured, 7626);
     let hashes = reports[2].hashes.expect("hash entry");
     assert_eq!(hashes.map(|g| g.measured), [11880, 11887, 11960]);
 }
@@ -78,8 +78,8 @@ fn osaka_t2_t3_t4() {
     for report in &reports {
         within(report);
     }
-    assert_eq!(reports[0].gas.measured, 5895);
-    assert_eq!(reports[1].gas.measured, 7638);
+    assert_eq!(reports[0].gas.measured, 5880);
+    assert_eq!(reports[1].gas.measured, 7626);
     assert_eq!(reports[2].permutation.unwrap().measured, 12083);
     let hashes = reports[2].hashes.expect("hash entry");
     assert_eq!(hashes.map(|g| g.measured), [11880, 11887, 11960]);

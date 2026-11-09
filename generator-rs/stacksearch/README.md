@@ -68,7 +68,7 @@ The binaries, run from this directory after `cargo build --release`:
   sblock <floor> [stored|kept] [max_working=8] [ub | trace <program>]
   ```
 
-- `target/release/seam` (`src/bin/seam.rs`) searches the seams of t = 2 and 3 over single opcodes: values are linear forms over the S-box outputs (coefficients 0..2, bound in units of P-1), with PRIME copies, DUP, SWAP, EXCHANGE (`EXCHANGE=1`), POP, ADD, ADDMOD, the S-box of a lane on a PRIME copy (45) and `msize mstore` of the next output. The goal is `store` (the terminal round of the private entries) or a layout prefix. `LOADS=0,1,...` takes lanes from calldata reduced (14) for the entries; `ROUNDS=2` (t = 2) searches two external rounds at once. It found the terminal rounds of t = 2 (143) and t = 3 (219); LANE3-SMALL.md records the runs.
+- `target/release/seam` (`src/bin/seam.rs`) searches the seams of t = 2 and 3 over single opcodes: values are linear forms over the S-box outputs (coefficients 0..2, bound in units of P-1), with PRIME copies, DUP, SWAP, EXCHANGE (`EXCHANGE=1`), POP, ADD, ADDMOD, the S-box of a lane on a PRIME copy (45) and `msize mstore` of the next output. The goal is `store` (the terminal round of the private entries) or a layout prefix. `LOADS=0,1,...` takes lanes from calldata reduced (14) for the entries; `ROUNDS=2` (t = 2) searches two external rounds at once, `JUNCTION=1` the linear layer of one round with the S-boxes of the next (from and to the layouts the templates have there), `INTERNAL=1` (t = 3) the last internal round's outputs into the external round after it. It found the terminal rounds of t = 2 (143) and t = 3 (219) and the junctions of `templates::chains`; LANE3-SMALL.md records the runs.
 
   ```
   seam <t> <init> <goal> [window=10] [ub]

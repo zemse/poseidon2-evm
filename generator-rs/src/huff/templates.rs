@@ -134,6 +134,56 @@ pub fn templates(t: usize, kind: TemplateKind) -> &'static [Template] {
     }
 }
 
+/// External rounds as one program, the S-boxes of a round starting before
+/// the round before ends (stacksearch `seam`: ROUNDS=2 for two t = 2
+/// rounds, 243 gas against 2 x 123, 263 against 123 + 143 for the private
+/// entry's last two; JUNCTION=1 for the linear layer of a t = 3 round with
+/// the S-boxes of the next, 186 against 189, the last 189 against 192).
+/// `sboxI` is lane I of the first round on its inputs, `sboxI@J` lane I of
+/// round J of the program on the outputs of round J - 1, `oJ.I` output I of
+/// round J, `|` where the next round's comment and step start and `store`
+/// writes the next output of the last round to memory. Round leaves the
+/// layout it takes, Exit [s0', P, s1'] for the internal rounds; Final ends
+/// the private entries (t = 2 storing, t = 3 at [y1, P, y2, y0, P] for
+/// terminal3).
+pub fn chains(t: usize, kind: TemplateKind) -> &'static [Template] {
+    match (t, kind) {
+        (2, TemplateKind::Round) => &[
+            Template {
+                init: "s1,P,s0",
+                ops: "sbox1 P P P dup5 sbox0 P dup2 dup6 add=sum dup1 swap3 add=o0.0 | sbox0@1 swap4 add=o0.1 sbox1@1 dup1 dup4 add=sum dup1 swap4 add=o1.0 swap3 add=o1.1",
+            },
+            Template {
+                init: "s0,P,s1",
+                ops: "sbox0 P P P dup5 sbox1 P dup2 dup6 add=sum dup1 swap3 add=o0.1 | sbox1@1 swap4 add=o0.0 sbox0@1 dup1 dup4 add=sum dup1 swap4 add=o1.1 swap3 add=o1.0",
+            },
+        ],
+        // rounds 0 to 3, the junction of rounds 1 and 2 searched on its own
+        // (JUNCTION=1, 123 against 126)
+        (2, TemplateKind::Exit) => &[Template {
+            init: "s1,P,s0",
+            ops: "sbox1 P P P dup5 sbox0 P dup2 dup6 add=sum dup1 swap3 add=o0.0 | sbox0@1 swap4 add=o0.1 sbox1@1 P dup2 dup5 add=sum P dup2 P swap5 add=o1.1 | sbox1@2 swap5 add=o1.0 sbox0@2 P dup2 dup6 add=sum dup1 swap3 add=o2.0 | sbox0@3 swap4 add=o2.1 sbox1@3 dup1 dup4 add=sum dup1 swap2 add=o3.1 swap3 add=o3.0",
+        }],
+        (2, TemplateKind::Final) => &[Template {
+            init: "s0,P,s1",
+            ops: "sbox0 P P P swap4 sbox1 P dup2 dup5 add=sum dup1 swap3 add=o0.1 | sbox1@1 swap3 add=o0.0 sbox0@1 P dup2 dup4 add=sum dup1 swap3 addmod=o1.0 store addmod=o1.1 store",
+        }],
+        // rounds 0 to 2: the S-boxes of the first, two junctions, the
+        // linear layer of the third
+        (3, TemplateKind::Round) => &[Template {
+            init: "s2,P,s1,s0",
+            ops: "sbox2 P P P dup6 sbox0 swap4 sbox1 P P dup3 dup6 add=s1+s2 dup7 add=sum dup1 swap4 add=o0.1 | sbox1@1 swap4 dup3 add=o0.2 sbox2@1 swap4 add=o0.0 sbox0@1 P swap1 P P dup3 dup6 add=s0+s1 dup7 add=sum dup1 swap4 add=o1.0 | sbox0@2 swap4 dup3 add=o1.1 sbox1@2 swap4 add=o1.2 sbox2@2 P swap1 dup3 dup2 dup6 add=s1+s2 add=sum swap4 dup5 add=o2.1 swap3 dup5 add=o2.0 swap4 add=o2.2",
+        }],
+        // rounds 61 to 63 of the private entry: the re-entry round's
+        // S-boxes and two junctions, terminal3 after them
+        (3, TemplateKind::Final) => &[Template {
+            init: "s0,P,s1,s2",
+            ops: "sbox0 P dup3 sbox1 P P dup6 sbox2 dup1 dup4 dup6 add=s0+s1 add=sum P dup2 P swap6 add=o0.1 | sbox1@1 swap4 dup2 P swap4 add=o0.2 sbox2@1 swap5 add=o0.0 sbox0@1 P dup2 dup5 add=s0+s1 dup6 add=sum dup1 swap3 add=o1.0 | sbox0@2 swap3 dup2 add=o1.1 swap4 add=o1.2 sbox2@2 P P P swap5 sbox1@2",
+        }],
+        _ => &[],
+    }
+}
+
 /// The forms of round 0 of the t = 4 hash entry for n inputs. It runs from
 /// the PRIME copy SETUP pushed, which it leaves under everything for the
 /// rounds after to copy, and loads the inputs itself: rI is calldata word I

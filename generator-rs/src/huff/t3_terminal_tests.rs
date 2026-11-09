@@ -131,6 +131,29 @@ pub(crate) fn build_fixture(
                 assert_ne!(round, 59);
                 b.internal_round(round, true)?;
             }
+        } else if round == 0 {
+            // rounds 0 to 2 as one program
+            b.e.comment(&format!("Round {round} (external)"));
+            assert_eq!(b.external_chain(TemplateKind::Round, round)?, 3);
+            b.e.comment("");
+            b.step_bytes.push(b.e.bytes);
+            round += 3;
+            continue;
+        } else if round == 61 && memory_output {
+            // rounds 61 to 63: the S-boxes of each start among the linear
+            // layer of the one before
+            b.e.comment(&format!("Round {round} (external)"));
+            assert_eq!(b.external_chain(TemplateKind::Final, round)?, 3);
+            let p = b.p();
+            assert_eq!(b.e.from_top()[1], p);
+            assert_eq!(b.e.from_top()[4], p);
+            assert!(t2_entry::stack_only(&b.e.lines, fork));
+            b.state = terminal(&mut b.e)?;
+            b.state_in_memory = true;
+            b.stored = true;
+            b.e.comment("");
+            b.step_bytes.push(b.e.bytes);
+            break;
         } else {
             b.e.comment(&format!("Round {round} (external)"));
             if round == 63 && memory_output {
@@ -305,7 +328,7 @@ fn t3_terminal_bounds_tails_and_store_guards() {
             for memory in [false, true] {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 3]], fork, memory, tail_len).unwrap();
-                assert_eq!(result.max_depth, if memory { 75 } else { 74 } + tail_len);
+                assert_eq!(result.max_depth, 72 + tail_len);
                 assert_eq!(result.max_dup, 9);
             }
         }

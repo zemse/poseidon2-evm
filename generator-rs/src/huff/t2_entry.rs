@@ -156,6 +156,42 @@ pub(super) fn terminal_linear2(e: &mut Emitter, x: Id, y: Id) -> Result<(Id, Id)
 }
 
 impl Builder<'_> {
+    /// The last rounds at once (templates::chains Final), storing the
+    /// outputs: how many, 0 (emitting nothing) when the entry does not
+    /// qualify.
+    pub(super) fn terminal_pair2(&mut self, round: usize) -> Result<usize> {
+        self.e.end_line();
+        if !eligible(self.params, self.opts, self.range, &Boundary::default())
+            || self
+                .chain_rounds(TemplateKind::Final)
+                .map(|n| round + n + 1)
+                != Some(self.range.to)
+            || self.live.is_some()
+            || self.state_in_memory
+            || self.stored
+            || self.lane_constants.is_some()
+            || self.input_slots != [None; 2]
+            || self.e.memory != 0
+            || self.e.prime_slot.is_some()
+            || self.e.stores != 0
+            || self.e.loads != 0
+            || !self.e.tables.is_empty()
+            || !stack_only(&self.e.lines, self.e.fork)
+        {
+            return Ok(0);
+        }
+        let n = self.external_chain(TemplateKind::Final, round)?;
+        if n == 0 {
+            return Ok(0);
+        }
+        if self.e.memory != 64 {
+            bail!("t2 terminal pair left another memory extent");
+        }
+        self.state_in_memory = true;
+        self.stored = true;
+        Ok(n)
+    }
+
     pub(super) fn terminal_round2(&mut self, round: usize) -> Result<()> {
         if !eligible(self.params, self.opts, self.range, &Boundary::default())
             || round + 2 != self.range.to
@@ -208,6 +244,44 @@ impl Builder<'_> {
 }
 
 impl Builder<'_> {
+    /// The last rounds with the last one's S-boxes started early
+    /// (templates::chains Final), then terminal3: how many, 0 (emitting
+    /// nothing) when the entry does not qualify.
+    pub(super) fn terminal_pair3(&mut self, round: usize) -> Result<usize> {
+        self.e.end_line();
+        if !eligible3(self.params, self.opts, self.range, &Boundary::default())
+            || self.terminal != Some(Terminal::T3)
+            || self
+                .chain_rounds(TemplateKind::Final)
+                .map(|n| round + n + 1)
+                != Some(self.range.to)
+            || self.live.is_some()
+            || self.state_in_memory
+            || self.stored
+            || self.lane_constants.is_some()
+            || self.input_slots != [None; 3]
+            || self.e.memory != 0
+            || self.e.prime_slot.is_some()
+            || self.e.stores != 0
+            || self.e.loads != 0
+            || !self.e.tables.is_empty()
+            || !stack_only(&self.e.lines, self.e.fork)
+        {
+            return Ok(0);
+        }
+        let n = self.external_chain(TemplateKind::Final, round)?;
+        if n == 0 {
+            return Ok(0);
+        }
+        if !stack_only(&self.e.lines, self.e.fork) {
+            bail!("t3 terminal pair left a memory opcode");
+        }
+        self.state = terminal3(&mut self.e)?;
+        self.state_in_memory = true;
+        self.stored = true;
+        Ok(n)
+    }
+
     pub(super) fn terminal_round3(&mut self, round: usize) -> Result<()> {
         if !eligible3(self.params, self.opts, self.range, &Boundary::default())
             || self.terminal != Some(Terminal::T3)
@@ -444,8 +518,8 @@ mod tests {
                     0 => bad.bytes = usize::MAX,
                     1 => bad.max_depth = 1001,
                     2 => bad.max_dup = fork.reach + 1,
-                    3 => bad.gas += 6,
-                    4 => bad.gas += 7,
+                    3 => bad.gas += 9,
+                    4 => bad.gas += 10,
                     _ => bad.bytes = fork.code_size,
                 }
                 let chosen = select_terminal(2, fork, prior.clone(), Ok(Some(bad)));

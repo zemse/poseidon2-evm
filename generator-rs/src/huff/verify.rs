@@ -677,10 +677,10 @@ mod tests {
                 candidate.swaps
             )
         );
-        assert_eq!(baseline.gas, 7581);
-        assert_eq!(candidate.gas, 7578);
+        assert_eq!(baseline.gas, 7575);
+        assert_eq!(candidate.gas, 7572);
         assert_eq!(candidate.swaps + 1, baseline.swaps);
-        let baseline_gas = if name == "paris" { 7655 } else { 7653 };
+        let baseline_gas = if name == "paris" { 7649 } else { 7647 };
         let path = huff_name(&fork, 3, "Poseidon2");
         let permutation_path = huff_name(&fork, 3, "Permutation");
         let utils = if name == "amsterdam" {
@@ -785,7 +785,7 @@ mod tests {
             // on Amsterdam the floated candidate is the default now: the ADDMOD
             // bridge supplies no backing copy there, so no compact body exists
             let compact_budget = 3916;
-            let compact_gas = 5943;
+            let compact_gas = 5931;
             let tights: &[bool] = if name == "osaka" {
                 &[false, true]
             } else {
@@ -815,13 +815,13 @@ mod tests {
                 assert!(best.result.max_dup <= fork.reach);
                 assert!(best.result.max_depth <= 1000);
                 assert_eq!(best.result.memory, 0);
-                let expected_gas = if tight { compact_gas } else { 5901 };
+                let expected_gas = if tight { compact_gas } else { 5889 };
                 let expected_bytes = if tight {
-                    compact_budget - 2
+                    compact_budget - 6
                 } else if name == "osaka" {
-                    7388
+                    7192
                 } else {
-                    4009
+                    3999
                 };
                 assert_eq!(best.result.gas + 50, expected_gas);
                 let mut candidate = files.clone();
