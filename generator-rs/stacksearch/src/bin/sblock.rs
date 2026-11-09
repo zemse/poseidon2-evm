@@ -494,7 +494,10 @@ impl Dag {
                 out.push((3 * m, format!("swap{n}"), t, park(computed, slot, s[0])));
             }
         }
-        if parks >= self.take {
+        // PARK_LIVE=1: park only values with uses left
+        if parks >= self.take
+            || (std::env::var("PARK_LIVE").is_ok() && self.need(s[0], computed) == 0)
+        {
             return;
         }
         for (j, nd) in self.nodes.iter().enumerate() {

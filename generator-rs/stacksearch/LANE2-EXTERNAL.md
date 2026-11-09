@@ -34,3 +34,18 @@ ADD, SUB, SHL with its PUSH: 6 a binary op (3 op + 3 for the consumed slot). ADD
    Taken: the 183 program is the first `ordered_blocks(Final)` program (1 gas a final block on Amsterdam: t8 -2 to t28 -7). Amsterdam call gas after items 1, 4, 5: t8 23,398, t12 33,846, t16 44,161, t20 54,468, t24 65,088, t28 77,327.
    TAKE=2, WEIGHT=15, middle kept block (floor S0..S3,P,4 dead,x0..x3, window 8, UB 344): no program after 87 min, 9.6 GB, stopped. With no program below the bound the weight does not help: everything under 344 must be expanded.
    `ORDER=<names>` fixes the op order (only stack moves and the way each u is made are searched). Middle kept block, incumbent order, TAKE=3, window 9: none below 344 (exhausted, 20 min, 7.3 GB). Exit block, TAKE=1 with S takes, window 8: none below 152 (exhausted, 83 min, 11.5 GB). So more takes in the incumbent order and a take in the exit block do not pay.
+   Last kept block, incumbent order, TAKE=3 with S takes: window 9 passed 14 GB in 5 min, window 8 in 29 min (stopped, no program). `PARK_LIVE=1` parks only values with uses left (no dead value, which is a POP in disguise).
+   Last kept block, incumbent order, TAKE=2 with S takes and PARK_LIVE=1, window 8: none below 344 (exhausted, 14 min, 7.2 GB).
+   Middle kept block, TAKE=2 (x only), PARK_LIVE=1, window 8, five hand-picked op orders (the incumbent, u0 before t0, u1 and d1 first, the o3/o2 half first, u3/d3/t3 first): none below 344 in each (1 to 5 min, under 2 GB each).
+   24 random op orders (random linear extensions of the block DAG with its lanes), same setting: none below 344 in any.
+
+## Where the lane stands
+
+- Arithmetic: 16 ops and 4 reductions a block is the least found; every row of M4 on u = x + S needs reductions for overflow, not for the output bound, and the column sums need one reduction a column from B = 3 on. B = 2 (t8) needed only two, now taken.
+- Copies: every x is read twice (its column sum, then its u), the last read is in its block, so the column sums must copy. One x (or S0 in the last block) a block is now read in place; more takes do not pay in any order searched (29 orders, window 8, two live takes) or in the incumbent order with three takes (window 9).
+- Exit and final blocks: a take in the exit block does not pay (window 8); the final block is 183 at window 9 (the 184 below window 8), 10 would pass the memory cap.
+- Left open: an exact take search of a kept block without a fixed order (it passes 11 GB at window 8), takes in the final and exit0 blocks, and a block program that interleaves two blocks (the ROLL bound of RESULTS.md says at most 6 gas a block within window 10, before takes).
+
+## Landing
+
+be974ab (gas) and c63ca61 (tooling, notes) are rebased on opt fa54a9a and pass the gate (cargo test --lib, the Amsterdam verify tests, generate:huff with no diff, verify:huff, forge test 127/127; Osaka verified per width with the CLI). The sandbox of this lane refuses `git -C <main> merge --ff-only` (and a `cd` into the main checkout), so opt is not moved from here: the coordinator fast-forwards opt to this branch.
