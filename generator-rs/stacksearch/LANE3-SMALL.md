@@ -73,7 +73,28 @@ The t3 seam R59/R60 up to R60's S-box outputs (`INTERNAL=1 JUNCTION=1 seam 3 b0:
 
 Gas: t2 5,895 -> 5,880 (Osaka the same, Paris 5,882), permutation entry 5,901 -> 5,889; t3 7,638 -> 7,626 (Paris 7,628), permutation entry 7,650 -> 7,644.
 
+Initial linear layer with round 0's S-boxes, t2 (`JUNCTION=1 seam 2 x0,x1,P o0,P,P,o1 8 129`): 126 against 129, but only by consuming the PRIME copy under the inputs (the caller's, which the fixtures require to survive and the internal rounds reach by DUPN): with that slot unusable (`x0,x1,G`) nothing is below 129. Built and reverted: 5,880 -> 5,877 at +3,546 runtime bytes (every later PRIME copy a PUSH32) and a changed stack effect. t3 entry with loads and round 0's S-boxes: over 12 GB at window 7.
+
 ### 7. EXCHANGE in `ecycle` (t4 external): no gain
 
 `EXCHANGE=1 ecycle 7 3`: 3,632 end layouts, D_k - D_(k-1) = 54 at k = 3 (780 s), as without EXCHANGE. Window 8 not run (the non-EXCHANGE bound there is already ROUND4's 51).
+
+## Result (2026-11-10 03:30)
+
+| Entry | Before | After |
+| --- | ---: | ---: |
+| t2 | 5,898 | 5,880 |
+| t3 | 7,644 | 7,626 |
+| t4 hash_1 / hash_2 / hash_3 | 11,883 / 11,890 / 11,963 | 11,880 / 11,887 / 11,960 |
+| t4 permutation | 12,083 | 12,083 |
+
+Amsterdam and Osaka equal; Paris two more at t2 and t3, one more at t4.
+
+## Still open
+
+- t4 junctions: the t2/t3 gain is at the junction of two external rounds (linear layer and the next S-boxes). The hash runs ROUND4 three times in a row twice (rounds 1-3, 60-62) and row 0 after: if a junction saves 3 like t2/t3, about 12 a hash arity. `seam` has no M4 (coefficients to 7, MULMOD by 4); `macro` has the forms but one round from fixed layouts.
+- t3 junction of rounds 2 and 3 (into the exit) at window 8: over 16 GB. A tighter bound or symmetry reduction might finish it (186 to beat).
+- t2 junction of rounds 61 and 62 into the Final pair's layout: none below 126 at window 8; other layouts for the Final pair not tried.
+- The t3 R59/R60 seam past R60's S-boxes (its linear layer) and window 9.
+- t4 hash forms fused with ROUND4 (TASKS.md, at most 6 an arity): not tried, the round search alone takes 881 s / 7.6 GB.
 
