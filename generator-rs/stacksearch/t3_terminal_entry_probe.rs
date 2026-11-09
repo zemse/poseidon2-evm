@@ -150,9 +150,15 @@ fn t3_terminal_compiled_whole_entry() {
         let new_suffix: Vec<_> = SUFFIX.split_whitespace().collect();
         assert_eq!(&old_ops[old_ops.len() - old_suffix.len()..], old_suffix);
         assert_eq!(&new_ops[new_ops.len() - new_suffix.len()..], new_suffix);
+        let last = |lines: &[String]| {
+            lines
+                .iter()
+                .position(|line| line.contains("Round 63"))
+                .unwrap()
+        };
         assert_eq!(
-            &old_ops[..old_ops.len() - old_suffix.len()],
-            &new_ops[..new_ops.len() - new_suffix.len()]
+            tokens(&original.lines[..last(&original.lines)]),
+            tokens(&candidate.lines[..last(&candidate.lines)])
         );
         assert!(old_ops.iter().all(|op| !matches!(
             *op,
@@ -160,13 +166,13 @@ fn t3_terminal_compiled_whole_entry() {
         )));
         assert_eq!(
             (candidate.gas, candidate.bytes),
-            (original.gas + 9, original.bytes - 28)
+            (original.gas + 3, original.bytes - 62)
         );
         assert_eq!(
             (candidate.max_depth, candidate.max_dup),
-            (original.max_depth, original.max_dup)
+            (original.max_depth + 1, original.max_dup)
         );
-        assert_eq!((candidate.max_depth, candidate.max_dup), (74, 9));
+        assert_eq!((candidate.max_depth, candidate.max_dup), (75, 9));
         assert!(candidate.max_depth <= 1000);
         assert!(candidate.max_dup <= fork.reach);
         assert_eq!(candidate.step_bytes.len(), step_count(&params));
@@ -174,7 +180,7 @@ fn t3_terminal_compiled_whole_entry() {
         assert_eq!(candidate.step_bytes.last(), Some(&candidate.bytes));
         assert_eq!((candidate.state_in_memory, candidate.memory), (true, 96));
         let model = super::super::entry_gas(&fork, 3, &candidate);
-        assert_eq!(model + 6, baseline_gas);
+        assert_eq!(model + 12, baseline_gas);
         let path = huff_name(&fork, 3, "Poseidon2");
         let public_path = huff_name(&fork, 3, "Permutation");
         let wrapper = render_entry(&params, &fork, &candidate);
@@ -192,13 +198,15 @@ fn t3_terminal_compiled_whole_entry() {
             code.runtime.len(),
             candidate.bytes + entry_bytes(fork, 3, &candidate.input_slots, true, 96)
         );
-        assert_eq!(code.runtime.len(), if fork.push0 { 6713 } else { 6715 });
-        assert_eq!(code.runtime.len() + 34, runtime.len());
-        let ret_bytes = if fork.push0 { 3 } else { 4 };
-        assert_eq!(
-            &runtime[..runtime.len() - 88 - ret_bytes],
-            &code.runtime[..code.runtime.len() - 54 - ret_bytes]
-        );
+        assert_eq!(code.runtime.len(), if fork.push0 { 6679 } else { 6681 });
+        assert_eq!(code.runtime.len() + 68, runtime.len());
+        // the same code up to the last round
+        let common = runtime
+            .iter()
+            .zip(&code.runtime)
+            .take_while(|(a, b)| a == b)
+            .count();
+        assert!(common + (original.bytes - original.step_bytes[63]) + 64 >= runtime.len());
         let bytes = calls(&fork, code, &params, &raw, model).len();
         println!(
             "T3_TERMINAL candidate {}: {} reference-checked calls, {model} gas, {bytes} bytes, saving {}, depth {}, dup {}",
@@ -278,7 +286,7 @@ fn t3_terminal_production_compiled_whole_entry() {
         let baseline_gas = super::super::entry_gas(&fork, 3, original);
         let model = super::super::entry_gas(&fork, 3, selected);
         assert_eq!(baseline_gas, if fork.push0 { 7650 } else { 7652 });
-        assert_eq!(model + 6, baseline_gas);
+        assert_eq!(model + 12, baseline_gas);
         let path = huff_name(&fork, 3, "Poseidon2");
         let public_path = huff_name(&fork, 3, "Permutation");
         let utils = if name == "amsterdam" {
@@ -327,9 +335,9 @@ fn t3_terminal_production_compiled_whole_entry() {
         assert_eq!(production.initcode, checked.initcode);
         assert_eq!(
             production.runtime.len(),
-            if fork.push0 { 6713 } else { 6715 }
+            if fork.push0 { 6679 } else { 6681 }
         );
-        assert_eq!(production.runtime.len() + 34, baseline_runtime.len());
+        assert_eq!(production.runtime.len() + 68, baseline_runtime.len());
         assert_eq!(
             production.runtime.len(),
             selected.bytes + entry_bytes(fork, 3, &selected.input_slots, true, 96)

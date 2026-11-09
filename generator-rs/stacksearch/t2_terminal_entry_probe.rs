@@ -163,6 +163,17 @@ fn check_terminal(production: bool) {
         } else {
             build_fixture(&params, &clean, fork, true, 0).unwrap().0
         };
+        let last = |lines: &[String]| {
+            lines
+                .iter()
+                .position(|line| line.contains("Round 63"))
+                .unwrap()
+        };
+        let (old_cut, new_cut) = (last(&original.lines), last(&candidate.lines));
+        assert_eq!(
+            tokens(&original.lines[..old_cut]),
+            tokens(&candidate.lines[..new_cut])
+        );
         let old_ops = tokens(&original.lines);
         let new_ops = tokens(&candidate.lines);
         assert_eq!(
@@ -171,29 +182,33 @@ fn check_terminal(production: bool) {
                 "dup2", "dup2", "dup5", "add", "swap2", "dup3", "addmod", "swap3", "addmod"
             ]
         );
+        // lane 1 on a copy of s1, the sum on copies, two PRIME copies (the
+        // second swapped under x0), both outputs stored
+        let new_last = tokens(&candidate.lines[new_cut..]);
+        assert_eq!(new_last.iter().filter(|&&op| op == "add").count(), 3);
         assert_eq!(
-            &new_ops[new_ops.len() - 12..],
+            &new_ops[new_ops.len() - 7..],
             [
-                "dup1", "dup4", "add", "dup3", "dup2", "dup6", "addmod", "msize", "mstore",
-                "addmod", "msize", "mstore"
+                "dup3", "addmod", "msize", "mstore", "addmod", "msize", "mstore"
             ]
         );
+        let sbox_end = new_ops.iter().rposition(|&op| op == "mulmod").unwrap();
         assert_eq!(
-            &old_ops[..old_ops.len() - 9],
-            &new_ops[..new_ops.len() - 12]
+            &new_ops[sbox_end + 1..sbox_end + 4],
+            ["dup1", "dup3", "add"]
         );
+        assert!(new_ops[sbox_end + 4..].contains(&"swap4"));
         assert!(old_ops.iter().all(|op| !matches!(
             *op,
             "msize" | "mstore" | "mload" | "codecopy" | "calldatacopy"
         )));
-        assert_eq!(
-            (candidate.gas, candidate.bytes),
-            (original.gas + 7, original.bytes + 3)
-        );
-        assert_eq!(
-            (candidate.max_depth, candidate.max_dup),
-            (original.max_depth, original.max_dup)
-        );
+        // PUSH32 for a PRIME copy beyond DUP16 on the forks without DUPN: 31
+        // bytes more
+        let extra = candidate.bytes - original.bytes - 3;
+        assert!(extra == 0 || (extra == 31 && fork.reach == 16), "{extra}");
+        assert_eq!(candidate.gas, original.gas + 4);
+        assert_eq!(candidate.max_depth, original.max_depth - 1);
+        assert!(candidate.max_dup <= original.max_dup + 1);
         assert!(candidate.max_depth <= 1000);
         assert!(candidate.max_dup <= fork.reach);
         assert_eq!(candidate.step_bytes.len(), step_count(&params));
@@ -201,7 +216,7 @@ fn check_terminal(production: bool) {
         assert_eq!(candidate.step_bytes.last(), Some(&candidate.bytes));
         assert_eq!((candidate.state_in_memory, candidate.memory), (true, 64));
         let model = super::super::entry_gas(&fork, 2, &candidate);
-        assert_eq!(model + 3, baseline_gas);
+        assert_eq!(model + 6, baseline_gas);
         let path = huff_name(&fork, 2, "Poseidon2");
         let public_path = huff_name(&fork, 2, "Permutation");
         let mut trial = if let Some(plan) = &plan {
@@ -239,11 +254,13 @@ fn check_terminal(production: bool) {
             code.runtime.len(),
             candidate.bytes + entry_bytes(fork, 2, &candidate.input_slots, true, 64)
         );
-        assert_eq!(code.runtime.len() + 1, runtime.len());
+        assert_eq!(code.runtime.len() + 1, runtime.len() + extra);
+        // the same code up to the end of lane 0 of the last round (lane 1 with
+        // its PRIME copies is 47 bytes in both)
         let ret_bytes = if fork.push0 { 3 } else { 4 };
         assert_eq!(
-            &runtime[..runtime.len() - 13 - ret_bytes],
-            &code.runtime[..code.runtime.len() - 12 - ret_bytes]
+            &runtime[..runtime.len() - 13 - ret_bytes - 47],
+            &code.runtime[..code.runtime.len() - 12 - ret_bytes - 47 - extra]
         );
         let bytes = calls(&fork, code, &params, &raw, model).len();
         println!(

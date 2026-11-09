@@ -126,6 +126,35 @@ pub(crate) fn build(
     finish_checked(b, &outputs, &expected, &boundary).map(Some)
 }
 
+/// [y, x, T] with clean S-box outputs -> memory [x + (x + y), y + (x + y)]
+/// reduced, stack [T]: the sum on copies of both, then two PRIME copies of
+/// which one swaps under x, so x and y are consumed by the two ADDMODs.
+pub(super) fn terminal_linear2(e: &mut Emitter, x: Id, y: Id) -> Result<(Id, Id)> {
+    if e.top(0)? != y || e.top(1)? != x {
+        bail!("t2 terminal linear layer needs [y, x]");
+    }
+    e.dup(y)?;
+    e.dup(x)?;
+    let sum = e.compute(Op::Add, &[inplace(x), inplace(y)], "sum")?;
+    e.push_prime()?;
+    e.push_prime()?;
+    e.swap(4)?;
+    e.dup(sum)?;
+    let z0 = e.compute(Op::Addmod, &[inplace(sum), inplace(x), inplace(e.p)], "s0'")?;
+    e.end_line();
+    if e.mstore_next(0)? != z0 {
+        bail!("t2 terminal entry did not store s0'");
+    }
+    e.end_line();
+    let z1 = e.compute(Op::Addmod, &[inplace(sum), inplace(y), inplace(e.p)], "s1'")?;
+    e.end_line();
+    if e.mstore_next(32)? != z1 {
+        bail!("t2 terminal entry did not store s1'");
+    }
+    e.end_line();
+    Ok((z0, z1))
+}
+
 impl Builder<'_> {
     pub(super) fn terminal_round2(&mut self, round: usize) -> Result<()> {
         if !eligible(self.params, self.opts, self.range, &Boundary::default())
@@ -147,46 +176,30 @@ impl Builder<'_> {
         if !stack_only(&self.e.lines, self.e.fork) {
             bail!("t2 terminal entry needs an untouched-memory prefix");
         }
+        // [s0, P, s1, T]: lane 0 in place, lane 1 on a copy of s1 (stacksearch
+        // `seam 2 s0:3,P,s1:3 store`: 143 gas, the least within window 10)
         let inputs = self.state.clone();
         let x = self.template_lane(&inputs, 0, round, true)?;
         self.e.end_line();
-        for _ in 0..3 {
-            self.e.push_prime()?;
-        }
-        self.e.swap(4)?;
+        self.e.push_prime()?;
+        self.e.dup(inputs[1])?;
         let y = self.template_lane(&inputs, 1, round, true)?;
         self.e.end_line();
         let e = &mut self.e;
-        if !e.from_top().starts_with(&[y, e.p, x, e.p])
+        if !e.from_top().starts_with(&[y, x, inputs[1]])
             || e.bound(x) >= PRIME
             || e.bound(y) >= PRIME
             || !stack_only(&e.lines, e.fork)
         {
-            bail!("t2 terminal entry needs clean [y, PRIME, x, PRIME]");
+            bail!("t2 terminal entry needs clean [y, x, s1]");
         }
-        let tail = e.from_top()[4..].to_vec();
-        e.dup(y)?;
-        e.dup(x)?;
-        let sum = e.compute(Op::Add, &[inplace(x), inplace(y)], "sum")?;
-        e.dup(e.p)?;
-        e.dup(sum)?;
-        e.dup(x)?;
-        let z0 = e.compute(Op::Addmod, &[inplace(x), inplace(sum), inplace(e.p)], "s0'")?;
-        e.end_line();
-        if e.mstore_next(0)? != z0 {
-            bail!("t2 terminal entry did not store s0'");
-        }
-        e.end_line();
-        let z1 = e.compute(Op::Addmod, &[inplace(sum), inplace(y), inplace(e.p)], "s1'")?;
-        e.end_line();
-        if e.mstore_next(32)? != z1 {
-            bail!("t2 terminal entry did not store s1'");
-        }
-        e.end_line();
+        let tail = e.from_top()[2..].to_vec();
+        let linear = terminal_linear2(e, x, y)?;
         let stack = e.from_top();
-        if !stack.starts_with(&[x, e.p]) || stack[2..] != tail || e.memory != 64 {
+        if stack != tail || e.memory != 64 {
             bail!("t2 terminal entry changed its retained stack or memory extent");
         }
+        let (z0, z1) = linear;
         self.state = vec![z0, z1];
         self.state_in_memory = true;
         self.stored = true;
@@ -231,20 +244,26 @@ impl Builder<'_> {
         if !stack_only(&self.e.lines, self.e.fork) {
             bail!("t3 terminal entry needs an untouched-memory prefix");
         }
+        // [s0, P, s2, s1, U]: lane 0 in place, lane 2 swapped up over two
+        // PRIME copies, lane 1 on a copy of s1 (stacksearch `seam 3
+        // s0:4,P,s2:4,s1:4 store 8`: 219 gas, the least within window 8)
         let x = self.template_lane(&inputs, 0, round, true)?;
+        self.e.end_line();
+        self.e.push_prime()?;
+        self.e.push_prime()?;
+        self.e.swap(3)?;
+        let z = self.template_lane(&inputs, 2, round, true)?;
         self.e.end_line();
         self.e.push_prime()?;
         self.e.push_prime()?;
         self.e.dup(inputs[1])?;
         let y = self.template_lane(&inputs, 1, round, true)?;
         self.e.end_line();
-        self.e.swap(3)?;
-        let z = self.template_lane(&inputs, 2, round, true)?;
-        self.e.end_line();
-        if !self.e.from_top().starts_with(&[z, x, y, inputs[1]])
+        let p = self.e.p;
+        if !self.e.from_top().starts_with(&[y, p, z, x, p, inputs[1]])
             || !stack_only(&self.e.lines, self.e.fork)
         {
-            bail!("t3 terminal entry needs clean [z, x, y, s1]");
+            bail!("t3 terminal entry needs clean [y, P, z, x, P, s1]");
         }
         self.state = terminal3(&mut self.e)?;
         self.state_in_memory = true;
@@ -253,51 +272,50 @@ impl Builder<'_> {
     }
 }
 
-// [z, x, y, U] -> memory [s0', s1', s2'], stack [x, y, U].
+// [y, P, z, x, P, U] -> memory [s0', s1', s2'], stack [U]: the sum on
+// copies, each output's ADDMOD consumes its lane in place.
 fn terminal3(e: &mut Emitter) -> Result<Vec<Id>> {
     if e.memory != 0 || e.prime_slot.is_some() {
         bail!("t3 terminal entry needs untouched memory");
     }
-    let z = e.top(0)?;
-    let x = e.top(1)?;
-    let y = e.top(2)?;
+    let y = e.top(0)?;
+    let z = e.top(2)?;
+    let x = e.top(3)?;
+    if e.top(1)? != e.p || e.top(4)? != e.p {
+        bail!("t3 terminal entry needs PRIME in slots two and five");
+    }
     if [x, y, z].iter().any(|&id| e.bound(id) >= PRIME) {
         bail!("t3 terminal entry needs clean S-box outputs");
     }
-    let tail = e.from_top()[3..].to_vec();
-    e.dup(z)?;
+    let tail = e.from_top()[5..].to_vec();
+    e.push_prime()?;
     e.dup(y)?;
+    e.dup(z)?;
+    let pair = e.compute(Op::Add, &[inplace(z), inplace(y)], "pair")?;
     e.dup(x)?;
-    let pair = e.compute(Op::Add, &[inplace(x), inplace(y)], "pair")?;
-    let sum = e.compute(Op::Add, &[inplace(pair), inplace(z)], "sum")?;
-    e.push(PRIME, None)?;
-    e.dup(e.p)?;
+    let sum = e.compute(Op::Add, &[inplace(x), inplace(pair)], "sum")?;
     e.dup(sum)?;
-    e.dup(x)?;
+    e.swap(6)?;
     let o0 = e.compute(Op::Addmod, &[inplace(x), inplace(sum), inplace(e.p)], "s0'")?;
     e.end_line();
-    if e.mstore_next(0)? != o0 || e.top(0)? != e.p {
-        bail!("t3 terminal entry did not store s0' and retain PRIME");
+    if e.mstore_next(0)? != o0 {
+        bail!("t3 terminal entry did not store s0'");
     }
     e.end_line();
-    e.dup(e.p)?;
     e.dup(sum)?;
-    e.dup(y)?;
-    let o1 = e.compute(Op::Addmod, &[inplace(y), inplace(sum), inplace(e.p)], "s1'")?;
+    let o1 = e.compute(Op::Addmod, &[inplace(sum), inplace(y), inplace(e.p)], "s1'")?;
     e.end_line();
-    if e.mstore_next(32)? != o1 || e.top(0)? != e.p {
-        bail!("t3 terminal entry did not store s1' and retain PRIME");
+    if e.mstore_next(32)? != o1 {
+        bail!("t3 terminal entry did not store s1'");
     }
     e.end_line();
-    e.swap(2)?;
     let o2 = e.compute(Op::Addmod, &[inplace(z), inplace(sum), inplace(e.p)], "s2'")?;
     e.end_line();
     if e.mstore_next(64)? != o2 {
         bail!("t3 terminal entry did not store s2'");
     }
     e.end_line();
-    let stack = e.from_top();
-    if !stack.starts_with(&[x, y]) || stack[2..] != tail || e.memory != 96 {
+    if e.from_top() != tail || e.memory != 96 {
         bail!("t3 terminal entry changed its retained stack or memory extent");
     }
     Ok(vec![o0, o1, o2])
@@ -426,8 +444,8 @@ mod tests {
                     0 => bad.bytes = usize::MAX,
                     1 => bad.max_depth = 1001,
                     2 => bad.max_dup = fork.reach + 1,
-                    3 => bad.gas += 3,
-                    4 => bad.gas += 4,
+                    3 => bad.gas += 6,
+                    4 => bad.gas += 7,
                     _ => bad.bytes = fork.code_size,
                 }
                 let chosen = select_terminal(2, fork, prior.clone(), Ok(Some(bad)));

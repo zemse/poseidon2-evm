@@ -186,7 +186,8 @@ enum RowProducts {
 }
 
 const ROWS: [RowProducts; 3] = [RowProducts::Original, RowProducts::Last, RowProducts::Both];
-const PRODUCTION: RowProducts = RowProducts::Both;
+// The production row runs lane 0 first on [s0, P] in place: three gas below `Both`.
+const IN_PLACE_GAS: u64 = 248;
 
 impl RowProducts {
     fn cost(self) -> (u64, usize) {
@@ -568,7 +569,24 @@ fn t4_row0_last_product_compiled() {
             .flat_map(|line| line.split("//").next().unwrap().split_whitespace())
             .collect::<Vec<_>>()
             .join(" ");
-        assert_eq!(actual, PRODUCTION.lines(constants).join(" "));
+        let lane0 = format!(
+            "{} 0x5 mul",
+            SBOX.replace("c0", &format!("{:#066x}", constants[0]))
+        );
+        assert!(
+            actual.starts_with(&lane0) && actual.ends_with(" swap2 addmod"),
+            "{actual}"
+        );
+        let production_bytes: usize = actual
+            .split_whitespace()
+            .map(|token| match token {
+                "dupn" | "swapn" => 2,
+                "[PRIME]" => 33,
+                _ if token.starts_with("0x") => 1 + (token.len() - 1) / 2,
+                _ if token.parse::<usize>().is_ok() => 0,
+                _ => 1,
+            })
+            .sum();
         let baseline = Arc::new(Sources {
             root: root.clone(),
             files: files.clone(),
@@ -601,7 +619,7 @@ fn t4_row0_last_product_compiled() {
             let bytes = code.runtime.len();
             assert_eq!(
                 bytes,
-                generated.runtime.len() + row.cost().1 - PRODUCTION.cost().1
+                generated.runtime.len() + row.cost().1 - production_bytes
             );
             assert!(bytes <= fork.code_size);
             assert!(code.initcode.len() <= fork.initcode_size);
@@ -624,10 +642,7 @@ fn t4_row0_last_product_compiled() {
                 }
             }
             let measured = costs.map(|v| same_gas(&v, &label).unwrap());
-            assert_eq!(
-                measured,
-                gas.map(|g| g + row.cost().0 - PRODUCTION.cost().0)
-            );
+            assert_eq!(measured, gas.map(|g| g + row.cost().0 - IN_PLACE_GAS));
             for data in &abi {
                 let n = match data.len().cmp(&68) {
                     std::cmp::Ordering::Less => 1,

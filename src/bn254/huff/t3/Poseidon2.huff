@@ -603,14 +603,14 @@
 
     // Round 63 (external)
     0x01fd6af15956294f9dfe38c0d976a088b21c21e4a1c2e823f912f44961f9a9ce add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, s2', s1', s2', s1', s2', s1', s1', s1', s1', s1', s1', ...]
-    [PRIME] dup1 dup5 0x18e5abedd626ec307bca190b8b2cab1aaee2e62ed229ba5a5ad8518d4e5f2a57 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, x0, s2', s1', s2', s1', s2', s1', s1', s1', s1', ...]
-    swap3 0x0fc1bbceba0590f5abbdffa6d3b35e3297c021a3a409926d0e2d54dc1c84fda6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x2, x0, x1, s1', s2', s1', s2', s1', s1', s1', s1', s1', ...]
-    dup1 dup4 dup4 add add [PRIME] dup1 dup3 dup6 addmod // [s0', P, sum, x2, x0, x1, s1', s2', s1', s2', s1', s1', ...]
-    msize mstore                             // [P, sum, x2, x0, x1, s1', s2', s1', s2', s1', s1', s1', ...]
-    dup1 dup3 dup7 addmod                    // [s1', P, sum, x2, x0, x1, s1', s2', s1', s2', s1', s1', ...]
-    msize mstore                             // [P, sum, x2, x0, x1, s1', s2', s1', s2', s1', s1', s1', ...]
-    swap2 addmod                             // [s2', x0, x1, s1', s2', s1', s2', s1', s1', s1', s1', s1', ...]
-    msize mstore                             // [x0, x1, s1', s2', s1', s2', s1', s1', s1', s1', s1', s1', ...]
+    [PRIME] dup1 swap3 0x0fc1bbceba0590f5abbdffa6d3b35e3297c021a3a409926d0e2d54dc1c84fda6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x2, x0, P, s1', s2', s1', s2', s1', s1', s1', s1', s1', ...]
+    dup3 dup1 dup6 0x18e5abedd626ec307bca190b8b2cab1aaee2e62ed229ba5a5ad8518d4e5f2a57 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, x2, x0, P, s1', s2', s1', s2', s1', s1', s1', ...]
+    dup2 dup2 dup5 add dup6 add dup1 swap6 addmod // [s0', x1, P, x2, sum, P, s1', s2', s1', s2', s1', s1', ...]
+    msize mstore                             // [x1, P, x2, sum, P, s1', s2', s1', s2', s1', s1', s1', ...]
+    dup4 addmod                              // [s1', x2, sum, P, s1', s2', s1', s2', s1', s1', s1', s1', ...]
+    msize mstore                             // [x2, sum, P, s1', s2', s1', s2', s1', s1', s1', s1', s1', ...]
+    addmod                                   // [s2', s1', s2', s1', s2', s1', s1', s1', s1', s1', s1', s1', ...]
+    msize mstore                             // [s1', s2', s1', s2', s1', s1', s1', s1', s1', s1', s1', s1', ...]
 
 
     msize 0x0 return

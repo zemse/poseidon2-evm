@@ -11,7 +11,7 @@ pub(crate) const OPTIONS: BuildOptions = BuildOptions {
     ..DEFAULT_OPTIONS
 };
 
-pub(crate) const SUFFIX: &str = "dup1 dup4 dup4 add add [PRIME] dup1 dup3 dup6 addmod msize mstore dup1 dup3 dup7 addmod msize mstore swap2 addmod msize mstore";
+pub(crate) const SUFFIX: &str = "dup2 dup2 dup5 add dup6 add dup1 swap6 addmod msize mstore dup4 addmod msize mstore addmod msize mstore";
 
 fn replay(e: &mut Emitter, text: &str) -> Result<()> {
     for token in text.split_whitespace() {
@@ -39,37 +39,36 @@ fn replay(e: &mut Emitter, text: &str) -> Result<()> {
     Ok(())
 }
 
-// [z,x,y,U] -> memory [o0,o1,o2], stack [x,y,U].
+// [y,P,z,x,P,U] -> memory [o0,o1,o2], stack [U].
 fn terminal(e: &mut Emitter) -> Result<Vec<Id>> {
     if e.memory != 0 || e.prime_slot.is_some() {
         bail!("terminal entry needs untouched memory");
     }
-    let z = e.top(0)?;
-    let x = e.top(1)?;
-    let y = e.top(2)?;
+    let y = e.top(0)?;
+    let z = e.top(2)?;
+    let x = e.top(3)?;
+    if e.top(1)? != e.p || e.top(4)? != e.p {
+        bail!("terminal entry needs PRIME in slots two and five");
+    }
     if [x, y, z].iter().any(|&id| e.bound(id) >= PRIME) {
         bail!("terminal entry needs clean S-box outputs");
     }
-    let tail = e.from_top()[3..].to_vec();
-    replay(e, "dup1 dup4 dup4 add add")?;
+    let tail = e.from_top()[5..].to_vec();
+    replay(e, "dup2 dup2 dup5 add dup6 add")?;
     assert_eq!(e.bound(e.top(0)?), p1() * u256(3));
-    replay(e, "P dup1 dup3 dup6 addmod")?;
+    replay(e, "dup1 swap6 addmod")?;
     let o0 = e.top(0)?;
     assert_eq!(e.mstore_next(0)?, o0);
     e.end_line();
-    assert_eq!(e.top(0)?, e.p);
-    replay(e, "dup1 dup3 dup7 addmod")?;
+    replay(e, "dup4 addmod")?;
     let o1 = e.top(0)?;
     assert_eq!(e.mstore_next(32)?, o1);
     e.end_line();
-    assert_eq!(e.top(0)?, e.p);
-    replay(e, "swap2 addmod")?;
+    replay(e, "addmod")?;
     let o2 = e.top(0)?;
     assert_eq!(e.mstore_next(64)?, o2);
     e.end_line();
-    let mut want = vec![x, y];
-    want.extend(tail);
-    assert_eq!(e.from_top(), want);
+    assert_eq!(e.from_top(), tail);
     assert_eq!(e.memory, 96);
     for &out in &[o0, o1, o2] {
         assert_eq!(e.bound(out), p1());
@@ -151,13 +150,16 @@ pub(crate) fn build_fixture(
                 b.e.end_line();
                 b.e.push_prime()?;
                 b.e.push_prime()?;
-                b.e.dup(state[1])?;
-                let y = b.template_lane(&state, 1, round, true)?;
-                b.e.end_line();
                 b.e.swap(3)?;
                 let z = b.template_lane(&state, 2, round, true)?;
                 b.e.end_line();
-                assert!(b.e.from_top().starts_with(&[z, x, y, state[1]]));
+                b.e.push_prime()?;
+                b.e.push_prime()?;
+                b.e.dup(state[1])?;
+                let y = b.template_lane(&state, 1, round, true)?;
+                b.e.end_line();
+                let p = b.p();
+                assert!(b.e.from_top().starts_with(&[y, p, z, x, p, state[1]]));
                 assert!(t2_entry::stack_only(&b.e.lines, fork));
                 b.state = terminal(&mut b.e)?;
                 b.state_in_memory = true;
@@ -251,9 +253,11 @@ fn t3_terminal_bounds_tails_and_store_guards() {
                     for z in [U256::ZERO, u256(1), l] {
                         let mut e = Emitter::new(1, fork, HashSet::new(), false, true);
                         let ids = [
+                            e.alloc(val("y", l, y, None)),
+                            e.p,
                             e.alloc(val("z", l, z, None)),
                             e.alloc(val("x", l, x, None)),
-                            e.alloc(val("y", l, y, None)),
+                            e.p,
                         ];
                         let mut stack = ids.to_vec();
                         for i in 0..tail_len {
@@ -274,7 +278,7 @@ fn t3_terminal_bounds_tails_and_store_guards() {
                         e.prime_slot = Some(0);
                         assert!(terminal(&mut e).is_err());
                         e.prime_slot = None;
-                        for slot in 0..3 {
+                        for slot in [0, 2, 3] {
                             let dirty = e.alloc(val("dirty zero", PRIME, U256::ZERO, None));
                             let mut wrong = stack.clone();
                             wrong[slot] = dirty;
@@ -289,8 +293,8 @@ fn t3_terminal_bounds_tails_and_store_guards() {
                         for (&id, word) in outputs.iter().zip([x, y, z]) {
                             assert_eq!(e.value(id).vals[0], field::add(sum, word));
                         }
-                        assert_eq!((e.gas, e.bytes, e.memory), (78, 54, 96));
-                        assert_eq!((e.max_depth, e.max_dup), (tail_len + 8, 7));
+                        assert_eq!((e.gas, e.bytes, e.memory), (66, 18, 96));
+                        assert_eq!((e.max_depth, e.max_dup), (tail_len + 8, 6));
                         let before = (e.from_top(), e.gas, e.bytes, e.memory);
                         assert!(e.mstore_next(0).is_err());
                         assert!(e.mstore_next(97).is_err());
@@ -301,7 +305,7 @@ fn t3_terminal_bounds_tails_and_store_guards() {
             for memory in [false, true] {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 3]], fork, memory, tail_len).unwrap();
-                assert_eq!(result.max_depth, 74 + tail_len);
+                assert_eq!(result.max_depth, if memory { 75 } else { 74 } + tail_len);
                 assert_eq!(result.max_dup, 9);
             }
         }

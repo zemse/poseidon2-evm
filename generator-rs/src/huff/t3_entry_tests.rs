@@ -81,7 +81,7 @@ fn t3_terminal_production_builder_and_selection_guards() {
                 candidate.max_depth,
                 candidate.max_dup
             ),
-            (7587, 6663, 96, 74, 9)
+            (7581, 6629, 96, 75, 9)
         );
         assert_eq!(candidate.step_bytes, fixture.step_bytes);
         assert_eq!(&candidate.step_bytes[..64], &prior.result.step_bytes[..64]);
@@ -148,8 +148,8 @@ fn t3_terminal_production_builder_and_selection_guards() {
                 0 => bad.bytes = usize::MAX,
                 1 => bad.max_depth = 1001,
                 2 => bad.max_dup = fork.reach + 1,
-                3 => bad.gas += 6,
-                4 => bad.gas += 7,
+                3 => bad.gas += 12,
+                4 => bad.gas += 13,
                 _ => bad.bytes = fork.code_size,
             }
             let plan = select_terminal(3, fork, prior.clone(), Ok(Some(bad)));
@@ -294,9 +294,11 @@ fn t3_terminal_production_suffix_bounds_tails_and_stores() {
                     for z in [U256::ZERO, u256(1), p1()] {
                         let mut e = Emitter::new(1, fork, HashSet::new(), false, true);
                         let ids = [
+                            e.alloc(value("y", p1(), y)),
+                            e.p,
                             e.alloc(value("z", p1(), z)),
                             e.alloc(value("x", p1(), x)),
-                            e.alloc(value("y", p1(), y)),
+                            e.p,
                         ];
                         let mut stack = ids.to_vec();
                         for i in 0..tail_len {
@@ -313,7 +315,7 @@ fn t3_terminal_production_suffix_bounds_tails_and_stores() {
                         e.prime_slot = Some(0);
                         assert!(terminal3(&mut e).is_err());
                         e.prime_slot = None;
-                        for i in 0..3 {
+                        for i in [0, 2, 3] {
                             let dirty = e.alloc(value("dirty zero", PRIME, U256::ZERO));
                             let mut wrong = stack.clone();
                             wrong[i] = dirty;
@@ -335,12 +337,10 @@ fn t3_terminal_production_suffix_bounds_tails_and_stores() {
                             assert_eq!(e.value(out).vals[0], field::add(sum, word));
                             assert_eq!(e.bound(out), p1());
                         }
-                        let mut want = vec![ids[1], ids[2]];
-                        want.extend_from_slice(&stack[3..]);
-                        assert_eq!(e.from_top(), want);
+                        assert_eq!(e.from_top(), &stack[5..]);
                         assert_eq!(
                             (e.gas, e.bytes, e.memory, e.max_depth, e.max_dup),
-                            (78, 54, 96, tail_len + 8, 7)
+                            (66, 18, 96, tail_len + 8, 6)
                         );
                         assert_eq!(
                             tokens(&e.lines),

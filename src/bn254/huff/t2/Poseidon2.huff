@@ -346,11 +346,11 @@
 
     // Round 63 (external)
     0x0ab4dfe0c2742cde44901031487964ed9b8f4b850405c10ca9ff23859572c8c6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, s1', s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dupn 122 dup1 dup1 swap4 0x0e32db320a044e3197f45f7649a19675ef5eedfea546dea9251de39f9639779a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, x0, P, s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dup1 dup4 add dup3 dup2 dup6 addmod      // [s0', sum, x1, P, x0, P, s1', s1', s1', s0^5, s1', s0^5, ...]
-    msize mstore                             // [sum, x1, P, x0, P, s1', s1', s1', s0^5, s1', s0^5, s1', ...]
-    addmod                                   // [s1', x0, P, s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    msize mstore                             // [x0, P, s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    dupn 122 dup3 0x0e32db320a044e3197f45f7649a19675ef5eedfea546dea9251de39f9639779a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, x0, s1', s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    dup1 dup3 add dupn 124 dup1 swap4 dup3 addmod // [s0', sum, x1, P, s1', s1', s1', s1', s0^5, s1', s0^5, s1', ...]
+    msize mstore                             // [sum, x1, P, s1', s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    addmod                                   // [s1', s1', s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    msize mstore                             // [s1', s1', s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
 
 
     msize 0x0 return

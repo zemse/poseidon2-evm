@@ -2145,18 +2145,38 @@ impl<'a> Builder<'a> {
 
     /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
     /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
-    /// the S-boxes instead of the M4 temporaries. A PRIME copy for the final
-    /// ADDMOD goes down first. Both the first three terms and the last
-    /// product fit uint256 at 5(p-1); ADDMOD joins them.
+    /// the S-boxes instead of the M4 temporaries. Both the first three terms
+    /// and the last product fit uint256 at 5(p-1); ADDMOD joins them. With
+    /// [s0, P] on top and s0 + c0 a plain ADD, lane 0 runs first on them in
+    /// place and the PRIME copy of the ADDMOD is swapped under 5 x0 at the
+    /// end; otherwise that copy goes down first and lane 0 runs last.
     fn final_round_row0(&mut self, round: usize) -> Result<()> {
         if self.t != 4 {
             bail!("finalRoundRow0 is t = 4 only");
         }
         let row = [5u64, 7, 1, 3];
         let p = self.p();
-        self.e.push_prime()?;
+        let c0 = self.params.round_constants[round][0];
+        let first = self.e.top(0)? == self.state[0]
+            && self.e.top(1)? == p
+            && self.e.fits_add(self.bound(self.state[0]), c0);
         let mut acc: Option<Id> = None;
-        for i in (0..4).rev() {
+        let mut x0 = None;
+        if first {
+            let y = self.e.compute(
+                Op::Add,
+                &[constant(c0, "c"), inplace(self.state[0])],
+                "s0+c",
+            )?;
+            let x = self.sbox(y, "s0'")?;
+            let k = self.e.push(u256(row[0]), None)?;
+            x0 = Some(self.e.compute(Op::Mul, &[inplace(k), inplace(x)], "5s0'")?);
+            self.e.end_line();
+        } else {
+            self.e.push_prime()?;
+        }
+        let lanes: &[usize] = if first { &[3, 2, 1] } else { &[3, 2, 1, 0] };
+        for &i in lanes {
             let s = self.state[i];
             let k = row[i];
             let lazy_product = matches!(k, 3 | 5);
@@ -2204,6 +2224,16 @@ impl<'a> Builder<'a> {
                     .compute(Op::Add, &[inplace(term), inplace(acc)], "row0")?,
                 None => term,
             });
+            if let (1, Some(x0)) = (i, x0) {
+                self.e.push_prime()?;
+                self.e.swap(2)?;
+                let a = acc.expect("three lanes");
+                acc = Some(self.e.compute(
+                    Op::Addmod,
+                    &[inplace(x0), inplace(a), inplace(p)],
+                    "s0'",
+                )?);
+            }
             self.e.end_line();
         }
         self.state = vec![acc.expect("four lanes")];
@@ -5337,8 +5367,12 @@ mod tests {
                 let before = b.e.from_top();
                 b.final_round_row0(63).unwrap();
                 assert_eq!(b.e.bound(b.state[0]), p1());
-                assert_eq!(&b.e.from_top()[1..], &before);
-                assert_eq!(b.e.top(2).unwrap(), b.p());
+                // lane 0 consumes [s0, P] in place when its constant is a plain ADD
+                let rest = if mode == 0 { &before[2..] } else { &before[..] };
+                assert_eq!(&b.e.from_top()[1..], rest);
+                if mode != 0 {
+                    assert_eq!(b.e.top(2).unwrap(), b.p());
+                }
                 let text = b.e.lines.join(" ");
                 let addmods = text.split_whitespace().filter(|&op| op == "addmod").count();
                 assert_eq!(addmods, if mode == 0 { 1 } else { 5 });
@@ -5409,9 +5443,10 @@ mod tests {
                     ]
                 );
                 let before = b.e.from_top();
+                assert_eq!(before[1], b.p());
                 b.final_round_row0(63).unwrap();
                 assert_eq!(b.e.bound(b.state[0]), p1());
-                assert_eq!(&b.e.from_top()[1..], &before);
+                assert_eq!(&b.e.from_top()[1..], &before[2..]);
                 for (i, input) in vectors.iter().enumerate() {
                     let expected = permutation_steps(&params, input, 2, 65);
                     assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);
