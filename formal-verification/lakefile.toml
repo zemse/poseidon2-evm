@@ -38,4 +38,4 @@ moreLeanArgs = ["--tstack=4000000"]
 [[require]]
 name = "evmlean"
 git = "https://github.com/lefterislazar/EVMLean.git"
-rev = "fd4f5e6d6d6b4a18eb73f5a71ae2df909ac2b542"
+rev = "a91ce83524d6e6fb2dfc891921c5b33da1fcfb08"

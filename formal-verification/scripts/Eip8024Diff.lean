@@ -3,8 +3,7 @@
 -- line's stack and gas) and compares each result with revm's (Amsterdam), which the corpus
 -- line carries. An exceptional halt is one outcome whatever its name (EVMLean's callers of `Ξ`
 -- match on `.error _`), so two halts with different names count as a naming difference, not a
--- mismatch. The `pushtrunc` family is EVMLean's known reading of a PUSH cut by the end of the
--- code (unpadded); the checker never runs one. Exit code 1 on any other mismatch.
+-- mismatch. Exit code 1 on any mismatch.
 -- Run from formal-verification/ after `lake build` (scripts/eip8024-diff.sh does both steps):
 --   lake env lean --run scripts/Eip8024Diff.lean <corpus file>
 import Poseidon2.Evm.Eip8024
@@ -62,7 +61,6 @@ def main (args : List String) : IO UInt32 := do
   let mut agree := 0
   let mut names : List (String × String) := []
   let mut mismatches : List String := []
-  let mut known : List String := []
   for line in text.splitOn "\n" do
     match line.splitOn " " with
     | family :: code :: depth :: gas :: revm =>
@@ -73,10 +71,9 @@ def main (args : List String) : IO UInt32 := do
       if revm == lean then agree := agree + 1
       else if revm.startsWith "halt " && lean.startsWith "halt " then
         names := (s!"revm {revm}, lean {lean}", tag) :: names
-      else if family == "pushtrunc" then known := tag :: known
       else mismatches := tag :: mismatches
     | _ => pure ()
-  IO.println s!"{total} programs: {agree} equal, {names.length} exceptional halts named differently, {known.length} known EVMLean PUSH deviations, {mismatches.length} mismatches"
+  IO.println s!"{total} programs: {agree} equal, {names.length} exceptional halts named differently, {mismatches.length} mismatches"
   -- the naming differences, one line per pair of names with a count and the first program
   let mut seen : List String := []
   for (pair, t) in names.reverse do
@@ -84,6 +81,5 @@ def main (args : List String) : IO UInt32 := do
       seen := pair :: seen
       let n := (names.filter (·.1 == pair)).length
       IO.println s!"  name ({n}x): {pair}, first {t}"
-  for t in known.reverse do IO.println s!"  known: {t}"
   for t in mismatches.reverse do IO.println s!"  MISMATCH: {t}"
   return if mismatches.isEmpty && 0 < total then 0 else 1

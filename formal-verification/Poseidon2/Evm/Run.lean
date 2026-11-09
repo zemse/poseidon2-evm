@@ -316,18 +316,17 @@ theorem sim_step (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
     (hr : StRel e ρ st s.machineState) (hlen : st.stk.length ≤ 1024)
     (hv : Tab.Valid e ρ st'.tab) {b : Nat} {tl : List Nat} {i : Ins} {n : Nat}
     {r : Option (List Nat)} (hd : bs.drop s.machineState.pc.toNat = b :: tl)
-    (hpc : s.machineState.pc.toNat + 33 ≤ 33 * codeFuel) (ho : decodeOne b tl = (i, n, r))
+    (ho : decodeOne b tl = (i, n, r))
     (h : step fs (Code.ofBytes bs) i st = .ok st') :
     1 ≤ insGas i st st' ∧ SimulatesM e ρ s (insGas i st st') n st' := by
   have hrel := hr.stk
   have hD : ∀ op, parseInstr (UInt8.ofNat b) = some op → ¬ (0x60 ≤ b ∧ b ≤ 0x7f) →
       EVM.decode s.executionEnv.code s.machineState.pc = some (op, none) :=
     fun op hp hb => hF.code ▸ decode_op hall hd hb hp
-  have h64 : s.machineState.pc.toNat + 33 < 2 ^ 64 := by unfold codeFuel at hpc; omega
   cases i with
   | push v =>
     obtain ⟨hb1, hb2, ⟨rest, ht⟩, rfl⟩ := decodeOne_push ho
-    obtain ⟨op, arg, hdec, hop, harg⟩ := decode_push hall hd ⟨hb1, hb2⟩ ht h64
+    obtain ⟨op, arg, hdec, hop, harg⟩ := decode_push hall hd ⟨hb1, hb2⟩ ht
     rw [← hF.code] at hdec
     have := sim_push e ρ fs _ s st st' op arg (b - 0x5f) v hop hdec harg hrel h
     rw [show 1 + (b - 0x5f) = b - 0x5f + 1 by omega]
@@ -623,7 +622,7 @@ theorem step1_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
         rw [insGas_jump (Or.inr rfl) (Or.inr hc)]
         exact ⟨by show 1 ≤ 10; decide,
           sim_jumpi_fall e ρ fs _ s st st1 p (hD _ rfl hnp) hA.rel hA.len hc⟩
-      · exact sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd hpc ho hs
+      · exact sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd ho hs
     refine stepTo_of_simAt e ρ hA.frame (SimulatesM.at e ρ hsim.2) _ hinv.1 hrest ?_
     intro p' i' rest' he
     have := (decodeOne_rest b tl).1
@@ -657,7 +656,7 @@ theorem step1_sim (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts)
       · rw [insGas_jump (Or.inr rfl) (Or.inr hc)]; show 1 ≤ 10; decide
       · obtain ⟨b, tl, n, r, hd, ho, hpc, -, -⟩ := hA.dec.cons
         rw [← hp] at hd hpc
-        exact (sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd hpc ho hs).1
+        exact (sim_step e ρ bs hall fs hf s st st1 hA.frame hA.rel hA.len hv hd ho hs).1
     · rcases ctl_jump hc with rfl | rfl
       · rw [insGas_jump (Or.inl rfl) (Or.inl ⟨t, hc⟩)]; show 1 ≤ 8; decide
       · rw [insGas_jump (Or.inr rfl) (Or.inl ⟨t, hc⟩)]; show 1 ≤ 10; decide

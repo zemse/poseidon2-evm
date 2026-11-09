@@ -14,8 +14,8 @@ Here they agree at every `pc` the checker's run reaches:
   `33 · 2^20` (no `UInt256` wrap) and consecutive `pc`s differ by the instruction's length;
 * `decode_op`, `decode_push`, `decode_push0`, `decode_dupn`, `decode_swapn`: what EVMLean
   decodes at such a `pc`. A `PUSH` the checker accepts has all its immediate bytes (a `PUSH`
-  cut by the end of the code is `.bad`, which `step` rejects), so EVMLean's reading of a cut
-  `PUSH` without zero padding never matters. DUPN / SWAPN immediates decode to `17 ≤ n`;
+  cut by the end of the code is `.bad`, which `step` rejects). EVMLean pads the immediate with
+  zeros (`readWithPadding`), as the EVM does. DUPN / SWAPN immediates decode to `17 ≤ n`;
 * `mem_D_J`: every jump destination the checker finds is in EVMLean's `D_J` (with EIP-8024
   `D_J` is unchanged: EVMLean reads `0xe6` / `0xe7` as one-byte `INVALID`, as `jumpdests` does);
 * the opcode table facts (`parse_*`), checked over all 256 bytes by `decide +kernel`.
@@ -300,7 +300,7 @@ theorem decode_op {bs : List Nat} (hall : bs.all (· < 256) = true) {pc : UInt25
 /-- `PUSH1` .. `PUSH32` with all its immediate bytes: EVMLean pushes the checker's value. -/
 theorem decode_push {bs : List Nat} (hall : bs.all (· < 256) = true) {pc : UInt256} {b : Nat}
     {tl : List Nat} (hd : bs.drop pc.toNat = b :: tl) (hb : 0x60 ≤ b ∧ b ≤ 0x7f) {v : Nat}
-    {r : List Nat} (ht : takeBytes (b - 0x5f) tl 0 = some (v, r)) (hpc : pc.toNat + 33 < 2 ^ 64) :
+    {r : List Nat} (ht : takeBytes (b - 0x5f) tl 0 = some (v, r)) :
     ∃ op arg, EVM.decode (codeBA bs) pc = some (.Push op, some (arg, b - 0x5f)) ∧
       op ≠ .PUSH0 ∧ arg.toNat = v := by
   have hb256 := head_lt hall hd
@@ -315,26 +315,17 @@ theorem decode_push {bs : List Nat} (hall : bs.all (· < 256) = true) {pc : UInt
     have hlen : bs.length = pc.toNat + 1 + tl.length := by
       have := congrArg List.length hd
       simp at this; omega
-    refine ⟨op, uInt256OfByteArray ((codeBA bs).extract' pc.toNat.succ
-      (pc.toNat.succ + (b - 0x5f))), ?_, hpush, ?_⟩
+    refine ⟨op, uInt256OfByteArray ((codeBA bs).readWithPadding pc.toNat.succ (b - 0x5f)), ?_,
+      hpush, ?_⟩
     · unfold EVM.decode
       simp only [get?_codeBA hd, hq, hw, bind, Option.bind]
       rw [if_neg (by simp; omega)]
     · -- the immediate bytes, read as EVMLean reads them
-      have hx : (codeBA bs).extract' pc.toNat.succ (pc.toNat.succ + (b - 0x5f)) =
-          (codeBA bs).copySlice (pc.toNat + 1) ByteArray.empty 0 (b - 0x5f) := by
-        unfold ByteArray.extract'
-        rw [if_pos (by simp; omega)]
-        unfold ByteArray.extract
-        congr 1; omega
-      rw [hx]
       show (fromBytesBigEndian _) % W = v
       rw [fromBytesBigEndian_eq, toList_map]
-      have hs : ((codeBA bs).copySlice (pc.toNat + 1) ByteArray.empty 0 (b - 0x5f)).size =
-          b - 0x5f := by
-        rw [size_copySlice, size_codeBA, size_empty]; omega
+      have hs := size_readWithPadding (codeBA bs) (pc.toNat + 1) (b - 0x5f)
       rw [range_map_byteAt _ (codeBA bs) (pc.toNat + 1) _ hs
-        (fun j hj => by rw [byteAt_slice, if_pos hj])]
+        (fun j hj => by rw [byteAt_readWithPadding, if_pos hj])]
       have hl : (List.range (b - 0x5f)).map (fun j => byteAt (codeBA bs) (pc.toNat + 1 + j)) =
           tl.take (b - 0x5f) := by
         apply List.ext_getElem

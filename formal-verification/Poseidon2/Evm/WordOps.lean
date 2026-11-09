@@ -1,5 +1,5 @@
 import Ethereum.Theory.OpcodeLemmas
-import Mathlib.Tactic
+import Mathlib.Data.ZMod.Basic
 
 /-!
 # EVMLean's word operations against execution-specs (Cancun)
