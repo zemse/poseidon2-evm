@@ -38,6 +38,7 @@ ADD, SUB, SHL with its PUSH: 6 a binary op (3 op + 3 for the consumed slot). ADD
    Last kept block, incumbent order, TAKE=2 with S takes and PARK_LIVE=1, window 8: none below 344 (exhausted, 14 min, 7.2 GB).
    Middle kept block, TAKE=2 (x only), PARK_LIVE=1, window 8, five hand-picked op orders (the incumbent, u0 before t0, u1 and d1 first, the o3/o2 half first, u3/d3/t3 first): none below 344 in each (1 to 5 min, under 2 GB each).
    24 random op orders (random linear extensions of the block DAG with its lanes), same setting: none below 344 in any.
+   Final block (six-reduction DAG) with takes: TAKE=1, window 8, UB 183, and the 183 program order with TAKE=2, window 9: both passed 13 GB within 5 min and were stopped, no program.
 
 ## Where the lane stands
 
