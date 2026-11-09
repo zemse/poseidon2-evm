@@ -46,3 +46,8 @@ Verified totals (call gas, `verify`, all three in revm against the reference, fo
 Copies are fixed by the DAG (2n + 4 a round: S-box 3, sum n, s0^5 1, lanes n). Each of the n outputs made before s0' is created on top and outlives the round, so it is SWAPped down or covers a value still needed, which then costs a move: at least n moves. The lane-copy round spends n SWAPs plus one DUP of the first element (it must come up from under the sum and the PRIME copies, which are made after the round starts). Getting rid of that last move needs the first element consumed in place, i.e. its product made before the sum and the copies are pushed, and its m then waits on top of everything until the sum exists: it covers the rest. The t = 4 `cycle` bound (exact over all multi-round schedules) is n + 1 for n = 3. So at most 3 gas a round is left, and only if the t = 4 result does not carry over; I found no construction.
 
 Reductions: lanes < 2P, sum < P (s0^5 < P). One ADDMOD takes two operands below 2^256 (5.29P each): at most x + 4 lanes for the first, acc + 4 lanes after, so ceil(n / 4) ADDMODs, which is what the trees use. A looser sum (< 2P) makes lanes < 3P and only two fit an ADD. The factored state (lanes as d_i s_i, ASTRA-OPTIMISATION.md section 3) was measured at a loss.
+
+## Open, outside this lane
+
+- With laneCopy every body round is the same code but its round constant, so the shared body's period no longer has to be n (the rotation); any length works and the mid entry is free. Body length against call overhead and code size is the t24/t28 body lane's trade.
+- Steady round now (t8): 290 against floor B 266; the 24 are the n + 1 = 8 moves above, at most one of them (3 gas a round) not shown inherent beyond t = 4.
