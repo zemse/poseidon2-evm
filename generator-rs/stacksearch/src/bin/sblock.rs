@@ -42,8 +42,16 @@
 // same order of the live values as a roll and is left out). Its optimum is
 // a lower bound per block for any interleaving within the window, with the
 // macros kept whole.
+// LIFT=1 adds 3 to h where a kept S-box output on top covers a working
+// value still to be consumed (`buried`), LIFT=2 also where two lanes are
+// still to run (`lanes_left`); both are admissible. ANY=1 accepts the exit
+// / final outputs on top in any order, ANY=2 anywhere on the working stack
+// with the first on top (with GARBAGE=1, dead values between them).
+// DAG= also takes `d=shl(u)` (PUSH1 1 SHL, 6) and `z=store(o)` (MSIZE
+// MSTORE, 5; the stores run in the order of the spec), with `stored` mode.
+// The states sit in an arena of 24 bytes (key, g, parent, move) behind an
+// open-addressing table of indices, the queue in one u64 an entry.
 
-use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 const G: u8 = 0;
@@ -68,6 +76,11 @@ enum Op {
     Addmod,
     Q,
     Lane,
+    /// PUSH1 1 SHL of the top (a doubling with no copy)
+    Shl,
+    /// MSIZE MSTORE of the top (the last round's outputs in word order:
+    /// the stores run in the order of the spec)
+    Store,
 }
 
 struct Node {
@@ -104,6 +117,11 @@ struct Dag {
     /// ORDER=<names>: the ops run in this order (only the stack moves and
     /// the way each u is made are searched)
     order_ops: Vec<usize>,
+    /// LIFT=1: charge a buried working value under a kept output (`buried`);
+    /// LIFT=2: or two lanes still to run (`lanes_left`)
+    lift: u8,
+    /// ANY=1: exit / final outputs on top in any order
+    any_order: u8,
 }
 
 /// the floor slots values are parked in, by slot
@@ -167,6 +185,8 @@ impl Dag {
                 "add" => Op::Add,
                 "addmod" => Op::Addmod,
                 "q" => Op::Q,
+                "shl" => Op::Shl,
+                "store" => Op::Store,
                 "lane" => Op::Lane,
                 _ => panic!("{op}"),
             };
@@ -206,6 +226,8 @@ impl Dag {
             take: std::env::var("TAKE").map_or(0, |v| v.parse::<usize>().unwrap().min(PARKS)),
             take_s: std::env::var("TAKE_S").is_ok_and(|v| v == "1"),
             order_ops: Vec::new(),
+            lift: std::env::var("LIFT").map_or(0, |v| v.parse().unwrap()),
+            any_order: std::env::var("ANY").map_or(0, |v| v.parse().unwrap()),
         };
         if let Ok(order) = std::env::var("ORDER") {
             dag.order_ops = order
@@ -248,6 +270,8 @@ impl Dag {
             Op::Add => 3,
             Op::Addmod => 8,
             Op::Q => 11,
+            Op::Shl => 6,
+            Op::Store => 5,
             Op::Lane => LANE + if self.kept { 0 } else { STORE },
         }
     }
@@ -328,7 +352,66 @@ impl Dag {
             h += 3 * m * (u - have).max(0) as u32;
             h += pop * (have - u).max(0) as u32 * (computed >> (it - N0) & 1) as u32;
         }
+        if (self.lift >= 1 && self.buried(s, computed))
+            || (self.lift >= 2 && self.lanes_left(computed) >= 2)
+        {
+            // a roll lifts it for half a SWAP
+            h += if self.roll { 3 } else { 3 * m };
+        }
         h
+    }
+
+    /// The lanes not run yet. Every output reads every u, so all the u are
+    /// made (no take is left) before the first lane runs, and when the last
+    /// lane but one runs, the last output or a value it reads is live under
+    /// the kept output that lands on top (or parked): it comes up by a SWAP
+    /// or a copy beyond its uses, 3 gas that nothing else in h counts.
+    /// kept S-box outputs (not the M4 outputs of exit / final)
+    fn kept_lanes(&self) -> bool {
+        self.kept && self.nodes[(self.lanes[0] - N0) as usize].op == Op::Lane
+    }
+
+    fn lanes_left(&self, computed: u64) -> u32 {
+        if !self.kept_lanes() {
+            return 0;
+        }
+        self.lanes
+            .iter()
+            .filter(|&&z| computed & (1 << (z - N0)) == 0)
+            .count() as u32
+    }
+
+    /// LIFT=1: a kept S-box output on top (it has no use left and stays)
+    /// over a working value whose every copy is still to be consumed (a
+    /// PRIME copy with no spare, a dead value to POP): no op takes the
+    /// output, so that value comes up by a SWAP with the top or by a copy
+    /// beyond its uses (a DUP more, or a PRIME copy more), 3 gas either way
+    fn buried(&self, s: &[u8], computed: u64) -> bool {
+        if !self.kept_lanes() || s.len() < 2 || !self.lanes.contains(&s[0]) {
+            return false;
+        }
+        // a take parks the top in the floor for the price of a u
+        let takes_left = parked(computed).count() < self.take
+            && self
+                .nodes
+                .iter()
+                .enumerate()
+                .any(|(j, nd)| nd.op == Op::U && computed & (1 << j) == 0);
+        if takes_left {
+            return false;
+        }
+        let count = |v: u8| {
+            s.iter().filter(|&&x| x == v).count() as u32
+                + parked(computed).filter(|p| p.1 == v).count() as u32
+        };
+        s[1..].iter().any(|&v| match v {
+            G => !self.garbage,
+            v if self.lanes.contains(&v) => false,
+            v => {
+                let need = self.need(v, computed);
+                need > 0 && need >= count(v)
+            }
+        })
     }
 
     fn is_goal(&self, s: &[u8], computed: u64) -> bool {
@@ -336,6 +419,37 @@ impl Dag {
             |kept: bool| parked(computed).all(|(_, v)| v == G || (kept && self.lanes.contains(&v)));
         let done = computed & MASK == (1 << self.nodes.len()) - 1;
         if !self.order.is_empty() {
+            // ANY=2: the outputs anywhere on the working stack (garbage
+            // between them), the first output on top
+            if self.any_order == 2 {
+                let mut rest = s.to_vec();
+                for &o in &self.order {
+                    if o == P {
+                        continue;
+                    }
+                    let Some(k) = rest.iter().position(|&v| v == o) else {
+                        return false;
+                    };
+                    rest[k] = G;
+                }
+                return done
+                    && s.first() == self.order.first()
+                    && rest.iter().all(|&v| v == G || v == P)
+                    && pv_ok(false);
+            }
+            // ANY=1: the outputs on top in any order (P where the order has it)
+            if self.any_order == 1 {
+                let mut a = s.to_vec();
+                let mut b = self.order.clone();
+                a.sort();
+                b.sort();
+                let fixed = self
+                    .order
+                    .iter()
+                    .zip(s)
+                    .all(|(&o, &v)| (o == P) == (v == P));
+                return done && s.len() == self.order.len() && a == b && fixed && pv_ok(false);
+            }
             return done && s == self.order && pv_ok(false);
         }
         done && pv_ok(self.kept)
@@ -459,12 +573,22 @@ impl Dag {
                 Op::Add => (d >= 2 && pair(a[0], a[1]), 2),
                 Op::Addmod => (d >= 3 && s[2] == P && pair(a[0], a[1]), 3),
                 Op::Q | Op::Lane => (d >= 2 && s[0] == a[0] && s[1] == P, 2),
+                Op::Shl => (d >= 1 && s[0] == a[0], 1),
+                Op::Store => (
+                    d >= 1
+                        && s[0] == a[0]
+                        && self.nodes[..j]
+                            .iter()
+                            .enumerate()
+                            .all(|(i, n)| n.op != Op::Store || computed & (1 << i) != 0),
+                    1,
+                ),
             };
             if !ok {
                 continue;
             }
             let mut t = Vec::with_capacity(d + 1);
-            if nd.op != Op::Lane || self.kept {
+            if (nd.op != Op::Lane || self.kept) && nd.op != Op::Store {
                 t.push(N0 + j as u8);
             }
             t.extend_from_slice(&s[k..]);
@@ -612,39 +736,68 @@ fn main() {
         (s, (k >> 64) as u64)
     };
     let weight: u32 = std::env::var("WEIGHT").map_or(10, |v| v.parse().unwrap());
+    // the states in an arena (key, g, parent, move: 24 bytes), found through
+    // an open-addressing table of arena indices; the queue holds f, g and
+    // the index in one u64 (least f, then largest g, then the latest first)
+    let mut keys: Vec<u128> = Vec::new();
+    let mut gs: Vec<u16> = Vec::new();
+    let mut parents: Vec<u32> = Vec::new();
+    let mut mvs: Vec<u16> = Vec::new();
+    let mut table: Vec<u32> = vec![u32::MAX; 1 << 20];
+    let slot = |table: &[u32], keys: &[u128], k: u128| -> usize {
+        let mask = table.len() - 1;
+        let mut i = ((k as u64 ^ (k >> 64) as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 20)
+            as usize
+            & mask;
+        while table[i] != u32::MAX && keys[table[i] as usize] != k {
+            i = (i + 1) & mask;
+        }
+        i
+    };
+    let entry = |f: u32, g: u32, ix: u32| -> u64 {
+        ((0xffff - f as u64) << 48) | ((g as u64) << 32) | ix as u64
+    };
     let start = pack(&[], 0);
-    let mut dist: HashMap<u128, (u32, u128, u16)> = HashMap::new();
-    dist.insert(start, (0, start, u16::MAX));
-    // equal f: larger g first
-    let mut pq = BinaryHeap::new();
-    pq.push((Reverse(dag.h(&[], 0)), 0u32, start));
+    keys.push(start);
+    gs.push(0);
+    parents.push(u32::MAX);
+    mvs.push(u16::MAX);
+    let i = slot(&table, &keys, start);
+    table[i] = 0;
+    let mut pq: BinaryHeap<u64> = BinaryHeap::new();
+    pq.push(entry(dag.h(&[], 0), 0, 0));
     let mut names: Vec<String> = Vec::new();
     let mut name_ix: HashMap<String, u16> = HashMap::new();
     let mut buf = Vec::new();
     let mut expanded = 0u64;
     eprintln!("h0 {}", gas(dag.h(&[], 0)));
-    while let Some((Reverse(f), g, key)) = pq.pop() {
-        if g > dist[&key].0 {
+    while let Some(e) = pq.pop() {
+        let (f, g, ix) = (
+            0xffff - (e >> 48) as u32,
+            (e >> 32) as u32 & 0xffff,
+            e as u32,
+        );
+        if g > gs[ix as usize] as u32 {
             continue;
         }
         expanded += 1;
         if expanded.is_multiple_of(1_000_000) {
-            eprintln!("expanded {expanded}, states {}, f {}", dist.len(), gas(f));
+            eprintln!("expanded {expanded}, states {}, f {}", keys.len(), gas(f));
         }
+        let key = keys[ix as usize];
         let (s, computed) = unpack(key);
         if dag.is_goal(&s, computed) {
             let mut prog = Vec::new();
-            let mut k = key;
-            while k != start {
-                let (_, parent, m) = dist[&k];
-                prog.push(names[m as usize].clone());
-                k = parent;
+            let mut k = ix;
+            while k != 0 {
+                prog.push(names[mvs[k as usize] as usize].clone());
+                k = parents[k as usize];
             }
             prog.reverse();
             println!("gas {}", gas(g));
             println!("{}", prog.join(" "));
             println!("layout {}", show(&s));
-            eprintln!("expanded {expanded} nodes, {} states", dist.len());
+            eprintln!("expanded {expanded} nodes, {} states", keys.len());
             return;
         }
         dag.moves(&s, computed, &mut buf);
@@ -657,18 +810,42 @@ fn main() {
                 continue;
             }
             let tk = pack(&t, tc);
-            if dist.get(&tk).is_none_or(|e| ng < e.0) {
-                let mi = *name_ix.entry(m.clone()).or_insert_with(|| {
-                    names.push(m);
-                    (names.len() - 1) as u16
-                });
-                dist.insert(tk, (ng, key, mi));
-                pq.push((Reverse(ng + hh * weight / 10), ng, tk));
+            let i = slot(&table, &keys, tk);
+            let old = table[i];
+            if old != u32::MAX && gs[old as usize] as u32 <= ng {
+                continue;
             }
+            let mi = *name_ix.entry(m.clone()).or_insert_with(|| {
+                names.push(m);
+                (names.len() - 1) as u16
+            });
+            let nix = if old == u32::MAX {
+                keys.push(tk);
+                gs.push(ng as u16);
+                parents.push(ix);
+                mvs.push(mi);
+                let nix = (keys.len() - 1) as u32;
+                table[i] = nix;
+                if keys.len() * 10 > table.len() * 7 {
+                    let mut bigger = vec![u32::MAX; table.len() * 2];
+                    for (j, &k) in keys.iter().enumerate() {
+                        let s = slot(&bigger, &keys, k);
+                        bigger[s] = j as u32;
+                    }
+                    table = bigger;
+                }
+                nix
+            } else {
+                gs[old as usize] = ng as u16;
+                parents[old as usize] = ix;
+                mvs[old as usize] = mi;
+                old
+            };
+            pq.push(entry(ng + hh * weight / 10, ng, nix));
         }
     }
     println!("no solution");
-    eprintln!("expanded {expanded} nodes, {} states", dist.len());
+    eprintln!("expanded {expanded} nodes, {} states", keys.len());
 }
 
 #[cfg(test)]

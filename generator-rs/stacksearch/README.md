@@ -68,6 +68,15 @@ The binaries, run from this directory after `cargo build --release`:
   sblock <floor> [stored|kept] [max_working=8] [ub | trace <program>]
   ```
 
+  `LIFT=2` adds two admissible charges for kept blocks (a kept S-box output on top of a value still to be consumed, two lanes still to run), `ANY=1` / `ANY=2` relax the exit and final goals, and `DAG=` takes `shl` and ordered `store` (MSIZE MSTORE) nodes. LANE5-EXTERNAL.md records the runs.
+
+- `target/release/m4dag` (`src/bin/m4dag.rs`) enumerates evaluation DAGs of the block M4 over nonnegative forms (ADD, ADDMOD, SHL, MUL and MULMOD by 2..7) with bounds in units of P - 1, in the copy-counting cost of `sblock` (a DAG of B binary ops needs B copies). `OPS=n` asks only whether n ops (adds and scalings, bounds left out) make the four rows: 11 do not, so 12 ops and 4 reductions (104 gas) is the least.
+
+  ```
+  m4dag <input bounds> <output bounds> [budget=104] [max=50]
+  OPS=11 m4dag
+  ```
+
 - `target/release/seam` (`src/bin/seam.rs`) searches the seams of t = 2 and 3 over single opcodes: values are linear forms over the S-box outputs (coefficients 0..2, bound in units of P-1), with PRIME copies, DUP, SWAP, EXCHANGE (`EXCHANGE=1`), POP, ADD, ADDMOD, the S-box of a lane on a PRIME copy (45) and `msize mstore` of the next output. The goal is `store` (the terminal round of the private entries) or a layout prefix. `LOADS=0,1,...` takes lanes from calldata reduced (14) for the entries; `ROUNDS=2` (t = 2) searches two external rounds at once, `JUNCTION=1` the linear layer of one round with the S-boxes of the next (from and to the layouts the templates have there), `INTERNAL=1` (t = 3) the last internal round's outputs into the external round after it. It found the terminal rounds of t = 2 (143) and t = 3 (219) and the junctions of `templates::chains`; LANE3-SMALL.md records the runs.
 
   ```
