@@ -35,8 +35,12 @@ pub const YUL_WIDTHS: [usize; 4] = [2, 3, 8, 12];
 pub enum Kind {
     /// huffPerm: t words in, t words out
     HuffPerm,
-    /// huffHash: the t = 4 hash entry
+    /// huffHash: the t = 4 hash entry, dispatched by `calldatasize << shift`
     HuffHash,
+    /// huffHashXor: the t = 4 hash entry dispatched by `calldatasize xor 0x21`,
+    /// with the jump destinations of hash_1's and hash_3's round 0 and of the
+    /// shared rounds
+    HuffHashXor { j1: usize, j3: usize, jr: usize },
     /// part i of n of a split permutation
     HuffPart(usize, usize),
     /// yulHash: Poseidon2Yul_BN254
@@ -52,6 +56,7 @@ impl Kind {
         match self {
             Kind::HuffPerm => ".huffPerm".into(),
             Kind::HuffHash => ".huffHash".into(),
+            Kind::HuffHashXor { j1, j3, jr } => format!("(.huffHashXor {j1:#x} {j3:#x} {jr:#x})"),
             Kind::HuffPart(i, n) => format!("(.huffPart {i} {n})"),
             Kind::YulHash => ".yulHash".into(),
             Kind::YulPerm => ".yulPerm".into(),
@@ -133,6 +138,40 @@ end Poseidon2.Bytecode.{module}
     )
 }
 
+/// The jump destinations of `code`, as the EVM finds them: every 0x5b byte
+/// that is not PUSH data.
+fn jumpdests(code: &[u8]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut pc = 0;
+    while pc < code.len() {
+        match code[pc] {
+            0x5b => out.push(pc),
+            op @ 0x60..=0x7f => pc += usize::from(op - 0x5f),
+            _ => {}
+        }
+        pc += 1;
+    }
+    out
+}
+
+/// The interface of a t = 4 hash entry, from its dispatch: `calldatasize xor
+/// 0x21 jump` lands the ABI sizes on 0x05, 0x45, 0x65, and the code has three
+/// more jump destinations, the shared rounds, hash_3's and hash_1's round 0 in
+/// this order; any other dispatch is `calldatasize << shift`.
+fn hash_kind(code: &[u8]) -> Result<Kind> {
+    if !code.starts_with(&[0x36, 0x60, 0x21, 0x18, 0x56]) {
+        return Ok(Kind::HuffHash);
+    }
+    let rest: Vec<usize> = jumpdests(code)
+        .into_iter()
+        .filter(|d| ![0x05, 0x45, 0x65].contains(d))
+        .collect();
+    match rest[..] {
+        [jr, j3, j1] if jr > 0x65 => Ok(Kind::HuffHashXor { j1, j3, jr }),
+        _ => bail!("t = 4 hash entry: jump destinations {rest:x?} besides 0x05, 0x45, 0x65"),
+    }
+}
+
 /// The Huff contracts of `fork`: Amsterdam from the checked-in sources,
 /// any other fork from the generator's output built in memory.
 pub fn huff_artifacts(root: &Path, fork: &Fork) -> Result<Vec<Artifact>> {
@@ -149,7 +188,11 @@ pub fn huff_artifacts(root: &Path, fork: &Fork) -> Result<Vec<Artifact>> {
             out.push(Artifact {
                 module: vec!["Huff".into(), label.clone(), format!("T{t}")],
                 t,
-                kind: if t == 4 { Kind::HuffHash } else { Kind::HuffPerm },
+                kind: if t == 4 {
+                    hash_kind(&code.runtime)?
+                } else {
+                    Kind::HuffPerm
+                },
                 source: format!(
                     "Huff t = {t}, {}: the runtime code of `{path}` (checked in), compiled with huff-neo as generator-rs `verify` compiles it.",
                     fork.name
@@ -186,13 +229,16 @@ pub fn huff_artifacts(root: &Path, fork: &Fork) -> Result<Vec<Artifact>> {
                 source: what(path),
                 code: compile(&sources, path, fork)?.runtime,
             }),
-            Target::Hash { path, .. } => out.push(Artifact {
-                module: vec!["Huff".into(), label.clone(), format!("T{t}")],
-                t,
-                kind: Kind::HuffHash,
-                source: what(path),
-                code: compile(&sources, path, fork)?.runtime,
-            }),
+            Target::Hash { path, .. } => {
+                let code = compile(&sources, path, fork)?.runtime;
+                out.push(Artifact {
+                    module: vec!["Huff".into(), label.clone(), format!("T{t}")],
+                    t,
+                    kind: hash_kind(&code)?,
+                    source: what(path),
+                    code,
+                })
+            }
             Target::Parts { paths, .. } => {
                 for (i, path) in paths.iter().enumerate() {
                     out.push(Artifact {
@@ -468,6 +514,31 @@ mod tests {
         ];
         assert_eq!(huff_runtime(&init).unwrap(), vec![0xab, 0xcd]);
         assert!(huff_runtime(&init[..11]).is_err());
+    }
+
+    #[test]
+    fn reads_the_xor_dispatch() {
+        let mut code = vec![0u8; 0x80];
+        code[..5].copy_from_slice(&[0x36, 0x60, 0x21, 0x18, 0x56]);
+        for d in [0x05, 0x45, 0x65, 0x70, 0x75, 0x7a] {
+            code[d] = 0x5b;
+        }
+        // a 0x5b in PUSH data is no jump destination
+        code[0x6e..0x70].copy_from_slice(&[0x60, 0x5b]);
+        assert_eq!(
+            hash_kind(&code).unwrap(),
+            Kind::HuffHashXor {
+                j1: 0x7a,
+                j3: 0x75,
+                jr: 0x70
+            }
+        );
+        code[0x7c] = 0x5b;
+        assert!(hash_kind(&code).is_err());
+        assert_eq!(
+            hash_kind(&[0x36, 0x60, 0x09, 0x1b, 0x56]).unwrap(),
+            Kind::HuffHash
+        );
     }
 
     #[test]
