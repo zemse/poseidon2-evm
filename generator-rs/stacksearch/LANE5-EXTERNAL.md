@@ -23,7 +23,7 @@ Machine shared with other lanes; every run under a guard (RSS cap, time cap). St
 ### M4 DAGs (`m4dag`)
 
 - Op count (`OPS=n`: adds and scalings by 2..7, nonnegative forms below a row, bounds left out, mirror (u0, u1) <-> (u2, u3) folded): 8, 9, 10 ops none (82k, 1.05M, 9.0M sets); 11 ops none (126.8M sets, 584 s, 16.4 GB). So 12 ops at least, and with 4 reductions (LANE2-EXTERNAL.md, item 2) 104 is the least M4 cost in this model.
-- Within 12 ops the DAG is the paper's: a = u0 + u1, b = u2 + u3, 4a and 4b, e = b + 2u1, f = a + 2u3, o1 = 4a + e, o3 = 4b + f, o0 = o1 + f, o2 = o3 + e; any other grouping of e, f or the outputs takes a 13th op, and the bounds (u at 2 units, 4a and 4b at 16, e and f at 8) force the reductions onto 4a, 4b, e and f. The only freedom is a doubling as `PUSH1 1 SHL` instead of `DUP1 ADD` (same 6 gas, one copy less, one PUSH more).
+- Within 12 ops the DAG is the paper's (argued by hand, not enumerated): a = u0 + u1, b = u2 + u3, 4a and 4b, e = b + 2u1, f = a + 2u3, o1 = 4a + e, o3 = 4b + f, o0 = o1 + f, o2 = o3 + e; any other grouping of e, f or the outputs takes a 13th op, and the bounds (u at 2 units, 4a and 4b at 16, e and f at 8) force the reductions onto 4a, 4b, e and f. The only freedom is a doubling as `PUSH1 1 SHL` instead of `DUP1 ADD` (same 6 gas, one copy less, one PUSH more).
 - Not covered: forms with negative coefficients or fractions (MULMOD by p - 1, by 1/2): a MULMOD is a reduction the block pays anyway, so an 11-op DAG with 4 such reductions would cost 98. Not searched.
 - Full enumeration at budget 104 with bounds (`m4dag 2,2,2,2 4,4,4,4 104`): passed 11 GB in 20 min, stopped.
 
@@ -37,9 +37,11 @@ Machine shared with other lanes; every run under a guard (RSS cap, time cap). St
 | LIFT=1 | 9 | 347 | none | 21.2M | 306 s | 3.3 GB (old A*; 21.2M without LIFT) |
 | LIFT=2 (check) | 9 | 348 | 347 | 18.8M | 282 s | 3.3 GB (old A*) |
 | TAKE=1 (x), LIFT=2 | 8 | 344 | none (exhausted) | 48.7M | 646 s | 1.6 GB |
+| TAKE=1 (x), LIFT=2 | 9 | 344 | none (exhausted) | 136.4M | 15,456 s (1 h paused, load 100-250) | 5.2 GB |
+| TAKE=2 (x), LIFT=2 | 8 | 344 | none (exhausted) | 180.3M | 18,780 s (same) | 5.6 GB |
 | ROLL=1 GARBAGE=1 | 8 | 347 | 342.5 (7 half SWAPs) | 7.6M | 292 s | 0.3 GB |
 
-The TAKE=1 run is the first exhaustive one: lane 2's took 11.4 GB in 37 min and was stopped.
+The take runs are the first exhaustive ones (lane 2's TAKE=1 took 11.4 GB in 37 min and was stopped, its TAKE=2 9.6 GB in 87 min): with one x read in place within window 9, or two within window 8, the middle kept block has nothing below 344.
 
 ### Exit and final blocks
 
@@ -76,11 +78,13 @@ The searches stay below the window the stores need: o2 depends on o3 and o0 on o
 
 Runtime bytes after: t8 24,645, t12 36,080, t16 47,828, t20 59,856, t24 64,529, t28 64,378 (all under 65,536). Osaka and Paris have no stack-only stream (reach 16), so no `Terminal::Stream`: unchanged.
 
+Rebased onto opt ab3f09d (lane I's deferred internal sum from t20, lane 6's t4 hash): the same 7 gas a final block, t20 54,062 to 54,027, t24 64,393 to 64,351, t28 76,078 to 76,029 (61,534 / 64,531 / 64,376 bytes); t8, t12, t16 as above.
+
 - Fixed op order of the 200 program, window 12, UB 200: stopped at 1,201 s (1.5 GB), f 191, nothing below 191 in that order.
 
 Why 196 looks like the floor of this DAG with these stores: u1 feeds d1 (deep, read last by b2) and t0 (over a PRIME copy above it), u3 feeds t1 and d3 the same way; whichever of the two is made first lands on top of u, so the other can only reach u by a DUP, and both live until the second half. All-offset stores (192 + 6 = 198) or the eight-reduction DAG (h0 192, t2 / t3 / t0 / t1 read across halves, 201 or more by the same count) do not do better.
 
-Gate (6ef34be): generate:huff twice, identical; verify Amsterdam, Osaka, Paris on all nine widths (+0; Osaka and Paris figures unchanged); cargo test --release --no-fail-fast (lib 108, cli 2, eip8024 3, generators 4, verify 8: all pass, verify 6,729 s on a loaded machine); forge test 127/127.
+Gate (6ef34be, again on 60911ae after the rebase onto lanes I and 6): generate:huff twice, identical; verify Amsterdam, Osaka, Paris on all nine widths (+0; Osaka and Paris figures unchanged); cargo test --release --no-fail-fast (lib 108, cli 2, eip8024 3, generators 4, verify 8: all pass, verify 6,729 s on a loaded machine); forge test 127/127.
 
 ## Tooling
 
