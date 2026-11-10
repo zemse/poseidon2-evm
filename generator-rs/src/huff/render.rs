@@ -588,7 +588,11 @@ pub fn hash_entry(
     let fits = |shift: usize| {
         (1..=3).all(|n| {
             let end = at(shift, n) + regions[n - 1].bytes;
-            end <= if n < 3 { at(shift, n + 1) } else { fork.code_size }
+            end <= if n < 3 {
+                at(shift, n + 1)
+            } else {
+                fork.code_size
+            }
         })
     };
     if rounds.1 > 0
@@ -654,7 +658,11 @@ pub fn hash_entry(
             bail!("hash dispatch: hash_{n} at {to:#x}, code already at {at:#x}");
         }
         if to > at {
-            dispatch.op(&format!("__VERBATIM(0x{})", "00".repeat(to - at)), 0, to - at);
+            dispatch.op(
+                &format!("__VERBATIM(0x{})", "00".repeat(to - at)),
+                0,
+                to - at,
+            );
             dispatch.end("");
         }
         let before = dispatch.gas;
