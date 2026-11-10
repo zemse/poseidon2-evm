@@ -48,14 +48,14 @@ fn amsterdam_t2_t3_t4() {
 fn amsterdam_t8_stream() {
     let reports = run("amsterdam", &[8]);
     within(&reports[0]);
-    assert_eq!(reports[0].gas.measured, 23042);
+    assert_eq!(reports[0].gas.measured, 23039);
     assert_eq!(reports[0].bytes.len(), 1);
 }
 
 #[test]
 fn amsterdam_sum_trees() {
     let reports = run("amsterdam", &[12, 16, 20, 24, 28]);
-    for (report, gas) in reports.iter().zip([33486, 43794, 54027, 64351, 76029]) {
+    for (report, gas) in reports.iter().zip([33474, 43742, 53954, 64238, 75884]) {
         within(report);
         assert_eq!(report.gas.measured, gas);
         assert_eq!(report.bytes.len(), 1);

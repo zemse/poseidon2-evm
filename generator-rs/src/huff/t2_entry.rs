@@ -77,11 +77,12 @@ pub(super) fn stack_only(lines: &[String], fork: Fork) -> bool {
         .iter()
         .flat_map(|line| line.split("//").next().unwrap_or("").split_whitespace());
     while let Some(token) = tokens.next() {
-        if matches!(token, "[PRIME]" | "add" | "mul" | "addmod" | "mulmod")
-            || token.strip_prefix("0x").is_some_and(|hex| {
-                !hex.is_empty() && hex.len() <= 64 && hex.bytes().all(|c| c.is_ascii_hexdigit())
-            })
-        {
+        if matches!(
+            token,
+            "[PRIME]" | "add" | "sub" | "mul" | "addmod" | "mulmod"
+        ) || token.strip_prefix("0x").is_some_and(|hex| {
+            !hex.is_empty() && hex.len() <= 64 && hex.bytes().all(|c| c.is_ascii_hexdigit())
+        }) {
             continue;
         }
         if matches!(token, "dupn" | "swapn") {

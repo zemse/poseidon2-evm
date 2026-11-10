@@ -45,6 +45,8 @@ impl Value {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
     Add,
+    /// a - b for a constant a no less than the bound of b
+    Sub,
     Mul,
     Shl,
     Addmod,
@@ -55,7 +57,7 @@ pub enum Op {
 impl Op {
     pub fn arity(self) -> usize {
         match self {
-            Op::Add | Op::Mul | Op::Shl | Op::Mod => 2,
+            Op::Add | Op::Sub | Op::Mul | Op::Shl | Op::Mod => 2,
             Op::Addmod | Op::Mulmod => 3,
         }
     }
@@ -63,6 +65,7 @@ impl Op {
     pub fn text(self) -> &'static str {
         match self {
             Op::Add => "add",
+            Op::Sub => "sub",
             Op::Mul => "mul",
             Op::Shl => "shl",
             Op::Addmod => "addmod",
@@ -85,6 +88,15 @@ pub fn apply_op(op: Op, args: &[&Value], name: String, vectors: usize) -> Result
                 bail!("add overflow: {} + {}", a.name, b.name);
             };
             Value::new(name, bound, each(&|i| a.vals[i] + b.vals[i]), None)
+        }
+        Op::Sub => {
+            let Some(c) = a.constant else {
+                bail!("sub needs a constant minuend");
+            };
+            if c < b.bound {
+                bail!("sub underflow: {} - {}", a.name, b.name);
+            }
+            Value::new(name, c, each(&|i| a.vals[i] - b.vals[i]), None)
         }
         Op::Mul => {
             let Some(bound) = a.bound.checked_mul(b.bound) else {

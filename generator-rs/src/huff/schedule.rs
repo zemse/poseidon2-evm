@@ -159,6 +159,10 @@ pub struct BuildOptions {
     /// sums the reduced products and (t - 1) T by one MULMOD, so its tree
     /// takes about nine leaves an ADDMOD instead of four
     pub defer_sum: bool,
+    /// with lane_copy, the first consuming round sums the exit layer's
+    /// outputs from its column sums S: sum_i s_i = (1 + t / 4) (11 (S0 + S2) +
+    /// 17 (S1 + S3)) by the column sums of M4, two MULMODs, less s0
+    pub first_sum: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -208,6 +212,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     lane_copy: false,
     diag_stack: 0,
     defer_sum: false,
+    first_sum: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -362,6 +367,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.defer_sum {
         enabled.push("deferSum".to_string());
+    }
+    if opts.first_sum {
+        enabled.push("firstSum".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -547,6 +555,8 @@ struct Builder<'a> {
     diag_vals: Vec<Id>,
     /// the sum T the lanes of the state still lack (defer_sum)
     defer: Option<Id>,
+    /// the column sums of the exit layer (first_sum)
+    exit_sums: Option<[Id; 4]>,
 }
 
 /// A stack entry by what it holds: an element of the state by index, a
@@ -728,6 +738,7 @@ impl<'a> Builder<'a> {
             entered: false,
             diag_vals: Vec::new(),
             defer: None,
+            exit_sums: None,
         })
     }
 
@@ -1765,6 +1776,9 @@ impl<'a> Builder<'a> {
                 };
                 self.e.end_line();
             }
+            if before_last {
+                self.exit_sums = Some(sums);
+            }
             let mut out = vec![0; t];
             for b in (0..k).rev() {
                 let mut u = [0; 4];
@@ -2134,6 +2148,7 @@ impl<'a> Builder<'a> {
         let above = 4 * (self.t / 4 - 1);
         let park_prime = self.stream()
             && b == 0
+            && !self.opts.first_sum
             && kind == BlockKind::Exit
             && self.opts.internal_consume
             && !self.opts.shadow
@@ -3077,6 +3092,24 @@ impl<'a> Builder<'a> {
         let p = self.p();
         let slots = held_slots(t, self.e.max_reach, self.opts.consume_slots);
         let mem = t - 1 - slots;
+        let lane_copy = if next_internal {
+            self.lane_copy(round)
+        } else {
+            self.lane_copy_seam(round)
+        };
+        // first_sum: the exit layer's column sums for the first round's sum,
+        // and K - s0 under [s0, P]
+        let first = match self.exit_sums.take() {
+            Some(sums)
+                if self.opts.first_sum
+                    && lane_copy
+                    && rc.is_none()
+                    && sums.iter().all(|&v| self.e.find(v) > 0) =>
+            {
+                Some((self.neg_s0()?, sums))
+            }
+            _ => None,
+        };
         let x5 = self.round_start(round, rc)?;
         // the external round before leaves an M4 temporary among the state;
         // its slot takes s0^5, which is swapped back on top
@@ -3086,11 +3119,6 @@ impl<'a> Builder<'a> {
         if self.e.top(0)? != x5 {
             self.swap_up(x5)?;
         }
-        let lane_copy = if next_internal {
-            self.lane_copy(round)
-        } else {
-            self.lane_copy_seam(round)
-        };
         if mem == 0 && self.e.at(t) != Some(p) && !(lane_copy && self.e.find_prime() > 0) {
             // the PRIME copy the rounds DUP from, in place of the slot under
             // the state
@@ -3103,16 +3131,19 @@ impl<'a> Builder<'a> {
         let mut old = vec![x5];
         old.extend_from_slice(&self.state[1..]);
         if lane_copy && rc.is_none() && self.defer_rounds() {
-            return self.internal_round_defer(round, &old);
+            return self.internal_round_defer(round, &old, first);
         }
         if self.defer.is_some() {
             bail!("a deferred sum outside the deferred rounds");
         }
         if lane_copy {
             // a round after it that is not one either takes its PRIME copy
-            // from under the state (a body round runs for every call)
-            let carrier = rc.is_none() && !self.lane_copy(round + 1);
-            return self.internal_round_lane_copy(round, &old, carrier, rc.is_some());
+            // from under the state (a body round runs for every call); the
+            // streamed external round after the seam DUPs its copies
+            let carrier = rc.is_none()
+                && !self.lane_copy(round + 1)
+                && (!self.lane_copy_seam(round) || self.opts.first_sum);
+            return self.internal_round_lane_copy(round, &old, carrier, rc.is_some(), first);
         }
         if mem > 0 {
             // [0, 32t) holds the state only from the last round on
@@ -3433,6 +3464,7 @@ impl<'a> Builder<'a> {
         old: &[Id],
         carrier: bool,
         body: bool,
+        first: Option<(Id, [Id; 4])>,
     ) -> Result<()> {
         let t = self.t;
         let p = self.p();
@@ -3444,7 +3476,10 @@ impl<'a> Builder<'a> {
         } else {
             self.e.push_prime()?;
         }
-        let sum = self.chain_sum_in_place(old, "sum", p1())?;
+        let sum = match first {
+            Some((neg, sums)) => self.first_tree(old[0], neg, sums, p1())?,
+            None => self.chain_sum_in_place(old, "sum", p1())?,
+        };
         self.e.end_line();
         let mut order: Vec<usize> = (1..t).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(self.e.find(old[i])));
@@ -3489,6 +3524,59 @@ impl<'a> Builder<'a> {
         self.e.end_line();
         self.state = out;
         Ok(())
+    }
+
+    /// K - s0 for [s0, P] on top, K the least multiple of PRIME over the
+    /// bound of s0, left under them: [s0, P, K - s0]
+    fn neg_s0(&mut self) -> Result<Id> {
+        let s0 = self.state[0];
+        let p = self.p();
+        if self.e.top(0)? != s0 || self.e.top(1)? != p {
+            bail!("first sum expects [s0, P] on top");
+        }
+        let m = self.bound(s0) / PRIME + U256::from(1u64);
+        let Some(k) = m.checked_mul(PRIME) else {
+            bail!("no multiple of PRIME over s0");
+        };
+        let neg = self
+            .e
+            .compute(Op::Sub, &[constant(k, "K"), val(s0)], "-s0")?;
+        self.e.swap(2)?;
+        self.e.swap(1)?;
+        Ok(neg)
+    }
+
+    /// The first consuming round's sum s0^5 + sum_(i > 0) s_i from the exit
+    /// layer's column sums: the outputs of block b are M4 (x_b + S), so all
+    /// of them sum to (1 + t / 4) (11 (S0 + S2) + 17 (S1 + S3)) (the column
+    /// sums of M4), less s0 (neg = K - s0)
+    fn first_tree(&mut self, x5: Id, neg: Id, sums: [Id; 4], cap: U256) -> Result<Id> {
+        let p = self.p();
+        let q = 1 + self.t as u64 / 4;
+        let lazy = wide(self.bound(x5)) + wide(self.bound(neg)) + wide(p1()) * U512::from(2u64);
+        let reduce = lazy > wide(cap);
+        if reduce {
+            self.e.push_prime()?;
+        }
+        let e1 = self.e.compute(Op::Add, &[val(x5), val(neg)], "x-s0")?;
+        let pair = |this: &mut Self, a: Id, b: Id, c: u64| -> Result<Id> {
+            this.e.push_prime()?;
+            let s = this.e.compute(Op::Add, &[val(a), val(b)], "S")?;
+            this.e.compute(
+                Op::Mulmod,
+                &[constant(u256(c), "c"), inplace(s), inplace(p)],
+                "cS",
+            )
+        };
+        let a = pair(self, sums[0], sums[2], 11 * q)?;
+        let b = pair(self, sums[1], sums[3], 17 * q)?;
+        let ab = self.e.compute(Op::Add, &[inplace(b), inplace(a)], "cS")?;
+        if reduce {
+            self.e
+                .compute(Op::Addmod, &[inplace(ab), inplace(e1), inplace(p)], "sum")
+        } else {
+            self.e.compute(Op::Add, &[inplace(ab), inplace(e1)], "sum")
+        }
     }
 
     /// defer_sum applies to every consuming round of the range: each one
@@ -3536,7 +3624,12 @@ impl<'a> Builder<'a> {
     /// deepest element, which comes up for the first lane, so the elements
     /// keep their slots and the old T stays dead under them. The last
     /// round (the seam) adds T' to its lanes as lane copy does.
-    fn internal_round_defer(&mut self, round: usize, old: &[Id]) -> Result<()> {
+    fn internal_round_defer(
+        &mut self,
+        round: usize,
+        old: &[Id],
+        first: Option<(Id, [Id; 4])>,
+    ) -> Result<()> {
         let t = self.t;
         let p = self.p();
         let x5 = old[0];
@@ -3550,12 +3643,15 @@ impl<'a> Builder<'a> {
             self.e.push_prime()?;
             let sum = self.defer_tree(old, tp)?;
             self.e.end_line();
-            for _ in 0..2 * t - 1 {
+            // with first_sum no PRIME copy is parked under the state: the
+            // seam swaps its deepest element up over one (carrier)
+            let carrier = self.opts.first_sum;
+            for _ in 0..2 * t - 1 + usize::from(carrier) {
                 self.e.push_prime()?;
             }
             let mut xs = vec![0; t];
             for (k, &i) in order.iter().enumerate() {
-                if k == 0 {
+                if k == 0 && !carrier {
                     self.e.dup(old[i])?;
                 } else {
                     self.swap_up(old[i])?;
@@ -3583,7 +3679,10 @@ impl<'a> Builder<'a> {
         for _ in 0..=t {
             self.e.push_prime()?;
         }
-        let sum = self.defer_tree(old, tp)?;
+        let sum = match first {
+            Some((neg, sums)) => self.first_tree(old[0], neg, sums, p1() * u256(3))?,
+            None => self.defer_tree(old, tp)?,
+        };
         self.e.end_line();
         for &i in &order {
             self.swap_up(old[i])?;
@@ -4587,6 +4686,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                             lane_copy: false,
                                                                             diag_stack: 0,
                                                                             defer_sum: false,
+                                                                            first_sum: false,
                                                                         });
                                                                     }
                                                                 }
@@ -4624,6 +4724,12 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
         .flat_map(|opts| {
             std::iter::once(opts).chain(opts.lane_copy.then_some(BuildOptions {
                 defer_sum: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.lane_copy.then_some(BuildOptions {
+                first_sum: true,
                 ..opts
             }))
         })

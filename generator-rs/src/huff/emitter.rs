@@ -84,7 +84,7 @@ enum BodyMode {
 
 fn op_gas(op: Op) -> u64 {
     match op {
-        Op::Add | Op::Shl => 3,
+        Op::Add | Op::Sub | Op::Shl => 3,
         Op::Mul | Op::Mod => 5,
         Op::Addmod | Op::Mulmod => 8,
     }
@@ -936,9 +936,9 @@ impl Emitter {
         while first_placed > 0 && matches!(operands[first_placed - 1], Operand::Inplace(_)) {
             first_placed -= 1;
         }
-        // a and b commute for every op but mod: push the deeper one first so
+        // a and b commute for every op but mod and sub: push the deeper one first so
         // the shallower DUP is not pushed one slot further down
-        if op != Op::Mod && first_placed >= 2 {
+        if !matches!(op, Op::Mod | Op::Sub) && first_placed >= 2 {
             let depth = |o: &Operand| match o {
                 Operand::Val(v) if self.values[*v].constant.is_none() => self.find(*v),
                 _ => 0,

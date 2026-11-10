@@ -47,3 +47,38 @@ The search takes it where it wins (`deferSum` next to every `laneCopy` candidate
 | 28 | 76,600 | 76,078 | 522 | 64,391 (diagStack 13, was 12) |
 
 ASTRA-OPTIMISATION.md section 3 measured this algebra at a loss on daf9c7a: serial sums then reduced every three lanes and q took a DUP, SWAP and POP; with tree sums the reduced products take nine leaves an ADDMOD.
+
+## 2. No carrier at the seam (landed)
+
+The lane-copy seam (the last consuming round, t8 to t16) took its deepest element with a SWAP over one more PRIME copy (`carrier`) so a copy lands under the state for the external round after it: 3 gas more than the DUP of lane copy. The streamed external rounds DUP the nearest copy at any depth, so the seam DUPs its deepest element like the steady rounds (the deferred seam already did). Round 60 at t8 674 to 671.
+
+| t | before | after |
+| --- | ---: | ---: |
+| 8 | 23,056 | 23,053 |
+| 12 | 33,507 | 33,504 |
+| 16 | 43,822 | 43,819 |
+
+## 3. First internal sum from the column sums (landed with 2)
+
+The exit layer computes the column sums S_j = sum_b x_(b,j) and then block b's outputs M4 (x_b + S). The outputs therefore sum to sum_b colsum(M4) . (x_b + S) = (1 + t / 4) (11 (S0 + S2) + 17 (S1 + S3)) mod P (M4's column sums are 11, 17, 11, 17). The first consuming round needs s0^5 + sum_(i > 0) s_i: that total, less s0, plus s0^5. Two MULMODs by PUSH1 constants (t28: 88 and 136), their PRIME copies, four DUPs of S, K - s0 by `dup1 PUSH32 K sub` before the S-box (K the least multiple of P over the bound of s0, rotated under [s0, P] with two SWAPs) and one ADDMOD: about 84 gas against a tree of n + 1 leaves, 6n + 3 + 8k (t28 221). `SUB` is new in the emitter (`Op::Sub`, a constant minuend no less than the subtrahend's bound); Run.lean's whitelist already has 0x03.
+
+S0 must outlive the exit layer: `firstSum` turns off the exit block that parks a PRIME copy in S0's slot (`exit_prime_block8`, 3 gas cheaper there). That parked copy was the one the external round after the seam DUPs (depth 88 at t28); without it the nearest copy sat at 235 and the round's programs fell back (+210). So with `firstSum` the seam takes its deepest element over one more PRIME copy (carrier, +3), which lands under the state.
+
+First tried without the carrier: t28 76,146 (worse). With it, firstSum only (Amsterdam, before 2 landed): t12 33,495, t16 43,770, t20 53,989, t24 64,280, t28 75,933. t8 loses (8 leaves cost 61) and keeps the tree.
+
+## 4. `defercycle`: the move floor of the deferred round (search)
+
+`src/bin/defercycle.rs` is `cycle.rs`'s relaxed machine for the two DAGs as such (PRIME copies and constants left out, S-box and every MULMOD by a constant a unary move, a SWAP that moves a PRIME copy a move of one value to or from any depth, copy and SWAP 3, POP 2), rounds not overlapping, lanes interchangeable; value iteration over every end layout brackets the cycle mean. `TRACE=1` prints the cheapest rounds.
+
+| Run | End layouts | States a round | Cycle mean | Wall / RSS |
+| --- | ---: | ---: | --- | --- |
+| `plain 2 7 4` | 45 | 628,845 | 24 (copies 15 + n + 1 = 3 moves) | 48 s / 116 MB |
+| `defer 2 7 3` | 180 | 6,280,995 | in [27, 30], D_k / k 28.0 at k = 3 | 3,109 s / 506 MB |
+| `TRACE=1 defer 2 7 5` | 180 | 6,280,995 | in [27, 30], D_5 = 141 (28.2) | about 1 h |
+| `defer 2 8 4` | | | stopped after 30 min in the closure | |
+
+The plain run reproduces lane copy's n + 1 moves. Our deferred round is 30 at n = 2 (copies 18, n + 2 = 4 moves). The search alternates rounds of 27 and 30 (mean 28.5): in the 27 round the last use of T is in place (u_2 = a_2 + T with T right under a_2), T' goes from the top to depth 3 with one move (the relaxation: in the EVM a SWAP over a PRIME copy, which must land where a later MULMOD consumes it), and the round ends with a lane output on top instead of s0'; the round after pays to bring s0 up. So at most 1.5 moves a round (4.5 gas) separate this schedule from the relaxed floor at n = 2, and only if those PRIME placements are free; not built.
+
+### Rebased onto lane E (opt f30f959)
+
+Lane E's stream terminal entry checks that the permutation before it is stack-only by a token whitelist (`t2_entry::stack_only`); firstSum's `sub` was not on it, so t12 to t28 fell back to the plain entry. With `sub` added, both stack. Amsterdam call gas after both: t8 23,039, t12 33,474, t16 43,742, t20 53,954, t24 64,238 (64,515 bytes), t28 75,884 (64,347 bytes).
