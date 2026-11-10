@@ -1,4 +1,5 @@
-// Private small-state entries consume their final outputs into empty memory.
+// Private entries (t = 2, 3 and the streamed t >= 8) consume their final
+// outputs into empty memory.
 // Public permutations and split boundaries keep their existing contracts.
 use super::*;
 
@@ -6,6 +7,9 @@ use super::*;
 pub(super) enum Terminal {
     T2,
     T3,
+    /// t >= 8 on a stack-only streamed schedule: the last linear layer
+    /// stores each block's outputs in word order as it makes them
+    Stream,
 }
 
 const OPTIONS: BuildOptions = BuildOptions {
@@ -47,6 +51,22 @@ fn eligible(params: &Params, opts: BuildOptions, range: Range, boundary: &Bounda
 fn eligible3(params: &Params, opts: BuildOptions, range: Range, boundary: &Boundary) -> bool {
     (params.t, params.rounds_f, params.rounds_p) == (3, 8, 56)
         && opts == T3_OPTIONS
+        && whole_stack(params, range, boundary)
+}
+
+/// t >= 8 streamed on the stack alone (Amsterdam reach)
+pub(super) fn eligible_stream(
+    params: &Params,
+    opts: BuildOptions,
+    range: Range,
+    boundary: &Boundary,
+    fork: Fork,
+) -> bool {
+    params.t >= 8
+        && opts.external_stream
+        && opts.external_d
+        && !opts.shadow
+        && fork.reach > 16
         && whole_stack(params, range, boundary)
 }
 
@@ -96,6 +116,8 @@ pub(crate) fn build(
         Terminal::T2
     } else if eligible3(params, prior.opts, result.range, &boundary) {
         Terminal::T3
+    } else if eligible_stream(params, prior.opts, result.range, &boundary, fork) {
+        Terminal::Stream
     } else {
         return Ok(None);
     };

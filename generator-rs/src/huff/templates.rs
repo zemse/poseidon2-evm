@@ -384,6 +384,22 @@ pub fn ordered_blocks(kind: BlockKind) -> &'static [&'static str] {
     }
 }
 
+/// The last round's block of a private t >= 8 entry (Terminal::Stream),
+/// from the column sums (stacksearch `sblock` stored with `store` nodes):
+/// the six-reduction Final DAG, `store=z<i>` the MSIZE MSTORE of s_{4b+i}'
+/// in word order, `estore=z<i>` its PUSH MSTORE after them (any order),
+/// dead values left on the stack.
+pub fn final_store_blocks() -> &'static [&'static str] {
+    &[
+        // 196 gas with the stores (183 and four stores of the entry: 203):
+        // s3' is stored by offset (PUSH MSTORE, 1 gas more) before s2', so
+        // s2' and b2 take d1 and t1 in place
+        "u1 u3 P u2 dup3 add=t1 dup4 dup1 add=d1 P u0 dup7 add=t0 dup6 dup1 add=d3 P P dup4 q=q0 dup6 add=a1 dup7 addmod=o1 P dup2 dup4 add=b0 dup5 addmod=o0 store=z0 store=z1 P dup6 q=q1 add=a3 addmod=o3 dup1 estore=z3 add=b2 addmod=o2 estore=z2",
+        // 200 gas, every store by MSIZE
+        "u3 u2 dup2 add=t1 u1 dup1 dup1 add=d1 P u0 dup4 add=t0 dup6 dup1 add=d3 P P dup4 q=q0 dup6 add=a1 dup8 addmod=o1 P dup2 dup4 add=b0 dup5 addmod=o0 store=z0 store=z1 P dup7 q=q1 add=a3 addmod=o3 P dup2 dup4 add=b2 dup6 addmod=o2 store=z2 store=z3",
+    ]
+}
+
 /// The last Exit block parks PRIME in S0 for the consuming internal round
 /// (from t = 8, under the outputs of the blocks before it).
 pub fn exit_prime_block8() -> &'static str {

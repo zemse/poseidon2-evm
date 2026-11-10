@@ -114,7 +114,7 @@ fn schedule(fork: &Fork, t: usize) -> Result<String> {
         (false, _) => "permutation",
         (true, 2) => "t2-terminal",
         (true, 3) => "t3-terminal",
-        (true, _) => bail!("unsupported terminal entry width {t}"),
+        (true, _) => "stream-terminal",
     };
     Ok(format!(
         "{{\"t\":{t},\"roundsF\":{},\"roundsP\":{},\"options\":{:?},\"hardfork\":{:?},\"entryKind\":{kind:?},{},\"permutation\":{{{}}}}}",

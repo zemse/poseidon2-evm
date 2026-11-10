@@ -31,9 +31,9 @@ use super::emitter::{Emitter, Id, Key, Operand, Table};
 use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
-    BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, hash_forms, internal3,
-    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4, row0_4,
-    stream_blocks, take_stream_block, templates,
+    BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, final_store_blocks,
+    hash_forms, internal3, internal3_periodic, internal3_seam, internal4, linear_final4,
+    ordered_blocks, round4, row0_4, stream_blocks, take_stream_block, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -2042,6 +2042,78 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    /// The last round of a private t >= 8 entry (Terminal::Stream): its
+    /// S-boxes if the layer before did not run them, the column sums, then
+    /// block by block from block 0 the reduced outputs stored to [0, 32t) in
+    /// word order by MSIZE as the block makes them (the first program of
+    /// final_store_blocks that fits, else the Final program and four stores).
+    pub(super) fn terminal_stream(&mut self, r: usize) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        if !t2_entry::eligible_stream(
+            self.params,
+            self.opts,
+            self.range,
+            &Boundary::default(),
+            self.e.fork,
+        ) || r + 2 != self.range.to
+            || self.live.is_some()
+            || self.state_in_memory
+            || self.stored
+            || self.e.memory != 0
+            || self.e.stores != 0
+            || self.e.loads != 0
+            || !self.e.tables.is_empty()
+        {
+            bail!("stream terminal entry needs a whole stack-only permutation");
+        }
+        if !self.sboxed {
+            self.stream_sbox(r)?;
+        }
+        self.e.end_line();
+        if !t2_entry::stack_only(&self.e.lines, self.e.fork) {
+            bail!("stream terminal entry needs an untouched-memory prefix");
+        }
+        self.layers += 1;
+        let x = self.state.clone();
+        self.stream_floor()?;
+        let mut sums = [0; 4];
+        for i in (0..4).rev() {
+            let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();
+            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), column_cap(k, i))?;
+            self.e.end_line();
+        }
+        let mut out = vec![0; t];
+        for b in 0..k {
+            let program = final_store_blocks()
+                .iter()
+                .copied()
+                .find(|p| self.stream_block_fits(p, b, &x, &sums, true));
+            let o = match program {
+                Some(program) => self.stream_block(program, b, &x, &sums, None, true, &mut [])?,
+                None => {
+                    let o = self.ordered_block(BlockKind::Final, b, &x, &sums)?;
+                    for (i, &oi) in o.iter().enumerate() {
+                        if self.e.mstore_next(32 * (4 * b + i))? != oi {
+                            bail!("stream terminal stores s{}' out of order", 4 * b + i);
+                        }
+                        self.e.end_line();
+                    }
+                    [o[0], o[1], o[2], o[3]]
+                }
+            };
+            out[4 * b..4 * b + 4].copy_from_slice(&o);
+        }
+        if self.e.memory != 32 * t {
+            bail!("stream terminal left memory at {} bytes", self.e.memory);
+        }
+        self.state = out;
+        self.sboxed = false;
+        self.state_in_memory = true;
+        self.stored = true;
+        Ok(())
+    }
+
     /// The M4 of block b on u = x + S (the column sums), its outputs on top
     /// in order: with streamed rounds the first program of ordered_blocks
     /// whose DUPs reach the layout, else the u values and the block template
@@ -2177,6 +2249,7 @@ impl<'a> Builder<'a> {
                     Some(("add", _)) | Some(("q", _)) => (2, true),
                     Some(("addmod", _)) => (3, true),
                     Some(("lane", _)) => (2, kept),
+                    Some(("store", _)) | Some(("estore", _)) => (1, false),
                     _ if mv == "pop" => (1, false),
                     _ => return false,
                 };
@@ -2234,6 +2307,27 @@ impl<'a> Builder<'a> {
                 self.e.swap(k.parse().expect("swap slot"))?;
             } else if mv == "pop" {
                 self.e.pop()?;
+            } else if let Some(i) = mv
+                .strip_prefix("store=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                // the last round's output s_{4b+i}' to its word, in order
+                let j = 4 * b + i;
+                if o[i] == 0 || self.e.mstore_next(32 * j)? != o[i] {
+                    bail!("store of s{j}' needs it on top at memory {}", 32 * j);
+                }
+                self.e.end_line();
+            } else if let Some(i) = mv
+                .strip_prefix("estore=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                // to its word by offset, after the block's MSIZE stores
+                let j = 4 * b + i;
+                if o[i] == 0 || self.e.top(0)? != o[i] || self.e.memory < 32 * (4 * b + 2) {
+                    bail!("store of s{j}' by offset needs it on top after the MSIZE stores");
+                }
+                self.e.mstore(32 * j)?;
+                self.e.end_line();
             } else if let Some(i) = mv
                 .strip_prefix("lane=z")
                 .and_then(|i| i.parse::<usize>().ok())
@@ -3979,6 +4073,7 @@ impl<'a> Builder<'a> {
                 match kind {
                     t2_entry::Terminal::T2 => self.terminal_round2(r)?,
                     t2_entry::Terminal::T3 => self.terminal_round3(r)?,
+                    t2_entry::Terminal::Stream => self.terminal_stream(r)?,
                 }
             } else if r == total - 1 && self.live.is_some() {
                 self.e.comment(&format!("Round {r} (external, s0' only)"));
@@ -3998,6 +4093,7 @@ impl<'a> Builder<'a> {
                         match kind {
                             t2_entry::Terminal::T2 => self.terminal_pair2(r)?,
                             t2_entry::Terminal::T3 => self.terminal_pair3(r)?,
+                            t2_entry::Terminal::Stream => 0,
                         }
                     }
                     _ if ends(self.chain_rounds(TemplateKind::Round), false) => {
