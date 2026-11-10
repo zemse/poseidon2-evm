@@ -1,7 +1,9 @@
 // Runs every proven artifact case (formal-verification/Poseidon2/Proofs/**)
 // on revm's interpreter at gas G-1, G and G+1 (G the case's `gas` from the
 // Lean proof) and checks what `Theorems.Total` claims: below G an
-// out-of-gas halt, from G on the interface outcome with exactly g - G left.
+// out-of-gas halt, from G on the interface outcome: a return or revert with
+// exactly g - G left, or the exceptional halt it names (a JUMP to no jump
+// destination, a stack underflow).
 //
 // usage: cargo run --release --example oog_boundary -- <formal-verification/Poseidon2>
 // PERTURB=1 adds 1 to every G, a control that must report mismatches.
@@ -31,6 +33,8 @@ const HASH_V2_SHORT: U256 =
 enum Kind {
     HuffPerm,
     HuffHash,
+    /// the Osaka t = 4 hash entry, with its jump destinations j1, j3, jr
+    HuffHashXor(usize, usize, usize),
     YulHash,
     YulPerm,
     HashV2,
@@ -63,6 +67,15 @@ fn parse_artifact(root: &Path, rel: &str) -> Option<Artifact> {
     let kind = match field("kind").as_str() {
         ".huffPerm" => Kind::HuffPerm,
         ".huffHash" => Kind::HuffHash,
+        k if k.starts_with("(.huffHashXor ") => {
+            let n: Vec<usize> = k
+                .trim_start_matches("(.huffHashXor ")
+                .trim_end_matches(')')
+                .split(' ')
+                .map(|x| usize::from_str_radix(x.trim_start_matches("0x"), 16).unwrap())
+                .collect();
+            Kind::HuffHashXor(n[0], n[1], n[2])
+        }
         ".yulHash" => Kind::YulHash,
         ".yulPerm" => Kind::YulPerm,
         ".hashV2" => Kind::HashV2,
@@ -129,43 +142,63 @@ fn yul_capacity(cds: usize) -> U256 {
     (s >> 5) << 64
 }
 
-/// The interface outcome (Spec/Interface.lean): (success, output).
-fn expected(a: &Artifact, cd: &[u8], v: u64) -> (bool, Vec<u8>) {
+/// What the interface says a call does (Spec/Interface.lean).
+enum Want {
+    /// returns (success) or reverts with this output
+    Ret(bool, Vec<u8>),
+    /// halts with this exception, the frame keeping none of its gas
+    Halt(InstructionResult),
+}
+
+/// The interface outcome (Spec/Interface.lean).
+fn expected(a: &Artifact, cd: &[u8], v: u64) -> Want {
     let perm_head = |cd: &[u8]| {
         let mut ws = words(cd, 4, 3);
         ws.push(yul_capacity(cd.len()) % P);
         permutation(&generate_params(4), &ws)[0]
     };
     match a.kind {
-        Kind::HuffPerm => (
+        Kind::HuffPerm => Want::Ret(
             true,
             enc(&permutation(&generate_params(a.t), &words(cd, 0, a.t))),
         ),
-        Kind::HuffHash => {
-            let n = if cd.len() < 0x44 {
-                1
-            } else if cd.len() == 0x44 {
-                2
-            } else {
-                3
+        Kind::HuffHash | Kind::HuffHashXor(..) => {
+            let hash = |n| {
+                Want::Ret(
+                    true,
+                    enc(&[hash_sponge(&generate_params(4), &words(cd, 4, n))]),
+                )
             };
-            (
-                true,
-                enc(&[hash_sponge(&generate_params(4), &words(cd, 4, n))]),
-            )
+            match (cd.len(), a.kind) {
+                (0x24, _) => hash(1),
+                (0x44, _) => hash(2),
+                (0x64, _) => hash(3),
+                (n, Kind::HuffHashXor(j1, j3, jr)) => {
+                    if n == j1 ^ 0x21 {
+                        hash(1)
+                    } else if n == j3 ^ 0x21 {
+                        hash(3)
+                    } else if n == jr ^ 0x21 {
+                        Want::Halt(InstructionResult::StackUnderflow)
+                    } else {
+                        Want::Halt(InstructionResult::InvalidJump)
+                    }
+                }
+                _ => Want::Halt(InstructionResult::InvalidJump),
+            }
         }
         Kind::YulHash => {
             if v != 0 {
-                (false, vec![])
+                Want::Ret(false, vec![])
             } else {
-                (true, enc(&[perm_head(cd)]))
+                Want::Ret(true, enc(&[perm_head(cd)]))
             }
         }
         Kind::HashV2 => {
             if cd.len() < 4 {
-                (true, enc(&[HASH_V2_SHORT]))
+                Want::Ret(true, enc(&[HASH_V2_SHORT]))
             } else {
-                (true, enc(&[perm_head(cd)]))
+                Want::Ret(true, enc(&[perm_head(cd)]))
             }
         }
         Kind::YulPerm => {
@@ -175,9 +208,9 @@ fn expected(a: &Artifact, cd: &[u8], v: u64) -> (bool, Vec<u8>) {
                 || v != 0
                 || cd.len() - 4 < 32 * a.t
             {
-                (false, vec![])
+                Want::Ret(false, vec![])
             } else {
-                (
+                Want::Ret(
                     true,
                     enc(&permutation(&generate_params(a.t), &words(cd, 4, a.t))),
                 )
@@ -230,15 +263,48 @@ fn calls(a: &Artifact, j: usize, rng: &mut Rng) -> Vec<(Vec<u8>, u64)> {
             (rng.bytes(32 * t + 17), 0),
             (rng.bytes(7), 0),
         ],
-        Kind::HuffHash => match j {
-            0 => vec![(vec![], 0), (rng.bytes(0x24), 0), (rng.bytes(0x43), 1)],
-            1 => vec![(rng.bytes(0x44), 0), (vec![0xff; 0x44], 0)],
-            _ => vec![
-                (rng.bytes(0x64), 0),
-                (rng.bytes(0x45), 0),
-                (rng.bytes(300), 0),
-            ],
-        },
+        Kind::HuffHash => {
+            // the sizes of case j: below 0x24, 0x24, between, 0x44, between, 0x64, above
+            let sizes: &[usize] = match j {
+                0 => &[0, 4, 0x23],
+                1 => &[0x24],
+                2 => &[0x25, 0x43],
+                3 => &[0x44],
+                4 => &[0x45, 0x63],
+                5 => &[0x64],
+                _ => &[0x65, 300],
+            };
+            sizes
+                .iter()
+                .flat_map(|&n| [(rng.bytes(n), 0), (vec![0xff; n], 7)])
+                .collect()
+        }
+        Kind::HuffHashXor(j1, j3, jr) => {
+            // the jump targets of case j (Check.lean `huffHashXorCases`), the size their xor
+            // with 0x21
+            let targets: Vec<usize> = match j {
+                0 => vec![0, 4],
+                1 => vec![0x05],
+                2 => vec![0x06, 0x44],
+                3 => vec![0x45],
+                4 => vec![0x46, 0x64],
+                5 => vec![0x65],
+                6 => vec![0x66, jr - 1],
+                7 => vec![jr],
+                8 => vec![jr + 1, j3 - 1],
+                9 => vec![j3],
+                10 => vec![j3 + 1, j1 - 1],
+                11 => vec![j1],
+                _ => vec![j1 + 1, 40000],
+            };
+            targets
+                .iter()
+                .flat_map(|&x| {
+                    let n = x ^ 0x21;
+                    [(rng.bytes(n), 0), (vec![0xff; n], 7)]
+                })
+                .collect()
+        }
         Kind::YulHash | Kind::HashV2 => {
             let off = if a.kind == Kind::YulHash { 1 } else { 0 };
             if a.kind == Kind::YulHash && j == 0 {
@@ -350,7 +416,7 @@ fn main() {
     find(&root.join("Proofs"), &root.join("Proofs"), &mut rels);
     rels.sort();
     let mut rng = Rng(0x5eed);
-    let (mut runs, mut bad) = (0usize, 0usize);
+    let (mut runs, mut bad, mut renamed) = (0usize, 0usize, 0usize);
     for rel in rels {
         let Some(a) = parse_artifact(&root, &rel) else {
             continue;
@@ -368,7 +434,7 @@ fn main() {
                 let g = g0 + std::env::var("PERTURB").map_or(0, |s| s.parse::<u64>().unwrap());
                 let mut notes = Vec::new();
                 for (cd, v) in calls(&a, j, &mut rng) {
-                    let (want_ok, want_out) = expected(&a, &cd, v);
+                    let want = expected(&a, &cd, v);
                     for gas in [0, g.saturating_sub(1), g, g + 1, g + 1000] {
                         runs += 1;
                         let r = run(&a.code, spec, &cd, v, gas);
@@ -376,10 +442,23 @@ fn main() {
                             (Res::Halt(InstructionResult::OutOfGas), true) => true,
                             (Res::Halt(_), true) => false,
                             (Res::Ok { .. }, true) => false,
-                            (Res::Ok { success, left, out }, false) => {
-                                *success == want_ok && *left == gas - g && *out == want_out
-                            }
-                            (Res::Halt(_), false) => false,
+                            (Res::Ok { success, left, out }, false) => match &want {
+                                Want::Ret(ok, o) => success == ok && *left == gas - g && out == o,
+                                Want::Halt(_) => false,
+                            },
+                            (Res::Halt(h), false) => match &want {
+                                Want::Halt(w) if w == h => true,
+                                // revm charges an ADD's 3 gas before it checks the stack,
+                                // execution-specs and EVMLean check the stack first: with
+                                // less than 3 left the same halt is named differently
+                                Want::Halt(InstructionResult::StackUnderflow)
+                                    if *h == InstructionResult::OutOfGas && gas - g < 3 =>
+                                {
+                                    renamed += 1;
+                                    true
+                                }
+                                _ => false,
+                            },
                         };
                         let desc = match &r {
                             Res::Ok { success, left, out } => format!(
@@ -412,7 +491,7 @@ fn main() {
             }
         }
     }
-    println!("{runs} runs, {bad} mismatches");
+    println!("{runs} runs, {bad} mismatches, {renamed} halts named differently");
     if bad > 0 {
         std::process::exit(1);
     }
