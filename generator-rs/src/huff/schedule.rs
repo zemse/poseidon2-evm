@@ -154,6 +154,11 @@ pub struct BuildOptions {
     /// pushed once at the entry, and DUP them (3 gas, 2 bytes) instead of
     /// PUSH32 (3 gas, 33 bytes)
     pub diag_stack: usize,
+    /// with lane_copy, the consuming rounds before the last keep the
+    /// products d_i s_i and the sum T apart (s_i = a_i + T): the next round
+    /// sums the reduced products and (t - 1) T by one MULMOD, so its tree
+    /// takes about nine leaves an ADDMOD instead of four
+    pub defer_sum: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -202,6 +207,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     fused_tree: FusedTree::Serial,
     lane_copy: false,
     diag_stack: 0,
+    defer_sum: false,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -353,6 +359,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.lane_copy {
         enabled.push("laneCopy".to_string());
+    }
+    if opts.defer_sum {
+        enabled.push("deferSum".to_string());
     }
     if enabled.is_empty() {
         "none".to_string()
@@ -536,6 +545,8 @@ struct Builder<'a> {
     entered: bool,
     /// the diag constants on the stack (diag_stack)
     diag_vals: Vec<Id>,
+    /// the sum T the lanes of the state still lack (defer_sum)
+    defer: Option<Id>,
 }
 
 /// A stack entry by what it holds: an element of the state by index, a
@@ -716,6 +727,7 @@ impl<'a> Builder<'a> {
             mid_entry: true,
             entered: false,
             diag_vals: Vec::new(),
+            defer: None,
         })
     }
 
@@ -900,9 +912,21 @@ impl<'a> Builder<'a> {
         plan: &super::sum_tree::Plan,
         values: &[Id],
         name: &str,
+        scaled: Option<(usize, U256)>,
     ) -> Result<Id> {
         match &plan.node {
-            super::sum_tree::Node::Leaf(i) => self.e.dup(values[*i]),
+            super::sum_tree::Node::Leaf(i) => match scaled {
+                // k v by a MULMOD of a copy (defer_sum: (t - 1) T)
+                Some((j, k)) if j == *i => {
+                    let p = self.p();
+                    self.e.compute(
+                        Op::Mulmod,
+                        &[constant(k, "k"), val(values[*i]), val(p)],
+                        "kT",
+                    )
+                }
+                _ => self.e.dup(values[*i]),
+            },
             super::sum_tree::Node::Pair {
                 left,
                 right,
@@ -912,8 +936,8 @@ impl<'a> Builder<'a> {
                 if *reduce && !late_prime {
                     self.e.push_prime()?;
                 }
-                let left = self.emit_sum_tree(left, values, name)?;
-                let right = self.emit_sum_tree(right, values, name)?;
+                let left = self.emit_sum_tree(left, values, name, scaled)?;
+                let right = self.emit_sum_tree(right, values, name, scaled)?;
                 if *reduce {
                     let p = self.p();
                     let (top, next) = if *late_prime {
@@ -995,7 +1019,7 @@ impl<'a> Builder<'a> {
         let Some(plan) = plan else {
             bail!("no seeded fused sum tree");
         };
-        let acc = self.emit_sum_tree(&plan, values, "fused")?;
+        let acc = self.emit_sum_tree(&plan, values, "fused", None)?;
         if self.bound(acc) != plan.bound {
             bail!("seeded fused tree bound differs from the plan");
         }
@@ -1036,7 +1060,7 @@ impl<'a> Builder<'a> {
             } else {
                 plan
             };
-            return self.emit_sum_tree(&plan, &ordered, name);
+            return self.emit_sum_tree(&plan, &ordered, name, None);
         }
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Step {
@@ -2934,6 +2958,12 @@ impl<'a> Builder<'a> {
 
         let mut old = vec![x5];
         old.extend_from_slice(&self.state[1..]);
+        if lane_copy && rc.is_none() && self.defer_rounds() {
+            return self.internal_round_defer(round, &old);
+        }
+        if self.defer.is_some() {
+            bail!("a deferred sum outside the deferred rounds");
+        }
         if lane_copy {
             // a round after it that is not one either takes its PRIME copy
             // from under the state (a body round runs for every call)
@@ -3315,6 +3345,141 @@ impl<'a> Builder<'a> {
         self.e.end_line();
         self.state = out;
         Ok(())
+    }
+
+    /// defer_sum applies to every consuming round of the range: each one
+    /// is a lane-copy round and the last one the seam
+    fn defer_rounds(&self) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.opts.defer_sum
+            && self.opts.tree_sums
+            && !self.opts.shared_body
+            && self.lane_copy_rounds()
+            && self.lane_copy_seam(p_end - 1)
+    }
+
+    /// The sum of a defer_sum round: s0^5, the elements (the products a_i
+    /// after the first round) and (t - 1) T by a MULMOD of a copy, lazy up
+    /// to 3 (P - 1), so s0' = m0 + T plus the next round constant stays
+    /// under 2^256
+    fn defer_tree(&mut self, old: &[Id], tp: Option<Id>) -> Result<Id> {
+        let mut ordered: Vec<Id> = self.by_depth(old).into_iter().map(|i| old[i]).collect();
+        let mut bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
+        if let Some(tp) = tp {
+            ordered.insert(0, tp);
+            bounds.insert(0, p1());
+        }
+        let cap = p1() * u256(3);
+        let planned = if self.opts.tree_late_prime {
+            super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+        } else if self.opts.tree_peak {
+            super::sum_tree::plan_peak(&bounds, cap)
+        } else {
+            super::sum_tree::plan(&bounds, cap)
+        };
+        let Some(plan) = planned else {
+            bail!("no deferred sum tree meets the bound");
+        };
+        let scaled = tp.map(|_| (0, u256(self.t as u64 - 1)));
+        self.emit_sum_tree(&plan, &ordered, "sum", scaled)
+    }
+
+    /// The lane-copy round with defer_sum. The state holds s0 and a_i, with
+    /// s_i = a_i + T for the T of the round before (none in the first
+    /// round): the sum is s0^5 + sum a_i + (t - 1) T, every lane a_i' =
+    /// d_i (a_i + T) and s0' = d_0 s0^5 + T' over the PRIME copy pushed
+    /// first. T' is made over the t copies and swapped into the slot of the
+    /// deepest element, which comes up for the first lane, so the elements
+    /// keep their slots and the old T stays dead under them. The last
+    /// round (the seam) adds T' to its lanes as lane copy does.
+    fn internal_round_defer(&mut self, round: usize, old: &[Id]) -> Result<()> {
+        let t = self.t;
+        let p = self.p();
+        let x5 = old[0];
+        let seam = self.lane_copy_seam(round);
+        let tp = self.defer.take();
+        let mut order: Vec<usize> = (1..t).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.e.find(old[i])));
+        let mut out = vec![0; t];
+        let d0 = self.diag(0);
+        if seam {
+            self.e.push_prime()?;
+            let sum = self.defer_tree(old, tp)?;
+            self.e.end_line();
+            for _ in 0..2 * t - 1 {
+                self.e.push_prime()?;
+            }
+            let mut xs = vec![0; t];
+            for (k, &i) in order.iter().enumerate() {
+                if k == 0 {
+                    self.e.dup(old[i])?;
+                } else {
+                    self.swap_up(old[i])?;
+                }
+                out[i] = self.defer_lane(i, old[i], tp, Some(sum))?;
+                xs[i] = self.seam_lane(round + 1, i, out[i])?;
+                self.e.end_line();
+            }
+            self.swap_up(x5)?;
+            let m0 = self
+                .e
+                .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+            out[0] = self
+                .e
+                .compute(Op::Add, &[inplace(m0), inplace(sum)], "s0'")?;
+            if self.e.top(1)? != p {
+                bail!("defer sum: s0' over no PRIME copy");
+            }
+            xs[0] = self.seam_lane(round + 1, 0, out[0])?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
+        for _ in 0..=t {
+            self.e.push_prime()?;
+        }
+        let sum = self.defer_tree(old, tp)?;
+        self.e.end_line();
+        for &i in &order {
+            self.swap_up(old[i])?;
+            out[i] = self.defer_lane(i, old[i], tp, None)?;
+            self.e.end_line();
+        }
+        self.swap_up(x5)?;
+        let m0 = self
+            .e
+            .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+        out[0] = self.e.compute(Op::Add, &[val(sum), inplace(m0)], "s0'")?;
+        if self.e.top(1)? != p {
+            bail!("defer sum: s0' over no PRIME copy");
+        }
+        self.e.end_line();
+        self.state = out;
+        self.defer = Some(sum);
+        Ok(())
+    }
+
+    /// d_i (s + T) on top for s on top over a PRIME copy (d_i s without a
+    /// T), plus sum when given
+    fn defer_lane(&mut self, i: usize, s: Id, tp: Option<Id>, sum: Option<Id>) -> Result<Id> {
+        let p = self.p();
+        let u = match tp {
+            Some(tp) => self
+                .e
+                .compute(Op::Add, &[val(tp), inplace(s)], &format!("u{i}"))?,
+            None => s,
+        };
+        let di = self.diag(i);
+        let m = self
+            .e
+            .compute(Op::Mulmod, &[di, inplace(u), inplace(p)], &format!("a{i}"))?;
+        match sum {
+            Some(sum) => self
+                .e
+                .compute(Op::Add, &[val(sum), inplace(m)], &format!("s{i}'")),
+            None => Ok(m),
+        }
     }
 
     /// s + c and the S-box of lane i of `round` for s on top over a PRIME
@@ -4275,6 +4440,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                                 FusedTree::Serial,
                                                                             lane_copy: false,
                                                                             diag_stack: 0,
+                                                                            defer_sum: false,
                                                                         });
                                                                     }
                                                                 }
@@ -4306,6 +4472,12 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
         .flat_map(|opts| {
             std::iter::once(opts).chain(opts.prime_early.then_some(BuildOptions {
                 lane_copy: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.lane_copy.then_some(BuildOptions {
+                defer_sum: true,
                 ..opts
             }))
         })
@@ -5038,7 +5210,7 @@ mod tests {
             gas: 9,
             peak: 2,
         };
-        assert!(b.emit_sum_tree(&invalid, &values, "sum").is_err());
+        assert!(b.emit_sum_tree(&invalid, &values, "sum", None).is_err());
         let mut b = Builder::new(
             &params,
             &[vec![U256::ZERO, u256(1)]],
@@ -5056,7 +5228,7 @@ mod tests {
         .unwrap();
         b.e.max_reach = 1;
         let unreachable = leaf(1, u256(1));
-        assert!(b.emit_sum_tree(&unreachable, &values, "sum").is_err());
+        assert!(b.emit_sum_tree(&unreachable, &values, "sum", None).is_err());
         let old = (DEFAULT_OPTIONS, 100);
         let tree = BuildOptions {
             tree_sums: true,
@@ -5105,7 +5277,7 @@ mod tests {
             } else {
                 tree
             };
-            let result = b.emit_sum_tree(&tree, &inputs, "sum");
+            let result = b.emit_sum_tree(&tree, &inputs, "sum", None);
             if late {
                 let out = result.unwrap();
                 assert_eq!(b.e.gas, 20);
