@@ -35,6 +35,8 @@ inductive Expect where
   | words (ws : List Nat)
   /-- revert with empty data -/
   | revertEmpty
+  /-- halt at a `JUMP` to a word that is no valid jump destination -/
+  | badJump
 
 /-- One case of a call. -/
 structure Case where
@@ -63,7 +65,7 @@ def specForms (fs : Facts) (e : Expect) (tb : Tab) : List Lin :=
   | .permHead c ins => let (xs, tb) := inputForms fs ins tb; [(permG linOps c xs tb).1.headD linOps.zero]
   | .hash c ins => let (xs, tb) := inputForms fs ins tb; [(hashG linOps c xs tb).1]
   | .words ws => ws.map Lin.const
-  | .revertEmpty => []
+  | .revertEmpty | .badJump => []
 
 /-- Every returned word is canonical (below `P`) with the spec's form. -/
 def outputsMatch : List SV → List Lin → Bool
@@ -86,10 +88,13 @@ def runCase (code : Code) (cs : Case) : Res :=
 def resultOk (fs : Facts) (e : Expect) : Res → Bool
   | .ret ws tb _ =>
     match e with
-    | .revertEmpty => false
+    | .revertEmpty | .badJump => false
     | e => outputsMatch ws (specForms fs e tb)
   | .revert n _ => match e with
     | .revertEmpty => n == 0
+    | _ => false
+  | .badJump _ => match e with
+    | .badJump => true
     | _ => false
   | _ => false
 
@@ -99,6 +104,7 @@ def checkCase (code : Code) (cs : Case) : Bool := resultOk cs.facts cs.expect (r
 def resultOkGas (fs : Facts) (e : Expect) (G : Nat) : Res → Bool
   | .ret ws tb g => g == G && resultOk fs e (.ret ws tb g)
   | .revert n g => g == G && resultOk fs e (.revert n g)
+  | .badJump g => g == G && resultOk fs e (.badJump g)
   | _ => false
 
 /-- The case is accepted and its run uses `G` gas. -/
@@ -112,6 +118,9 @@ theorem resultOkGas_eq {fs : Facts} {e : Expect} {G : Nat} {r : Res}
     simp only [resultOkGas, Bool.and_eq_true, beq_iff_eq] at h
     exact ⟨h.2, h.1⟩
   | revert n g =>
+    simp only [resultOkGas, Bool.and_eq_true, beq_iff_eq] at h
+    exact ⟨h.2, h.1⟩
+  | badJump g =>
     simp only [resultOkGas, Bool.and_eq_true, beq_iff_eq] at h
     exact ⟨h.2, h.1⟩
   | stop => simp [resultOkGas] at h

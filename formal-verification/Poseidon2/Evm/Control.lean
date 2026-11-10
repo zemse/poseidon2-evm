@@ -79,7 +79,7 @@ theorem sim_jump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts) 
   split at h
   · rename_i x st1 hp
     split at h
-    · cases h
+    · (repeat' (split at h)) <;> cases h
     · rename_i tg' hx
       cases h
       obtain ⟨hs, hst1⟩ := pop1_ok hp

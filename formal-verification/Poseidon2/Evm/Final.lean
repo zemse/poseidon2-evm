@@ -9,6 +9,9 @@ import Poseidon2.Checker.Valuation
   paid the memory expansion the checker adds to its gas, or runs out of gas with less than that;
 * `final_revert`: the checker's `REVERT` of size 0 is the EVM's `REVERT` with empty output (it
   costs nothing, so it cannot run out of gas);
+* `final_badJump`: the checker's `JUMP` to a word whose interval holds no jump destination
+  (`djAvoids`, `not_mem_D_J`) is the EVM running out of gas with less than 8 left, or halting
+  with `BadJumpDestination`;
 * `checker_core`: for an accepted case and a call that meets its facts, the EVM runs out of gas
   exactly when the call's gas is below the gas of the checker's run, and otherwise ends exactly
   as the case expects with that gas used. `reaches_final` (`Run.lean`) brings the EVM to the last
@@ -272,6 +275,77 @@ theorem final_revert (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Fac
     · show s'.machineState.gasAvailable.toNat = _
       rw [hgs, hmc, Nat.sub_zero]
 
+/-! ## The EVM's `JUMP` to no jump destination -/
+
+theorem ctl_badJump_inv {fs : Facts} {code : Code} {pc : Nat} {st : St} {G : Nat}
+    (h : ctl fs code pc (.op 0x56) st = .stop (.badJump G)) :
+    ∃ w s1, pop1 st = .ok (.word w, s1) ∧
+      djAvoids w.lo w.hi codeFuel 0 code.bytes = true ∧ G = st.gas + 8 := by
+  simp only [ctl] at h
+  split at h
+  · rename_i t s1 hp
+    split at h
+    · split at h
+      · rename_i w _
+        split at h
+        · rename_i hdj
+          cases h
+          exact ⟨w, s1, hp, hdj, rfl⟩
+        · cases h
+      · cases h
+    · cases h
+  · cases h
+
+theorem X_error (vj : Array UInt256) (f : Nat) (s : State) (x : EVM.ExecutionException)
+    (h : Eip8024.Xstep vj s = .error x) : Eip8024.X (f + 1) vj s = .error x := by
+  simp only [Eip8024.X, h, bind, Except.bind]
+
+/-- The EVM's step at the checker's halt at a `JUMP` whose target word `djAvoids` keeps off
+every jump destination: out of gas with less than the `JUMP`'s 8, else `BadJumpDestination`. -/
+theorem xstep_badJump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts) (p : Nat)
+    (rest : List (Nat × Ins)) (st : St) (s : State) (G : Nat)
+    (hA : At e ρ bs ((p, .op 0x56) :: rest) st s)
+    (hc : ctl fs (Code.ofBytes bs) p (.op 0x56) st = .stop (.badJump G)) :
+    Eip8024.Xstep (D_J (codeBA bs) 0) s =
+      if s.machineState.gasAvailable.toNat < 8 then .error .OutOfGass
+      else .error .BadJumpDestination := by
+  obtain ⟨w, s1, hp, hdj, -⟩ := ctl_badJump_inv hc
+  obtain ⟨hs, -⟩ := pop1_ok hp
+  have hrs := hA.rel.stk
+  rw [hs] at hrs
+  obtain ⟨a, t, ht, ha, -⟩ := hrs.cons_inv
+  obtain ⟨⟨hlo, hhi, -⟩, hav⟩ := ha
+  have hnot := not_mem_D_J hall hdj a (by rw [hav]; exact hlo) (by rw [hav]; exact hhi)
+  have hdec := decode_at e ρ hall hA (op := .JUMP) rfl
+  rw [← hA.frame.code, xstep_overlay _ s _ _ hdec (by simp), step_jump s hdec, ht]
+  dsimp only
+  rw [hA.frame.code, hnot]
+  split_ifs <;> simp_all [GasConstants.Gmid]
+
+/-- **`JUMP` to no jump destination**: from a state related by `At`, the checker's halt at a
+`JUMP` whose target word `djAvoids` keeps off every jump destination, ending a run of gas `G`,
+is the EVM running out of gas with less than the `JUMP`'s 8 (`G - st.gas`) left, or else halting
+with `BadJumpDestination`. -/
+theorem final_badJump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Facts) (p : Nat)
+    (rest : List (Nat × Ins)) (st : St) (s : State) (f : Nat) (G : Nat)
+    (hA : At e ρ bs ((p, .op 0x56) :: rest) st s)
+    (hc : ctl fs (Code.ofBytes bs) p (.op 0x56) st = .stop (.badJump G))
+    (hg : s.machineState.gasAvailable.toNat < f) :
+    G = st.gas + 8 ∧
+      ((s.machineState.gasAvailable.toNat < 8 ∧
+        Eip8024.X f (D_J (codeBA bs) 0) s = .error .OutOfGass) ∨
+        (8 ≤ s.machineState.gasAvailable.toNat ∧
+          Eip8024.X f (D_J (codeBA bs) 0) s = .error .BadJumpDestination)) := by
+  obtain ⟨-, -, -, -, rfl⟩ := ctl_badJump_inv hc
+  have hx := xstep_badJump e ρ bs hall fs p rest st s _ hA hc
+  obtain ⟨f0, rfl⟩ : ∃ f0, f = f0 + 1 := ⟨f - 1, by omega⟩
+  refine ⟨rfl, ?_⟩
+  by_cases hlt : s.machineState.gasAvailable.toNat < 8
+  · rw [if_pos hlt] at hx
+    exact Or.inl ⟨hlt, X_error _ f0 s _ hx⟩
+  · rw [if_neg hlt] at hx
+    exact Or.inr ⟨by omega, X_error _ f0 s _ hx⟩
+
 end Poseidon2.Evm.Sim
 
 namespace Poseidon2.Soundness
@@ -279,10 +353,11 @@ namespace Poseidon2.Soundness
 open Ethereum Poseidon2.Spec Poseidon2.Checker Poseidon2.Spec.Interface Poseidon2.Evm
 open Poseidon2.Evm.Sim
 
-theorem outcome_ret (e : Env) (ex : Expect) (h : ex ≠ .revertEmpty) :
+theorem outcome_ret (e : Env) (ex : Expect) (h : ex ≠ .revertEmpty) (hb : ex ≠ .badJump) :
     outcome e ex = .ret (encodeWords (specWords e ex)) := by
   cases ex with
   | revertEmpty => exact absurd rfl h
+  | badJump => exact absurd rfl hb
   | _ => rfl
 
 /-- **The core of both statements**: for an accepted case and every call that meets its facts,
@@ -311,6 +386,8 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
     obtain rfl := ctl_ret hctl
     have hex : cs.expect ≠ .revertEmpty := by
       intro h; rw [h] at hc; simp [resultOk] at hc
+    have hexb : cs.expect ≠ .badJump := by
+      intro h; rw [h] at hc; simp [resultOk] at hc
     have hom : outputsMatch ws (specForms cs.facts cs.expect tb) = true := by
       revert hc; cases cs.expect <;> simp [resultOk]
     obtain ⟨off, sz, s1, o, n, hp, -, -, -, -, rfl, hG⟩ := ctl_ret_inv hctl
@@ -327,7 +404,7 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
       rcases hfin with ⟨hlt, hf⟩ | ⟨s', o', hf, ho, hgs⟩
       · exact Or.inl ⟨by omega, by rw [hf]; rfl⟩
       · refine Or.inr ⟨by omega, ?_⟩
-        rw [hf, outcome_ret _ _ hex]
+        rw [hf, outcome_ret _ _ hex hexb]
         refine ⟨?_, ?_⟩
         · rw [ho, outputsMatch_sound _ ρ ws _ xs hom hxs, hw]
         · show s'.machineState.gasAvailable.toNat = _
@@ -348,6 +425,21 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
       refine Or.inr ⟨by omega, ?_⟩
       rw [hf]
       exact ⟨ho, by omega⟩
+  | badJump G =>
+    obtain rfl := ctl_badJump hctl
+    have hex : cs.expect = .badJump := by
+      revert hc; cases cs.expect <;> simp [resultOk]
+    rw [hex]
+    simp only [Res.gas]
+    rcases hX _ (hinv.wf.valid _) with ⟨hlt, hx⟩ | ⟨s, f, hx, hA, hg, heq⟩
+    · exact Or.inl ⟨by obtain ⟨-, -, -, -, rfl⟩ := ctl_badJump_inv hctl; omega, by rw [hx]; rfl⟩
+    · rw [hx, hcode]
+      obtain ⟨rfl, hfin⟩ := final_badJump _ _ bs hall cs.facts p rest st' s f _ hA hctl hg
+      rcases hfin with ⟨hlt, hf⟩ | ⟨hle, hf⟩
+      · exact Or.inl ⟨by omega, by rw [hf]; rfl⟩
+      · refine Or.inr ⟨by omega, ?_⟩
+        rw [hf]
+        trivial
   | stop => simp [resultOk] at hc
   | fail _ _ => simp [resultOk] at hc
 

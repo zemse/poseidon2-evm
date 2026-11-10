@@ -15,13 +15,14 @@ import Poseidon2.Soundness
 * `runN_sim`: `Eip8024.X` iterated over `runN`: as long as the checker's run continues, the EVM
   runs out of gas or reaches the related state, with more fuel left than gas, so the fuel
   `Ξ` gives (gas + 1) never runs out first;
-* `reaches_final`: for an accepted case, the checker's run reaches its `RETURN` or `REVERT`
+* `reaches_final`: for an accepted case, the checker's run reaches its `RETURN`, `REVERT` or
+  `JUMP` to no jump destination
   (`run_final`), and the EVM's run of the call from `fresh` (the state `Ξ` starts from,
   `Xi_eq`) runs out of gas or reaches a state related to the checker's at that instruction.
   The segment checkpoints of `Proofs/` need nothing more: `seg_run` turns them into this one
   `run`.
 
-The last instruction, `RETURN` or `REVERT` from a state related by `At`, the valuation `ρ` on
+The last instruction, `RETURN`, `REVERT` or that `JUMP` from a state related by `At`, the valuation `ρ` on
 the last atom table and `CheckerSound` itself are in `Final.lean`.
 -/
 
@@ -747,10 +748,12 @@ theorem ins_head (bs : List Nat) {p : Nat} {i : Ins} {rest : List (Nat × Ins)}
     simp only [List.cons.injEq, Prod.mk.injEq] at h
     exact h.1.1.symm
 
-/-- A run ending in `RETURN` or `REVERT` (the only ends a check accepts). -/
+/-- A run ending in `RETURN`, `REVERT` or a `JUMP` to no jump destination (the only ends a check
+accepts). -/
 def IsFinal : Res → Prop
   | .ret _ _ _ => True
   | .revert _ _ => True
+  | .badJump _ => True
   | _ => False
 
 theorem final_of_resultOk {fs : Facts} {ex : Expect} {r : Res} (h : resultOk fs ex r = true) :
@@ -804,6 +807,16 @@ theorem ctl_revert {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {n 
     | rfl
     | (repeat' (split at h)) <;> cases h
 
+/-- `ctl` halts only at `JUMP`. -/
+theorem ctl_badJump {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {g : Nat}
+    (h : ctl fs code pc i st = .stop (.badJump g)) : i = .op 0x56 := by
+  unfold ctl at h
+  dsimp only at h
+  split at h
+  all_goals first
+    | rfl
+    | (repeat' (split at h)) <;> cases h
+
 /-- **The run up to the last instruction.** If the checker accepts a case, its run reaches a
 `RETURN` or `REVERT` at `p` in state `st'` after `k` instructions, and for every valuation valid
 on the atom table there, the EVM's run of the call (`X` from `fresh`, as `Eip8024.Ξ` starts it)
@@ -819,7 +832,7 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
       runN cs.facts (Code.ofBytes bs) k (Code.ofBytes bs).ins St.init =
         .next ((p, i) :: rest) st' ∧
       ctl cs.facts (Code.ofBytes bs) p i st' = .stop (runCase (Code.ofBytes bs) cs) ∧
-      (i = .op 0xf3 ∨ i = .op 0xfd) ∧
+      (i = .op 0xf3 ∨ i = .op 0xfd ∨ i = .op 0x56) ∧
       ∀ ρ, Tab.Valid ⟨cd, v⟩ ρ st'.tab →
         (g.toNat < st'.gas ∧
           Eip8024.X (g.toNat + 1) (D_J I.code 0) (fresh σ σ₀ g A I) = .error .OutOfGass) ∨
@@ -835,7 +848,8 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
     revert hctl hfin
     cases run cs.facts (Code.ofBytes bs) fuel (Code.ofBytes bs).ins St.init with
     | ret ws tb _ => intro _ hctl; exact Or.inl (ctl_ret hctl)
-    | revert n _ => intro _ hctl; exact Or.inr (ctl_revert hctl)
+    | revert n _ => intro _ hctl; exact Or.inr (Or.inl (ctl_revert hctl))
+    | badJump _ => intro _ hctl; exact Or.inr (Or.inr (ctl_badJump hctl))
     | stop => intro h; simp [IsFinal] at h
     | fail _ _ => intro h; simp [IsFinal] at h
   · obtain ⟨hcode, hcdl, hcv⟩ := henv

@@ -6,7 +6,9 @@ import Poseidon2.Checker.Bounds
 The checker runs the bytecode once per case of the call (a set of `Facts`), with:
 
 * concrete control flow: `JUMP` / `JUMPI` targets must be exact and valid jump destinations
-  (EVMLean's `D_J`), a `JUMPI` condition must be decided by its interval;
+  (EVMLean's `D_J`), a `JUMPI` condition must be decided by its interval; the one exception is
+  a `JUMP` to a word whose interval holds no valid jump destination (`djAvoids`), where the run
+  ends in the EVM's exceptional halt (`badJump`);
 * concrete memory: addresses exact, words keyed by address, overlapping unequal accesses
   rejected, `MSIZE` tracked;
 * symbolic values `SV`: an exact word term, a linear form with an upper bound on the raw
@@ -105,6 +107,15 @@ def jumpdests : Nat → Nat → List Nat → List Nat
     if 0x60 ≤ b ∧ b ≤ 0x7f then jumpdests f (pc + 1 + (b - 0x5f)) (bs.drop (b - 0x5f))
     else if b = 0x5b then pc :: jumpdests f (pc + 1) bs
     else jumpdests f (pc + 1) bs
+
+/-- No valid jump destination (a `0x5b` byte that is not PUSH data, as `jumpdests` finds them) in
+`[lo, hi]`, the code read to its end within the budget `f`. -/
+def djAvoids (lo hi : Nat) : Nat → Nat → List Nat → Bool
+  | _, _, [] => true
+  | 0, _, _ :: _ => false
+  | f + 1, pc, b :: bs =>
+    if 0x60 ≤ b ∧ b ≤ 0x7f then djAvoids lo hi f (pc + 1 + (b - 0x5f)) (bs.drop (b - 0x5f))
+    else (b != 0x5b || decide (pc < lo) || decide (hi < pc)) && djAvoids lo hi f (pc + 1) bs
 
 /-- For every valid jump destination, the instructions from it on. -/
 def destSuffixes (dj : List Nat) : List (Nat × Ins) → List (Nat × List (Nat × Ins))
@@ -475,12 +486,16 @@ inductive Res where
   /-- `STOP` or the end of the code -/
   | stop
   | fail (pc : Nat) (msg : String)
+  /-- `JUMP` to a word whose interval holds no valid jump destination: an exceptional halt, with
+  the gas of the run through the `JUMP` -/
+  | badJump (gas : Nat)
   deriving Repr, Inhabited, DecidableEq
 
-/-- The gas of a run that returned or reverted. -/
+/-- The gas of a run that returned, reverted or halted at a `JUMP`. -/
 def Res.gas : Res → Nat
   | .ret _ _ g => g
   | .revert _ g => g
+  | .badJump g => g
   | _ => 0
 
 /-- After one instruction: the instructions to run next and the state, or the end. -/
@@ -505,7 +520,16 @@ def ctl (fs : Facts) (code : Code) (pc : Nat) (i : Ins) (s : St) : Ctl :=
   | .op 0x00 => .stop .stop
   | .op 0x56 =>
     match pop1 s with
-    | .ok (t, s) => jump t s
+    | .ok (t, s') =>
+      match t.exact with
+      | none =>
+        -- a word kept off every jump destination: the EVM halts (`BadJumpDestination`)
+        match t with
+        | .word w =>
+          if djAvoids w.lo w.hi codeFuel 0 code.bytes then .stop (.badJump (s.gas + 8))
+          else .stop (.fail pc "symbolic jump target")
+        | _ => .stop (.fail pc "symbolic jump target")
+      | some t => .jump t s'
     | .error e => .stop (.fail pc e)
   | .op 0x57 =>
     match pop2 s with

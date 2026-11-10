@@ -60,10 +60,12 @@ def wordBytes (w : Nat) : List UInt8 :=
 def encodeWords (ws : List Nat) : List UInt8 :=
   ws.flatMap wordBytes
 
-/-- How a call ends: returned data, or a revert with its data. -/
+/-- How a call ends: returned data, a revert with its data, or the exceptional halt of a `JUMP`
+to a byte that is not a valid jump destination (the frame keeps none of its gas). -/
 inductive Outcome where
   | ret (out : List UInt8)
   | revert (out : List UInt8)
+  | badJump
   deriving DecidableEq, Repr
 
 /-- The Huff permutation entry of width `c.t`. -/

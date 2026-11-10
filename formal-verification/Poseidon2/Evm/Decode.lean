@@ -477,6 +477,91 @@ theorem jumpdests_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) :
             rw [← htl] at ht
             exact jumpdests_D_J hall f _ _ t ht
 
+theorem get?_codeBA_nil {bs : List Nat} {p : Nat} (hd : bs.drop p = []) :
+    (codeBA bs).get? p = none := by
+  have : bs[p]? = none := List.getElem?_eq_none (by simpa using hd)
+  rw [get?_eq, data_codeBA, this]
+  rfl
+
+/-- Every jump destination of EVMLean's from `i` that `djAvoids` passes lies outside `[lo, hi]`
+(the budget `f` keeps every `pc` below `2^256`). -/
+theorem djAvoids_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) (lo hi : Nat) :
+    ∀ (f i : Nat) (result : Array UInt256) (x : UInt256), djAvoids lo hi f i (bs.drop i) = true →
+      i + 33 * f < W → x ∈ D_J_aux (codeBA bs) i result →
+      x ∈ result ∨ x.toNat < lo ∨ hi < x.toNat
+  | f, i, result, x, ha, hW, hx => by
+    cases hd : bs.drop i with
+    | nil =>
+      rw [D_J_aux.eq_def] at hx
+      split at hx
+      · exact Or.inl hx
+      · rename_i heq; rw [get?_codeBA_nil hd] at heq; cases heq
+    | cons b tl =>
+      rw [hd] at ha
+      match f, ha, hW with
+      | 0, ha, _ => simp [djAvoids] at ha
+      | f + 1, ha, hW =>
+      have hb256 := head_lt hall hd
+      obtain ⟨op, hop⟩ := Option.isSome_iff_exists.mp (parse_some b hb256)
+      have hw := parse_width b hb256
+      rw [hop] at hw
+      simp only [Option.getD_some] at hw
+      have hq : (codeBA bs).get? i >>= parseInstr = some op := by
+        rw [get?_codeBA hd]; exact hop
+      have htl : bs.drop (i + 1) = tl := by rw [← List.drop_drop, hd]; rfl
+      rw [D_J_aux.eq_def] at hx
+      split at hx
+      · rename_i heq; rw [hq] at heq; cases heq
+      · rename_i c' heq
+        rw [hq] at heq
+        cases heq
+        simp only [djAvoids] at ha
+        split at ha
+        · rename_i hpush
+          have hd' : tl.drop (b - 0x5f) = bs.drop (i + 1 + (b - 0x5f)) := by
+            rw [← htl, List.drop_drop]
+          rw [hd'] at ha
+          have hN : N i op = i + 1 + (b - 0x5f) := by rw [N, hw, if_pos hpush]
+          rw [hN] at hx
+          have hj : op ≠ .JUMPDEST := fun e => by
+            have := (parse_jumpdest b hb256).mp (e ▸ hop); omega
+          rw [if_neg hj] at hx
+          exact djAvoids_D_J hall lo hi f _ result x ha (by omega) hx
+        · rename_i hpush
+          have hN : N i op = i + 1 := by rw [N, hw, if_neg hpush]
+          rw [hN] at hx
+          simp only [Bool.and_eq_true, Bool.or_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq]
+            at ha
+          rw [← htl] at ha
+          split at hx
+          · rename_i hj
+            have h5b : b = 0x5b := (parse_jumpdest b hb256).mp (hj ▸ hop)
+            rcases djAvoids_D_J hall lo hi f _ _ x ha.2 (by omega) hx with h | h
+            · rcases Array.mem_push.mp h with h | rfl
+              · exact Or.inl h
+              · right
+                rw [toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+                rcases ha.1 with (h1 | h1) | h1
+                · exact absurd h5b h1
+                · exact Or.inl h1
+                · exact Or.inr h1
+            · exact Or.inr h
+          · exact djAvoids_D_J hall lo hi f _ result x ha.2 (by omega) hx
+
+/-- A word whose value `djAvoids` keeps off every jump destination fails EVMLean's jump check. -/
+theorem not_mem_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) {lo hi : Nat}
+    (ha : djAvoids lo hi codeFuel 0 bs = true) (a : UInt256) (hlo : lo ≤ a.toNat)
+    (hhi : a.toNat ≤ hi) : (D_J (codeBA bs) 0).contains a = false := by
+  cases hc : (D_J (codeBA bs) 0).contains a with
+  | false => rfl
+  | true =>
+    rw [Array.contains_iff_mem] at hc
+    rcases djAvoids_D_J hall lo hi codeFuel 0 #[] a (by simpa using ha)
+      (by unfold codeFuel W; omega) hc with h | h | h
+    · simp at h
+    · omega
+    · omega
+
 /-- A jump destination the checker accepts passes EVMLean's jump check. -/
 theorem mem_D_J {bs : List Nat} (hall : bs.all (· < 256) = true) {t : Nat}
     (ht : t ∈ jumpdests codeFuel 0 bs) :
