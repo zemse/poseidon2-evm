@@ -20,6 +20,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [ ] Steady internal round t8 290 against floor B 266: at most one of the n + 1 moves shown not inherent beyond t = 4.
 - [ ] External blocks: `sblock` take searches (TAKE=1..3) ran out of memory or found nothing below 344 / 183 / 155; needs symmetry reduction or tighter bounds.
 - [ ] Osaka t24/t28 shared body: with laneCopy the body period is free (any length, free mid entry); trade body length against call overhead.
+- [ ] `src/bn254/README.md` figures not re-measured after the lanes: Osaka t2 code-size paragraph (3,914 / 7,387 bytes, 5,943-gas compact; t2 now 7,125 bytes), Osaka streamed-block 365 / 377 / 359 / 347 and "24 to 51 gas a call", the 231 to 867 streaming saving. The file also fails `prettier --check` (t8+ table rows).
 
 ## Yul, open directions
 
