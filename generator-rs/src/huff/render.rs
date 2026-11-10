@@ -515,11 +515,15 @@ fn render_entry_body(params: &Params, fork: &Fork, result: &BuildResult, inline:
 
 /// The code of MAIN around POSEIDON2_HASH_ROUNDS and what each arity's call
 /// costs. The arity comes from calldatasize (a selector and 1, 2 or 3
-/// words): hash_2 falls through the first test, hash_3 the second, hash_1
-/// branches twice, and the two that do not fall through to the rounds jump
-/// to them. Each arity runs its own round 0 (its prologue,
+/// words), turned into the offset of its JUMPDEST by one op and a JUMP.
+/// Where three copies of the rounds fit the code size, calldatasize << shift
+/// starts a region per arity with its own copy, so no arity jumps again.
+/// Otherwise calldatasize xor HASH_KEY: hash_2, the highest, starts its
+/// round 0 there and falls through to the rounds; hash_1 and hash_3, with
+/// no room before the next offset, jump on to theirs and from it to the
+/// rounds. Each arity runs its own round 0 (its prologue,
 /// Builder::hash_round0), which loads its words; the rounds leave s0' on
-/// top.
+/// top. A calldatasize that lands on no JUMPDEST reverts.
 pub struct HashEntry {
     pub lines: Vec<String>,
     /// call gas of hash_1, hash_2, hash_3 (memory expansion included)
@@ -527,6 +531,10 @@ pub struct HashEntry {
     /// runtime bytes
     pub bytes: usize,
 }
+
+/// calldatasize 0x24, 0x44, 0x64 (hash_1, hash_2, hash_3) xor 0x21 is
+/// 0x05, 0x65, 0x45: hash_1 right after the dispatch, hash_2 the highest
+const HASH_KEY: usize = 0x21;
 
 /// `rounds` is the gas, bytes and memory of the rounds macro, 0, 0 and
 /// MEMORY_UNKNOWN before it is built (the overhead decides its code size
@@ -542,15 +550,6 @@ pub fn hash_entry(
             None => bail!("no prologue for hash_{n}"),
         }
     };
-    // calldatasize <op> 0x44 decides the branch
-    let test = |code: &mut Code, op: &str, label: &str| {
-        code.op("calldatasize", 2, 1);
-        code.push(0x44);
-        code.op(op, 3, 1);
-        code.op(label, 3, 3);
-        code.op("jumpi", 10, 1);
-        code.end("");
-    };
     let label = |code: &mut Code, name: &str| {
         code.op(&format!("{name}:"), 1, 1);
         code.end("");
@@ -564,17 +563,110 @@ pub fn hash_entry(
         code.gas += p.gas;
         code.bytes += p.bytes;
     };
-    let jump = |code: &mut Code| {
-        code.op("rounds", 3, 3);
+    let jump = |code: &mut Code, to: &str| {
+        code.op(to, 3, 3);
         code.op("jump", 8, 1);
         code.end("");
     };
+    // each arity in a region of its own: its round 0, its copy of the
+    // rounds and the return, at calldatasize << shift for the least shift
+    // that leaves every region room up to the next and the last within the
+    // code size
+    let regions = (1..=3)
+        .map(|n| -> Result<Code> {
+            let mut code = Code::new(fork);
+            code.blank();
+            label(&mut code, &format!("hash_{n}"));
+            branch(&mut code, by(n)?);
+            code.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
+            code.end("[s0', ...]");
+            ret(&mut code, 1, false, rounds.2);
+            Ok(code)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let at = |shift: usize, n: usize| (4 + 32 * n) << shift;
+    let fits = |shift: usize| {
+        (1..=3).all(|n| {
+            let end = at(shift, n) + regions[n - 1].bytes;
+            end <= if n < 3 { at(shift, n + 1) } else { fork.code_size }
+        })
+    };
+    if rounds.1 > 0
+        && let Some(shift) = (1..16).find(|&s| fits(s))
+    {
+        let mut dispatch = Code::new(fork);
+        dispatch.text(&format!(
+            "    // calldatasize << {shift}: hash_1 at {}, hash_2 at {}, hash_3 at {}, each with its own copy of the rounds",
+            hex_off(at(shift, 1)),
+            hex_off(at(shift, 2)),
+            hex_off(at(shift, 3))
+        ));
+        dispatch.op("calldatasize", 2, 1);
+        dispatch.push(shift);
+        dispatch.op("shl", 3, 1);
+        dispatch.op("jump", 8, 1);
+        dispatch.end("");
+        let shared = dispatch.gas + memory_gas(32);
+        let mut lines = dispatch.lines;
+        let mut bytes = dispatch.bytes;
+        let mut gas = [0; 3];
+        for (i, region) in regions.into_iter().enumerate() {
+            // zero bytes up to the region, a line at most 1,024 bytes
+            let mut pad = at(shift, i + 1) - bytes;
+            while pad > 0 {
+                let n = pad.min(1024);
+                lines.push(format!("    __VERBATIM(0x{})", "00".repeat(n)));
+                pad -= n;
+            }
+            bytes = at(shift, i + 1) + region.bytes;
+            gas[i] = shared + region.gas;
+            lines.extend(region.lines);
+        }
+        return Ok(HashEntry { lines, gas, bytes });
+    }
+
+    let target = |n: usize| (4 + 32 * n) ^ HASH_KEY;
 
     let mut dispatch = Code::new(fork);
-    dispatch.text(
-        "    // hash_2 (a selector and two words) falls through, the other arities branch on calldatasize",
-    );
-    test(&mut dispatch, "sub", "not_hash_2");
+    dispatch.text(&format!(
+        "    // calldatasize xor {}: the JUMPDEST of hash_1 at {}, of hash_3 at {}, of hash_2 at {}",
+        hex_off(HASH_KEY),
+        hex_off(target(1)),
+        hex_off(target(3)),
+        hex_off(target(2))
+    ));
+    dispatch.op("calldatasize", 2, 1);
+    dispatch.push(HASH_KEY);
+    dispatch.op("xor", 3, 1);
+    dispatch.op("jump", 8, 1);
+    dispatch.end("");
+    // the offsets in order, zero bytes in between; hop is the gas from the
+    // JUMPDEST of an arity to its round 0
+    let mut hop = [0u64; 3];
+    let mut order = [1, 2, 3];
+    order.sort_by_key(|&n| target(n));
+    if order[2] != 2 {
+        bail!("hash dispatch: hash_2 must take the highest offset");
+    }
+    for n in order {
+        let (at, to) = (dispatch.bytes, target(n));
+        if at > to {
+            bail!("hash dispatch: hash_{n} at {to:#x}, code already at {at:#x}");
+        }
+        if to > at {
+            dispatch.op(&format!("__VERBATIM(0x{})", "00".repeat(to - at)), 0, to - at);
+            dispatch.end("");
+        }
+        let before = dispatch.gas;
+        if n == 2 {
+            label(&mut dispatch, "hash_2");
+        } else {
+            label(&mut dispatch, &format!("to_hash_{n}"));
+            jump(&mut dispatch, &format!("hash_{n}"));
+        }
+        hop[n - 1] = dispatch.gas - before;
+    }
+    let shared = dispatch.gas - hop.iter().sum::<u64>();
     let mut b2 = Code::new(fork);
     branch(&mut b2, by(2)?);
     let mut tail = Code::new(fork);
@@ -582,27 +674,24 @@ pub fn hash_entry(
     tail.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
     tail.end("[s0', ...]");
     ret(&mut tail, 1, false, rounds.2);
-    let mut gate = Code::new(fork);
-    gate.blank();
-    label(&mut gate, "not_hash_2");
-    test(&mut gate, "gt", "hash_1");
     let mut b3 = Code::new(fork);
+    b3.blank();
+    label(&mut b3, "hash_3");
     branch(&mut b3, by(3)?);
-    jump(&mut b3);
+    jump(&mut b3, "rounds");
     let mut b1 = Code::new(fork);
     b1.blank();
     label(&mut b1, "hash_1");
     branch(&mut b1, by(1)?);
-    jump(&mut b1);
+    jump(&mut b1, "rounds");
 
-    let memory = memory_gas(32);
-    let shared = dispatch.gas + tail.gas + memory;
+    let shared = shared + tail.gas + memory_gas(32);
     let gas = [
-        shared + gate.gas + b1.gas,
-        shared + b2.gas,
-        shared + gate.gas + b3.gas,
+        shared + hop[0] + b1.gas,
+        shared + hop[1] + b2.gas,
+        shared + hop[2] + b3.gas,
     ];
-    let parts = [dispatch, b2, tail, gate, b3, b1];
+    let parts = [dispatch, b2, tail, b3, b1];
     Ok(HashEntry {
         bytes: parts.iter().map(|c| c.bytes).sum(),
         lines: parts.into_iter().flat_map(|c| c.lines).collect(),

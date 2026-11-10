@@ -564,6 +564,8 @@ fn t4_row0_last_product_compiled() {
         assert_eq!(production.matches(marker).count(), 1);
         let (prefix, last) = production.split_once(marker).unwrap();
         let (body, suffix) = last.split_once("\n}").unwrap();
+        // the hash entry runs a copy of the rounds per arity where they fit
+        let copies = production.matches("POSEIDON2_HASH_ROUNDS()").count() - 1;
         let actual = body
             .lines()
             .flat_map(|line| line.split("//").next().unwrap().split_whitespace())
@@ -604,10 +606,33 @@ fn t4_row0_last_product_compiled() {
         let mut results = Vec::new();
         for row in ROWS {
             let label = format!("{row:?}");
-            let text = format!(
+            let mut text = format!(
                 "{prefix}{marker}\n    {}\n\n}}{suffix}",
                 row.lines(constants).join("\n    ")
             );
+            // a row of another size moves the regions after the first: the
+            // zero bytes before each take the difference back
+            if copies > 1 {
+                let grow = row.cost().1 as isize - production_bytes as isize;
+                for n in [2, 3] {
+                    let at = format!("\n    hash_{n}:");
+                    assert_eq!(text.matches(&at).count(), 1);
+                    let (head, tail) = text.split_once(&at).unwrap();
+                    let (rest, pad) = head.trim_end_matches('\n').rsplit_once('\n').unwrap();
+                    let zeros = pad
+                        .trim()
+                        .strip_prefix("__VERBATIM(0x")
+                        .and_then(|z| z.strip_suffix(')'))
+                        .unwrap()
+                        .len() as isize
+                        / 2;
+                    let zeros = (zeros - grow) as usize;
+                    text = format!(
+                        "{rest}\n    __VERBATIM(0x{})\n{at}{tail}",
+                        "00".repeat(zeros)
+                    );
+                }
+            }
             let mut trial = files.clone();
             trial.insert(path.clone(), text);
             assert_eq!(&trial[&public_path], public_source);
@@ -644,10 +669,15 @@ fn t4_row0_last_product_compiled() {
             let measured = costs.map(|v| same_gas(&v, &label).unwrap());
             assert_eq!(measured, gas.map(|g| g + row.cost().0 - IN_PLACE_GAS));
             for data in &abi {
-                let n = match data.len().cmp(&68) {
-                    std::cmp::Ordering::Less => 1,
-                    std::cmp::Ordering::Equal => 2,
-                    std::cmp::Ordering::Greater => 3,
+                // the computed dispatch takes the canonical lengths only
+                let n = match data.len() {
+                    36 => 1,
+                    68 => 2,
+                    100 => 3,
+                    _ => {
+                        assert!(chain.call(to, data.clone(), &[]).is_err());
+                        continue;
+                    }
                 };
                 let args: Vec<_> = (0..n)
                     .map(|i| {
