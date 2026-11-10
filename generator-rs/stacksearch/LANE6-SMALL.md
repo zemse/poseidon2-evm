@@ -64,3 +64,40 @@ The R59/R60 seam with the new bound (`INIT=sum,P,x0,s1,s2,s3`, R60 to its `sbox3
 ### 5. t4 hash_1 round 0 fused, with a PUSH0 under it
 
 hash_1's round 0 at 208 (item 1) leaves two dead values; a PUSH0 (2 gas, 3 on Paris) first keeps the three the rounds after expect: 363 to 362 on Amsterdam and Osaka, 363 on Paris. Landed: hash_1 11,838 to 11,837 (Amsterdam), 11,862 to 11,861 (Osaka), 11,863 (Paris). The forms interpreter takes `sboxI`, numbers and s<i>' outputs, so templates::hash_forms(1) holds the whole round.
+
+### 6. t2 rounds 60 to 63 as one program: -3, landed
+
+The Final pair (rounds 62, 63) starts with `[x1, P, x0, P]` after its S-boxes; the junction of rounds 61 and 62 to that layout is 126 (lane 3: nothing below). Without the PRIME copy under x0 (`JUNCTION=1 seam 2 x0,P,x1 o1,P,o0 8`: 120, 44K expanded; `o0,o1,P` also 120, `o0,P,o1` and `o1,o0,P` 123) the last two rounds push it themselves: `ROUNDS=2 seam 2 x1,P,x0 store 8` 164 (8.7M expanded) against 161 from `[x1, P, x0, P]` (4.7M). 120 + 164 = 284 against 287. templates::chains Final for t2 is now rounds 60 to 63 (the round pair's start, the new junction, the new last rounds); the old pair stays after it. t2 5,880 to 5,877 (Amsterdam, Osaka), Paris 5,882 to 5,879.
+
+The same at t3 does not pay: the junction of rounds 62 and 63 to `[x1, P, x2, x0]` is 186 (44.7M expanded, w8) against 189 to `[x1, P, x2, x0, P]`, but the terminal round's linear layer and stores from there cost 72 against 66 (seam store, w8): 258 against 255.
+
+### 7. t3 seams, other runs
+
+- Junction of rounds 2 and 3 into the exit (`JUNCTION=1 seam 3 x2,P,x0,x1 o0,o2,G,o1 8 186`): no solution below 186 (54.0M expanded, 133.6M states, 1,824 s, 5.8 GB). Closed at window 8 (lane 3's run hit its 16 GB guard). Window 9: stopped after about 25 minutes.
+- R59/R60 seam up to R60's S-box outputs at window 9 (`INTERNAL=1 JUNCTION=1 seam 3 b0:1,P,b1:1,b2:2,b3:3 o0,o2,o1 9 179`): no solution below 179 (69.1M expanded, 156.3M states, 2,397 s, 9.6 GB).
+
+### 8. Other t4 runs
+
+- hash_2 round 0 fused (6 slots, ub 252, new bound): stopped at f = 246 (463M states). hash_3: stopped at f = 277 earlier. Both open.
+- Initial linear layer of the permutation entry (`INIT=s0,s1,s2,s3,P`, goal `s0',P,s1',s2',s3'`, 122 in production): stopped at f = 113 (166M states).
+- ROUND4 tail of round 62 with the new row 0 (`INIT=t2,t0,s3',_,t3`, 286): stopped at f = 279 (402M states).
+- hashdag `ORDER=` (the nodes in a fixed order) with `LIVEDUP=1`, ROUND4's own order: still at f = 316 after 90M states: fixing the op order alone does not tame the moves.
+- A hand transcription of the relaxed 2-round t4 program with its PRIME copies placed (from after round A's t2 to round B's outputs) came to 25 moves against ROUND4's 22: the relaxed saving goes to placing the copies under in-place operands.
+
+## Result
+
+| Entry | Before | After |
+| --- | ---: | ---: |
+| t2 (Amsterdam / Osaka / Paris) | 5,880 / 5,880 / 5,882 | 5,877 / 5,877 / 5,879 |
+| t3 | 7,626 | 7,626 |
+| t4 hash Amsterdam | 11,841 / 11,882 / 11,922 | 11,837 / 11,879 / 11,919 |
+| t4 hash Osaka | 11,865 / 11,883 / 11,946 | 11,861 / 11,880 / 11,943 |
+| t4 hash Paris | 11,866 / 11,884 / 11,947 | 11,863 / 11,881 / 11,944 |
+| t4 permutation | 12,083 | 12,083 |
+
+## Still open
+
+- t4 junctions: the relaxed model (PRIME copies free) saves 6 a junction (51 / 96 / 141 for 1 / 2 / 3 rounds); with the copies placed, no exact search finished (`PRIME=1 STRICT=1` ecycle, hashdag over the junction and the after-t2 cycle). A stronger hashdag bound for PRIME placement, or a search over the relaxed program's order with the copies as the only freedom, is the next step.
+- hash_1's fused round 0 leaves two dead values: a rounds macro per dead count (Amsterdam, where each arity has its own copy) would take the PUSH0 back (-2 more at hash_1).
+- hash_2 / hash_3 round 0 fused: not finished.
+- The P-less junction trick (item 6) for the t2 Exit chain's junctions and for t3's round 61/62 junction: not tried.

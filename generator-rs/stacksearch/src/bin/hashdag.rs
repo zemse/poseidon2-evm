@@ -69,6 +69,9 @@ struct Dag {
     layout: Option<Vec<u8>>,
     goal_primes: i32,
     max_depth: usize,
+    // ORDER: per node, the nodes that must be made before it
+    before: Vec<u64>,
+    live_dup: bool,
     // per item: the nodes taking it once, twice, and its place in the goal
     cons: Vec<(u64, u64, u32)>,
 }
@@ -212,7 +215,11 @@ impl Dag {
         if d < self.max_depth {
             for k in 1..=d.min(16) {
                 let v = s[k - 1];
-                if v >= L0 {
+                // LIVEDUP=1: copy only a value with more uses left than
+                // copies (a restriction, not a bound)
+                let spare = self.live_dup
+                    && s.iter().filter(|&&x| x == v).count() as u32 >= self.uses(v, computed);
+                if v >= L0 && !spare {
                     out.push((3, format!("dup{k}"), top(v), computed));
                 }
             }
@@ -237,6 +244,9 @@ impl Dag {
         }
         for (j, nd) in self.nodes.iter().enumerate() {
             if computed & (1 << j) != 0 {
+                continue;
+            }
+            if computed & self.before[j] != self.before[j] {
                 continue;
             }
             if let Some(k) = self.ready(nd, s) {
@@ -397,6 +407,8 @@ fn main() {
         goal_primes,
         max_depth,
         cons: vec![],
+        before: vec![],
+        live_dup: std::env::var_os("LIVEDUP").is_some(),
     };
     let mut dag = dag;
     dag.cons = (0..dag.n0 + dag.nodes.len() as u8)
@@ -414,6 +426,21 @@ fn main() {
             c
         })
         .collect();
+    // ORDER=a,b,...: these nodes are made in this order (the moves between
+    // them are searched), the others whenever
+    dag.before = vec![0; dag.nodes.len()];
+    if let Ok(order) = std::env::var("ORDER") {
+        let mut mask = 0u64;
+        for name in order.split(',') {
+            let j = dag
+                .nodes
+                .iter()
+                .position(|x| x.name == name)
+                .unwrap_or_else(|| panic!("ORDER {name}"));
+            dag.before[j] = mask;
+            mask |= 1 << j;
+        }
+    }
     let dag = dag;
     let pack = |s: &[u8], c: u64| -> u128 {
         let mut k: u128 = c as u128;
