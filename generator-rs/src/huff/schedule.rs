@@ -150,6 +150,10 @@ pub struct BuildOptions {
     /// slot, the last into s0^5's: n SWAPs and one dead value a round
     /// instead of n + 3 SWAPs
     pub lane_copy: bool,
+    /// keep the first diag_stack internal diag constants on the stack,
+    /// pushed once at the entry, and DUP them (3 gas, 2 bytes) instead of
+    /// PUSH32 (3 gas, 33 bytes)
+    pub diag_stack: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -197,6 +201,7 @@ pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
     tree_adaptive_prime: false,
     fused_tree: FusedTree::Serial,
     lane_copy: false,
+    diag_stack: 0,
 };
 
 /// Steps [from, to) of the permutation (see permutation_steps).
@@ -291,6 +296,9 @@ pub fn describe_options(opts: &BuildOptions) -> String {
     }
     if opts.diag_push32 > 0 {
         enabled.push(format!("diagPush32={}", opts.diag_push32));
+    }
+    if opts.diag_stack > 0 {
+        enabled.push(format!("diagStack={}", opts.diag_stack));
     }
     if opts.shadow {
         enabled.push("shadow".to_string());
@@ -526,6 +534,8 @@ struct Builder<'a> {
     /// whether a remainder call may take the mid entry, and whether one did
     mid_entry: bool,
     entered: bool,
+    /// the diag constants on the stack (diag_stack)
+    diag_vals: Vec<Id>,
 }
 
 /// A stack entry by what it holds: an element of the state by index, a
@@ -705,6 +715,7 @@ impl<'a> Builder<'a> {
             entry_layout: None,
             mid_entry: true,
             entered: false,
+            diag_vals: Vec::new(),
         })
     }
 
@@ -727,6 +738,9 @@ impl<'a> Builder<'a> {
 
     fn diag(&self, i: usize) -> Operand {
         let d = self.params.internal_diag_minus_one[i];
+        if let Some(&v) = self.diag_vals.get(i) {
+            return val(v);
+        }
         if !self.diag_stored(i) {
             return constant(d, &format!("d{i}"));
         }
@@ -3615,6 +3629,18 @@ impl<'a> Builder<'a> {
             self.e.prime_slot = Some(offset);
         }
 
+        if has_internal && self.opts.diag_stack > 0 {
+            self.e
+                .comment("Internal diag constants, kept on the stack for the internal rounds");
+            for i in (0..self.opts.diag_stack).rev() {
+                let d = self.params.internal_diag_minus_one[i];
+                let v = self.e.push(d, Some(&format!("d{i}")))?;
+                self.diag_vals.insert(0, v);
+            }
+            self.e.end_line();
+            self.e.comment("");
+        }
+
         if has_internal && self.diag_stored(0) {
             self.e
                 .comment("Internal diag constants, loaded with MLOAD in the internal rounds");
@@ -4248,6 +4274,7 @@ fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
                                                                             fused_tree:
                                                                                 FusedTree::Serial,
                                                                             lane_copy: false,
+                                                                            diag_stack: 0,
                                                                         });
                                                                     }
                                                                 }
@@ -4680,6 +4707,36 @@ fn build_best_with_candidates(
             Err(reason) => reason.ends_with(" bytes"),
         };
         let mut chosen = plain;
+        // a diag constant on the stack costs its push once and frees 31
+        // bytes a round for no gas: the fewest that fit (all of them with a
+        // shared body)
+        if (binding || chosen.as_ref().is_ok_and(|(o, _)| o.shared_body))
+            && params.t >= 8
+            && !opts.diag_in_memory
+            && fork.reach > 16
+        {
+            let with = |n: usize| BuildOptions {
+                diag_stack: n,
+                ..opts
+            };
+            let n = if opts.shared_body {
+                params.t
+            } else {
+                params.t
+                    - largest(params.t - 1, |k| {
+                        attempt(&with(params.t - k)).is_some_and(|r| r.bytes <= max_bytes)
+                    })
+            };
+            let stacked = with(n);
+            if let Ok(r) = build(&stacked) {
+                let alt = finish(stacked, r);
+                if let Ok((_, gas)) = alt
+                    && chosen.as_ref().map_or(true, |&(_, g)| gas < g)
+                {
+                    chosen = alt;
+                }
+            }
+        }
         if binding {
             let pim = BuildOptions {
                 prime_in_memory: true,
