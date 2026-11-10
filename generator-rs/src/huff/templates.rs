@@ -164,10 +164,20 @@ pub fn chains(t: usize, kind: TemplateKind) -> &'static [Template] {
             init: "s1,P,s0",
             ops: "sbox1 P P P dup5 sbox0 P dup2 dup6 add=sum dup1 swap3 add=o0.0 | sbox0@1 swap4 add=o0.1 sbox1@1 P dup2 dup5 add=sum P dup2 P swap5 add=o1.1 | sbox1@2 swap5 add=o1.0 sbox0@2 P dup2 dup6 add=sum dup1 swap3 add=o2.0 | sbox0@3 swap4 add=o2.1 sbox1@3 dup1 dup4 add=sum dup1 swap2 add=o3.1 swap3 add=o3.0",
         }],
-        (2, TemplateKind::Final) => &[Template {
-            init: "s0,P,s1",
-            ops: "sbox0 P P P swap4 sbox1 P dup2 dup5 add=sum dup1 swap3 add=o0.1 | sbox1@1 swap3 add=o0.0 sbox0@1 P dup2 dup4 add=sum dup1 swap3 addmod=o1.0 store addmod=o1.1 store",
-        }],
+        // rounds 60 to 63 of the private entry: the junction of rounds 61
+        // and 62 ends at [x1, P, x0] (JUNCTION=1, 120 against 126 to [x1, P,
+        // x0, P]) and the last two rounds take the missing PRIME copy (ROUNDS=2
+        // from there, 164 against 161); the pair 62, 63 after
+        (2, TemplateKind::Final) => &[
+            Template {
+                init: "s0,P,s1",
+                ops: "sbox0 P P P dup5 sbox1 P dup2 dup6 add=sum dup1 swap3 add=o0.1 | sbox1@1 swap4 add=o0.0 sbox0@1 dup1 dup4 add=sum P dup2 P swap4 add=o1.0 | sbox0@2 swap4 add=o1.1 sbox1@2 P dup2 dup5 add=sum P dup2 dup7 add=o2.0 | sbox0@3 swap3 add=o2.1 sbox1@3 P dup2 dup4 add=sum dup1 swap4 addmod=o3.0 store addmod=o3.1 store",
+            },
+            Template {
+                init: "s0,P,s1",
+                ops: "sbox0 P P P swap4 sbox1 P dup2 dup5 add=sum dup1 swap3 add=o0.1 | sbox1@1 swap3 add=o0.0 sbox0@1 P dup2 dup4 add=sum dup1 swap3 addmod=o1.0 store addmod=o1.1 store",
+            },
+        ],
         // rounds 0 to 2: the S-boxes of the first, two junctions, the
         // linear layer of the third
         (3, TemplateKind::Round) => &[Template {

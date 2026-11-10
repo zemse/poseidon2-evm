@@ -518,8 +518,8 @@ mod tests {
                     0 => bad.bytes = usize::MAX,
                     1 => bad.max_depth = 1001,
                     2 => bad.max_dup = fork.reach + 1,
-                    3 => bad.gas += 9,
-                    4 => bad.gas += 10,
+                    3 => bad.gas += 12,
+                    4 => bad.gas += 13,
                     _ => bad.bytes = fork.code_size,
                 }
                 let chosen = select_terminal(2, fork, prior.clone(), Ok(Some(bad)));

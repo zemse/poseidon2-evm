@@ -163,12 +163,12 @@ fn check_terminal(production: bool) {
         } else {
             build_fixture(&params, &clean, fork, true, 0).unwrap().0
         };
-        // the same code up to the last two rounds, which the entry runs as
-        // one program (templates::pairs Final) storing both outputs
+        // the same code up to the last four rounds, which the entry runs as
+        // one program (templates::chains Final) storing both outputs
         let last = |lines: &[String]| {
             lines
                 .iter()
-                .position(|line| line.contains("Round 62"))
+                .position(|line| line.contains("Round 60"))
                 .unwrap()
         };
         let (old_cut, new_cut) = (last(&original.lines), last(&candidate.lines));
@@ -187,24 +187,24 @@ fn check_terminal(production: bool) {
         assert_eq!(
             &new_ops[new_ops.len() - 8..],
             [
-                "dup1", "swap3", "addmod", "msize", "mstore", "addmod", "msize", "mstore"
+                "dup1", "swap4", "addmod", "msize", "mstore", "addmod", "msize", "mstore"
             ]
         );
         assert!(old_ops.iter().all(|op| !matches!(
             *op,
             "msize" | "mstore" | "mload" | "codecopy" | "calldatacopy"
         )));
-        assert_eq!(candidate.gas, original.gas + 1);
-        assert!(candidate.max_depth <= original.max_depth);
+        assert_eq!(candidate.gas + 2, original.gas);
+        assert!(candidate.max_depth <= original.max_depth + 1);
         assert!(candidate.max_dup <= original.max_dup + 1);
         assert!(candidate.max_depth <= 1000);
         assert!(candidate.max_dup <= fork.reach);
         assert_eq!(candidate.step_bytes.len(), step_count(&params));
-        assert_eq!(&candidate.step_bytes[..63], &original.step_bytes[..63]);
+        assert_eq!(&candidate.step_bytes[..61], &original.step_bytes[..61]);
         assert_eq!(candidate.step_bytes.last(), Some(&candidate.bytes));
         assert_eq!((candidate.state_in_memory, candidate.memory), (true, 64));
         let model = super::super::entry_gas(&fork, 2, &candidate);
-        assert_eq!(model + 9, baseline_gas);
+        assert_eq!(model + 12, baseline_gas);
         let path = huff_name(&fork, 2, "Poseidon2");
         let public_path = huff_name(&fork, 2, "Permutation");
         let mut trial = if let Some(plan) = &plan {
@@ -248,7 +248,7 @@ fn check_terminal(production: bool) {
             .zip(&code.runtime)
             .take_while(|(a, b)| a == b)
             .count();
-        assert!(common + (original.bytes - original.step_bytes[62]) + 64 >= runtime.len());
+        assert!(common + (original.bytes - original.step_bytes[60]) + 64 >= runtime.len());
         let bytes = calls(&fork, code, &params, &raw, model).len();
         println!(
             "T2_TERMINAL candidate {}: {} reference-checked calls, {model} gas, {bytes} bytes, saving {}, depth {}, dup {}",

@@ -76,6 +76,14 @@ pub(crate) fn build_fixture(
     let mut round = 0;
     while round < 64 {
         b.e.next_round();
+        // the private entry runs rounds 60 to 63 as one program that stores
+        if round == 60 && memory_output {
+            b.e.comment(&format!("Round {round} (external)"));
+            assert_eq!(b.terminal_pair2(round)?, 4);
+            b.e.comment("");
+            b.step_bytes.push(b.e.bytes);
+            break;
+        }
         // rounds 0 to 3 (the exit) run as one program, 60 and 61 as a pair
         if [0, 60].contains(&round) {
             b.e.comment(&format!("Round {round} (external)"));
@@ -255,7 +263,7 @@ fn t2_terminal_bounds_tails_and_store_guards() {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 2]], fork(name).unwrap(), memory, tail)
                         .unwrap();
-                assert_eq!(result.max_depth, 125 + tail);
+                assert_eq!(result.max_depth, if memory { 126 } else { 125 } + tail);
                 assert!(result.max_dup <= fork(name).unwrap().reach);
             }
         }

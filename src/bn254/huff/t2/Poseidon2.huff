@@ -334,24 +334,24 @@
     swap4 add                                // [s0', P, P, x1, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
     0x2953736e94bb6b9f1b9707a4f1615e4efe1e1ce4bab218cbea92c785b128ffd1 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, P, x1, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
     dup1 dup4 add                            // [sum, x0, P, x1, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dup1 swap4 add                           // [s1', x0, P, sum, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    swap3 add                                // [s0', P, s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    dup3 dup2 dup2 swap4 add                 // [s0', P, sum, P, P, x1, s1', s0^5, s1', s0^5, s1', s0^5, ...]
 
     // Round 62 (external)
-    0x304f74d461ccc13115e4e0bcfb93817e55aeb7eb9306b64e4f588ac97d81f429 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dupn 117 dup1 dup1 swap4 0x15bbf146ce9bca09e8a33f5e77dfe4f5aad2a164a4617a4cb8ee5415cde913fc add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, x0, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dup2 dup2 dup5 add                       // [sum, P, x1, P, x0, P, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    dup1 swap3 add                           // [s1', P, sum, P, x0, P, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    0x304f74d461ccc13115e4e0bcfb93817e55aeb7eb9306b64e4f588ac97d81f429 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, sum, P, P, x1, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    swap4 add                                // [s1', P, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    0x15bbf146ce9bca09e8a33f5e77dfe4f5aad2a164a4617a4cb8ee5415cde913fc add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    dup2 dup2 dup5 add                       // [sum, P, x1, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    dup2 dup2 dup7 add                       // [s0', P, sum, P, x1, P, x0, s1', s0^5, s1', s0^5, s1', ...]
 
     // Round 63 (external)
-    0x0e32db320a044e3197f45f7649a19675ef5eedfea546dea9251de39f9639779a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, sum, P, x0, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    swap3 add                                // [s0', P, x1, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    0x0ab4dfe0c2742cde44901031487964ed9b8f4b850405c10ca9ff23859572c8c6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, x1, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    dup3 dup2 dup4 add                       // [sum, P, x0, x1, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    dup1 swap3 addmod                        // [s0', sum, x1, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
-    msize mstore                             // [sum, x1, P, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    addmod                                   // [s1', s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
-    msize mstore                             // [s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    0x0ab4dfe0c2742cde44901031487964ed9b8f4b850405c10ca9ff23859572c8c6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, sum, P, x1, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    swap3 add                                // [s1', P, x0, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    0x0e32db320a044e3197f45f7649a19675ef5eedfea546dea9251de39f9639779a add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, x0, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    dup3 dup2 dup4 add                       // [sum, P, x1, x0, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    dup1 swap4 addmod                        // [s0', x1, sum, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
+    msize mstore                             // [x1, sum, P, x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    addmod                                   // [s1', x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, ...]
+    msize mstore                             // [x0, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', s0^5, s1', ...]
 
 
     msize 0x0 return
