@@ -191,10 +191,17 @@ pub fn chains(t: usize, kind: TemplateKind) -> &'static [Template] {
 /// mod=NAME (MOD by the PRIME copy under it) take. It leaves p_i = sum_j
 /// M4[i][j] in_j, named p0..p3, as [p0, P, p1, p2, p3], the cheapest
 /// schedule of its DAG stacksearch's hashdag finds; ROUND4 then adds the
-/// folded constants K_i in its S-boxes.
+/// folded constants K_i in its S-boxes. A program with `sboxI` (lane I on
+/// p_I with K_I) runs round 0 itself, naming its outputs s0'..s3'; a number
+/// is a PUSH of it. hash_1 (hashdag with ROUND4 up to its sbox3, 208
+/// against 211) takes x1 from a copy of p1 before p0 consumes p1, which
+/// leaves one dead value less: the PUSH0 under it keeps the three the rounds
+/// after expect.
 pub fn hash_forms(n: usize) -> Option<&'static str> {
     match n {
-        1 => Some("P r0 mod=p2 dup1 P 4 dup3 mulmod=p1 P dup3 dup3 add=p0"),
+        1 => Some(
+            "0 P r0 mod=p2 P 4 dup3 mulmod=p1 P dup2 sbox1 P dup4 dup4 add=p0 sbox0 dup2 dup1 add=2s1 swap2 add=t0 P P dup6 sbox3 P P dup5 dup4 dup1 add=2s3 addmod=t3 swap7 sbox2 add=t1 dup6 P dup3 4 mulmod=4t1 add=s3' swap4 addmod=t2 P dup4 dup3 add=s2' swap3 4 mulmod=4t0 add=s1' P dup2 dup7 add=s0'",
+        ),
         2 => Some(
             "P r0 r1 addmod=p3 P 4 dup3 mulmod=4p3 P r1 dup1 addmod=w dup3 dup2 add=p2 swap2 add=p1 P dup4 dup3 add=p0",
         ),

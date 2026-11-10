@@ -918,7 +918,7 @@
 
 /// @notice hash_1 / hash_2 / hash_3 of IPoseidon2 (the arity from calldatasize, the selector is not checked): the sponge state [x0, x1, x2, n << 64] permuted once, s0' returned
 /// @dev Each arity runs its own round 0, with the missing words and the capacity n << 64 folded into its constants, then the rounds above
-/// @dev hash_1 11838 gas, hash_2 11879 gas, hash_3 11919 gas, 64255 runtime bytes, max stack depth 91
+/// @dev hash_1 11837 gas, hash_2 11879 gas, hash_3 11919 gas, 64255 runtime bytes, max stack depth 91
 #define macro MAIN() = {
     // calldatasize << 9: hash_1 at 0x4800, hash_2 at 0x8800, hash_3 at 0xc800, each with its own copy of the rounds
     calldatasize 0x9 shl jump
@@ -943,25 +943,25 @@
 
     hash_1:
     SETUP()                              // [PRIME]
-    dup1 0x4 calldataload mod                // [p2, P]
-    dup1 dup3 0x4 dup3 mulmod                // [p1, p2, p2, P]
-    dup4 dup3 dup3 add                       // [p0, P, p1, p2, p2, P]
-    0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26268b0878e269ed23e5 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, p1, p2, p2, P]
-    dup5 dup3 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1ead47f80c8dcf34d6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, x0, p1, p2, p2, P]
-    dup1 dup1 add                            // [2s1, x1, x0, p1, p2, p2, P]
-    swap2 add                                // [t0, 2s1, p1, p2, p2, P]
-    dup6 dup1 dup6 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f105d032f787c7f1cdf8 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x3, P, t0, 2s1, p1, p2, p2, P]
-    dup2 dup1 dup5 dup4 dup1 add             // [2s3, t0, P, P, x3, P, t0, 2s1, p1, p2, p2, P]
-    addmod                                   // [t3, P, x3, P, t0, 2s1, p1, p2, p2, P]
-    swap7 0x199750ec472f1809e0f66a545e1e51624108ac845015c2b13dfc36bab497d8aa add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x2, x3, P, t0, 2s1, p1, t3, p2, P]
-    add                                      // [t1, P, t0, 2s1, p1, t3, p2, P]
-    dup6 dup3 dup3 0x4 mulmod                // [4t1, t3, t1, P, t0, 2s1, p1, t3, p2, P]
-    add                                      // [s3', t1, P, t0, 2s1, p1, t3, p2, P]
-    swap4 addmod                             // [t2, t0, s3', p1, t3, p2, P]
-    dup7 dup4 dup3 add                       // [s2', P, t2, t0, s3', p1, t3, p2, P]
-    swap3 0x4 mulmod                         // [4t0, t2, s2', s3', p1, t3, p2, P]
-    add                                      // [s1', s2', s3', p1, t3, p2, P]
-    dup7 dup2 dup7 add                       // [s0', P, s1', s2', s3', p1, t3, p2, P]
+    0x0 dup2 0x4 calldataload mod            // [p2, 0x0, P]
+    dup3 0x4 dup3 mulmod                     // [p1, p2, 0x0, P]
+    dup4 dup2 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1ead47f80c8dcf34d6 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x1, p1, p2, 0x0, P]
+    dup5 dup4 dup4 add                       // [p0, P, x1, p1, p2, 0x0, P]
+    0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26268b0878e269ed23e5 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x0, x1, p1, p2, 0x0, P]
+    dup2 dup1 add                            // [2s1, x0, x1, p1, p2, 0x0, P]
+    swap2 add                                // [t0, 2s1, p1, p2, 0x0, P]
+    dup6 dup1 dup6 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f105d032f787c7f1cdf8 add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x3, P, t0, 2s1, p1, p2, 0x0, P]
+    dup2 dup1 dup5 dup4 dup1 add             // [2s3, t0, P, P, x3, P, t0, 2s1, p1, p2, 0x0, P]
+    addmod                                   // [t3, P, x3, P, t0, 2s1, p1, p2, 0x0, P]
+    swap7 0x199750ec472f1809e0f66a545e1e51624108ac845015c2b13dfc36bab497d8aa add dup2 dup1 dup3 dup1 mulmod dup1 mulmod mulmod // [x2, x3, P, t0, 2s1, p1, t3, 0x0, P]
+    add                                      // [t1, P, t0, 2s1, p1, t3, 0x0, P]
+    dup6 dup3 dup3 0x4 mulmod                // [4t1, t3, t1, P, t0, 2s1, p1, t3, 0x0, P]
+    add                                      // [s3', t1, P, t0, 2s1, p1, t3, 0x0, P]
+    swap4 addmod                             // [t2, t0, s3', p1, t3, 0x0, P]
+    dup7 dup4 dup3 add                       // [s2', P, t2, t0, s3', p1, t3, 0x0, P]
+    swap3 0x4 mulmod                         // [4t0, t2, s2', s3', p1, t3, 0x0, P]
+    add                                      // [s1', s2', s3', p1, t3, 0x0, P]
+    dup7 dup2 dup7 add                       // [s0', P, s1', s2', s3', p1, t3, 0x0, P]
     POSEIDON2_HASH_ROUNDS()              // [s0', ...]
     msize mstore
     msize 0x0 return

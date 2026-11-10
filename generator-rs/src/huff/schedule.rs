@@ -2439,7 +2439,18 @@ impl<'a> Builder<'a> {
             .collect::<Result<_>>()?;
         self.e.set_stack(&[p]);
         self.e.max_depth = 1;
+        // M4[i][3], the capacity's column
+        let column: [u64; 4] = [3, 1, 7, 6];
+        let iv = u256(n as u64) << 64;
+        self.lane_constants = Some(
+            (0..4)
+                .map(|i| {
+                    crate::field::reduce(u256(column[i]) * iv + self.params.round_constants[0][i])
+                })
+                .collect(),
+        );
         let mut forms: HashMap<String, Id> = HashMap::new();
+        let mut out: Vec<Option<Id>> = vec![None; 4];
         for mv in program.split(" ") {
             if let Some(k) = mv.strip_prefix("dup") {
                 let k: usize = k.parse().expect("dup slot");
@@ -2449,11 +2460,24 @@ impl<'a> Builder<'a> {
                 self.e.swap(k.parse().expect("swap slot"))?;
             } else if mv == "P" {
                 self.e.push_prime()?;
-            } else if mv == "4" {
-                self.e.push(u256(4), None)?;
+            } else if let Ok(k) = mv.parse::<u64>() {
+                self.e.push(u256(k), None)?;
             } else if let Some(i) = mv.strip_prefix('r') {
                 let i: usize = i.parse().expect("input");
                 self.e.calldata_load(raw[i])?;
+            } else if let Some(i) = mv.strip_prefix("sbox") {
+                // lane i of round 0 on p_i (hash_1's p3 is p2)
+                let i: usize = i.parse().expect("lane");
+                let name = if i == 3 && !forms.contains_key("p3") {
+                    "p2".to_string()
+                } else {
+                    format!("p{i}")
+                };
+                let Some(&v) = forms.get(&name) else {
+                    bail!("hash_{n} round 0: sbox{i} before {name}");
+                };
+                self.template_lane(&[v; 4], i, 0, true)?;
+                self.e.end_line();
             } else if let Some((op, name)) = mv.split_once('=') {
                 let op = match op {
                     "add" => Op::Add,
@@ -2467,13 +2491,35 @@ impl<'a> Builder<'a> {
                     operands.push(inplace(p));
                 }
                 let v = self.e.compute(op, &operands, name)?;
-                forms.insert(name.to_string(), v);
+                let index = name
+                    .strip_prefix('s')
+                    .and_then(|r| r.strip_suffix('\''))
+                    .and_then(|i| i.parse::<usize>().ok());
+                match index {
+                    Some(i) => out[i] = Some(v),
+                    None => {
+                        forms.insert(name.to_string(), v);
+                    }
+                }
                 self.e.end_line();
             } else {
                 bail!("unknown forms move {mv}");
             }
         }
         self.e.end_line();
+        if out.iter().any(Option::is_some) {
+            // the program ran round 0 itself
+            let mut state = Vec::with_capacity(4);
+            for (i, v) in out.into_iter().enumerate() {
+                match v {
+                    Some(v) => state.push(v),
+                    None => bail!("hash_{n} round 0 leaves no s{i}'"),
+                }
+            }
+            self.state = state;
+            self.lane_constants = None;
+            return Ok(());
+        }
         let form = |name: &str| match forms.get(name) {
             Some(&v) => Ok(v),
             None => bail!("hash_{n} round 0 leaves no {name}"),
@@ -2485,16 +2531,6 @@ impl<'a> Builder<'a> {
             p2,
             forms.get("p3").copied().unwrap_or(p2),
         ];
-        // M4[i][3], the capacity's column
-        let column: [u64; 4] = [3, 1, 7, 6];
-        let iv = u256(n as u64) << 64;
-        self.lane_constants = Some(
-            (0..4)
-                .map(|i| {
-                    crate::field::reduce(u256(column[i]) * iv + self.params.round_constants[0][i])
-                })
-                .collect(),
-        );
         let names: Vec<String> = (0..4).map(|i| format!("s{i}'")).collect();
         let round = round4();
         self.state = self.run_template(round, &inputs, &names, Some(0))?;
