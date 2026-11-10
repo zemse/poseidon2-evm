@@ -186,33 +186,39 @@ theorem xstep_at {bs : List Nat} (hall : bs.all (· < 256) = true) {p : Nat} {i 
   rw [hA.frame.code, hA.pc p i rest rfl]
   exact decode_none hall hdrop h6 h7 h8
 
-/-- The run's last instruction, `RETURN`, `REVERT` or a `JUMP` to no jump destination, gives the
-same `X` in both. -/
+/-- The run's last instruction, `RETURN`, `REVERT`, a `JUMP` to no jump destination or an `ADD`
+with too few stack items, gives the same `X` in both. -/
 theorem final_agree (bs : List Nat) (hall : bs.all (· < 256) = true) {p : Nat} {i : Ins}
     {rest : List (Nat × Ins)} {st : St} {s : State} (hA : At e ρ bs ((p, i) :: rest) st s)
     (hi : i = .op 0xf3 ∨ i = .op 0xfd ∨
-      (i = .op 0x56 ∧ ∃ fs G, ctl fs (Code.ofBytes bs) p (.op 0x56) st = .stop (.badJump G)))
+      (i = .op 0x56 ∧ ∃ fs G, ctl fs (Code.ofBytes bs) p (.op 0x56) st = .stop (.badJump G)) ∨
+      (i = .op 0x01 ∧ st.stk.length < 2))
     (f : Nat) :
     Eip8024.X f (D_J (codeBA bs) 0) s = EVM.X f (D_J (codeBA bs) 0) s := by
   cases f with
   | zero => rw [evmX_zero]; rfl
   | succ f =>
-    have hi' : i = .op 0xf3 ∨ i = .op 0xfd ∨ i = .op 0x56 := by
-      rcases hi with h | h | ⟨h, -⟩
+    have hi' : i = .op 0xf3 ∨ i = .op 0xfd ∨ i = .op 0x56 ∨ i = .op 0x01 := by
+      rcases hi with h | h | ⟨h, -⟩ | ⟨h, -⟩
       · exact Or.inl h
       · exact Or.inr (Or.inl h)
-      · exact Or.inr (Or.inr h)
-    have hx := xstep_at e ρ hall hA (by rcases hi' with rfl | rfl | rfl <;> rfl)
-      (by rcases hi' with rfl | rfl | rfl <;> simp) (by rcases hi' with rfl | rfl | rfl <;> simp)
+      · exact Or.inr (Or.inr (Or.inl h))
+      · exact Or.inr (Or.inr (Or.inr h))
+    have hx := xstep_at e ρ hall hA
+      (by rcases hi' with rfl | rfl | rfl | rfl <;> decide)
+      (by rcases hi' with rfl | rfl | rfl | rfl <;> simp)
+      (by rcases hi' with rfl | rfl | rfl | rfl <;> simp)
       (D_J (codeBA bs) 0)
     refine X_agree_halt _ f s hx fun s' => ?_
-    rcases hi with rfl | rfl | ⟨rfl, fs, G, hc⟩
+    rcases hi with rfl | rfl | ⟨rfl, fs, G, hc⟩ | ⟨rfl, hl⟩
     · rw [← hA.frame.code, step_return s (decode_at e ρ hall hA rfl)]
       split <;> simp; split_ifs <;> simp
     · rw [← hA.frame.code, step_revert s (decode_at e ρ hall hA rfl)]
       split <;> simp; split_ifs <;> simp
     · rw [← hx, xstep_badJump e ρ bs hall fs p rest st s G hA hc]
       split <;> simp
+    · rw [← hx, xstep_underflow e ρ bs hall p rest st s hA hl]
+      simp
 
 /-- **Along the run** the overlay is EVMLean: from related states at an instruction list that
 passes `ovSeg`, as long as the checker's run continues (`runN`), `Eip8024.X` and `EVM.X` agree
@@ -284,17 +290,28 @@ theorem xi_cancun (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Case)
   obtain ⟨k, p, i, rest, st', hk, hctl, hi0, -⟩ :=
     reaches_final bs hall cs hc cd v hcd hfs σ σ₀ g A I henv
   have hi : i = .op 0xf3 ∨ i = .op 0xfd ∨ (i = .op 0x56 ∧
-      ∃ fs G, ctl fs (Code.ofBytes bs) p (.op 0x56) st' = .stop (.badJump G)) := by
-    rcases hi0 with h | h | rfl
+      ∃ fs G, ctl fs (Code.ofBytes bs) p (.op 0x56) st' = .stop (.badJump G)) ∨
+      (i = .op 0x01 ∧ st'.stk.length < 2) := by
+    have hfin := final_of_resultOk hc
+    rcases hi0 with h | h | rfl | rfl
     · exact Or.inl h
     · exact Or.inr (Or.inl h)
-    · refine Or.inr (Or.inr ⟨rfl, cs.facts, ?_⟩)
-      have hfin := final_of_resultOk hc
-      revert hctl hfin
+    · refine Or.inr (Or.inr (Or.inl ⟨rfl, cs.facts, ?_⟩))
+      revert hfin; revert hctl
       cases runCase (Code.ofBytes bs) cs with
       | ret ws tb _ => intro hctl; cases ctl_ret hctl
       | revert n _ => intro hctl; cases ctl_revert hctl
       | badJump G => intro hctl _; exact ⟨G, hctl⟩
+      | underflow _ => intro hctl; cases (ctl_underflow hctl).1
+      | stop => intro _ h; simp [IsFinal] at h
+      | fail _ _ => intro _ h; simp [IsFinal] at h
+    · refine Or.inr (Or.inr (Or.inr ⟨rfl, ?_⟩))
+      revert hfin; revert hctl
+      cases runCase (Code.ofBytes bs) cs with
+      | ret ws tb _ => intro hctl; cases ctl_ret hctl
+      | revert n _ => intro hctl; cases ctl_revert hctl
+      | badJump G => intro hctl; cases ctl_badJump hctl
+      | underflow _ => intro hctl _; exact (ctl_underflow hctl).2.1
       | stop => intro _ h; simp [IsFinal] at h
       | fail _ _ => intro _ h; simp [IsFinal] at h
   have hinv := runN_inv' k _ _ _ _ hk St.Inv.init

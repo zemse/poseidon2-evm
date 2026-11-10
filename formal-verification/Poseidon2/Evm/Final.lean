@@ -12,6 +12,8 @@ import Poseidon2.Checker.Valuation
 * `final_badJump`: the checker's `JUMP` to a word whose interval holds no jump destination
   (`djAvoids`, `not_mem_D_J`) is the EVM running out of gas with less than 8 left, or halting
   with `BadJumpDestination`;
+* `final_underflow`: the checker's `ADD` with fewer than two stack items is the EVM halting with
+  `StackUnderflow` (the stack is checked before the gas);
 * `checker_core`: for an accepted case and a call that meets its facts, the EVM runs out of gas
   exactly when the call's gas is below the gas of the checker's run, and otherwise ends exactly
   as the case expects with that gas used. `reaches_final` (`Run.lean`) brings the EVM to the last
@@ -346,6 +348,32 @@ theorem final_badJump (bs : List Nat) (hall : bs.all (· < 256) = true) (fs : Fa
   · rw [if_neg hlt] at hx
     exact Or.inr ⟨by omega, X_error _ f0 s _ hx⟩
 
+/-! ## The EVM's `ADD` with too few stack items -/
+
+/-- The EVM's step at the checker's `ADD` with fewer than two stack items: `StackUnderflow`,
+whatever gas is left (the stack is checked before the gas). -/
+theorem xstep_underflow (bs : List Nat) (hall : bs.all (· < 256) = true) (p : Nat)
+    (rest : List (Nat × Ins)) (st : St) (s : State)
+    (hA : At e ρ bs ((p, .op 0x01) :: rest) st s) (hl : st.stk.length < 2) :
+    Eip8024.Xstep (D_J (codeBA bs) 0) s = .error .StackUnderflow := by
+  have hdec := decode_at e ρ hall hA (op := .ADD) rfl
+  have hlen := hA.rel.stk.length
+  rw [← hA.frame.code, xstep_overlay _ s _ _ hdec (by simp), step_add s hdec]
+  match hs : s.machineState.stack with
+  | [] => rfl
+  | [_] => rfl
+  | _ :: _ :: _ => rw [hs] at hlen; simp at hlen; omega
+
+/-- **`ADD` with too few stack items**: from a state related by `At`, the EVM halts with
+`StackUnderflow`. -/
+theorem final_underflow (bs : List Nat) (hall : bs.all (· < 256) = true) (p : Nat)
+    (rest : List (Nat × Ins)) (st : St) (s : State) (f : Nat)
+    (hA : At e ρ bs ((p, .op 0x01) :: rest) st s) (hl : st.stk.length < 2)
+    (hg : s.machineState.gasAvailable.toNat < f) :
+    Eip8024.X f (D_J (codeBA bs) 0) s = .error .StackUnderflow := by
+  obtain ⟨f0, rfl⟩ : ∃ f0, f = f0 + 1 := ⟨f - 1, by omega⟩
+  exact X_error _ f0 s _ (xstep_underflow e ρ bs hall p rest st s hA hl)
+
 end Poseidon2.Evm.Sim
 
 namespace Poseidon2.Soundness
@@ -353,11 +381,13 @@ namespace Poseidon2.Soundness
 open Ethereum Poseidon2.Spec Poseidon2.Checker Poseidon2.Spec.Interface Poseidon2.Evm
 open Poseidon2.Evm.Sim
 
-theorem outcome_ret (e : Env) (ex : Expect) (h : ex ≠ .revertEmpty) (hb : ex ≠ .badJump) :
+theorem outcome_ret (e : Env) (ex : Expect) (h : ex ≠ .revertEmpty) (hb : ex ≠ .badJump)
+    (hu : ex ≠ .underflow) :
     outcome e ex = .ret (encodeWords (specWords e ex)) := by
   cases ex with
   | revertEmpty => exact absurd rfl h
   | badJump => exact absurd rfl hb
+  | underflow => exact absurd rfl hu
   | _ => rfl
 
 /-- **The core of both statements**: for an accepted case and every call that meets its facts,
@@ -388,6 +418,8 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
       intro h; rw [h] at hc; simp [resultOk] at hc
     have hexb : cs.expect ≠ .badJump := by
       intro h; rw [h] at hc; simp [resultOk] at hc
+    have hexu : cs.expect ≠ .underflow := by
+      intro h; rw [h] at hc; simp [resultOk] at hc
     have hom : outputsMatch ws (specForms cs.facts cs.expect tb) = true := by
       revert hc; cases cs.expect <;> simp [resultOk]
     obtain ⟨off, sz, s1, o, n, hp, -, -, -, -, rfl, hG⟩ := ctl_ret_inv hctl
@@ -404,7 +436,7 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
       rcases hfin with ⟨hlt, hf⟩ | ⟨s', o', hf, ho, hgs⟩
       · exact Or.inl ⟨by omega, by rw [hf]; rfl⟩
       · refine Or.inr ⟨by omega, ?_⟩
-        rw [hf, outcome_ret _ _ hex hexb]
+        rw [hf, outcome_ret _ _ hex hexb hexu]
         refine ⟨?_, ?_⟩
         · rw [ho, outputsMatch_sound _ ρ ws _ xs hom hxs, hw]
         · show s'.machineState.gasAvailable.toNat = _
@@ -440,6 +472,16 @@ theorem checker_core (bs : List Nat) (cs : Case) (hall : bs.all (· < 256) = tru
       · refine Or.inr ⟨by omega, ?_⟩
         rw [hf]
         trivial
+  | underflow G =>
+    obtain ⟨rfl, hl, rfl⟩ := ctl_underflow hctl
+    have hex : cs.expect = .underflow := by
+      revert hc; cases cs.expect <;> simp [resultOk]
+    rw [hex]
+    simp only [Res.gas]
+    rcases hX _ (hinv.wf.valid _) with ⟨hlt, hx⟩ | ⟨s, f, hx, hA, hg, heq⟩
+    · exact Or.inl ⟨hlt, by rw [hx]; rfl⟩
+    · rw [hx, hcode, final_underflow _ _ bs hall p rest st' s f hA hl hg]
+      exact Or.inr ⟨by omega, trivial⟩
   | stop => simp [resultOk] at hc
   | fail _ _ => simp [resultOk] at hc
 

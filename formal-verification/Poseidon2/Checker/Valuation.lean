@@ -763,7 +763,7 @@ def Expect.inputs : Expect → List Term
   | .permHead _ ins => ins
   | .hash _ ins => ins
   | .words _ => []
-  | .revertEmpty | .badJump => []
+  | .revertEmpty | .badJump | .underflow => []
 
 /-- The words a case's expectation returns for a call. -/
 def specWords (e : Env) : Expect → List Nat
@@ -771,7 +771,7 @@ def specWords (e : Env) : Expect → List Nat
   | .permHead c ins => [(permutationWords c (ins.map (·.eval e))).headD 0]
   | .hash c ins => [hashWords c (ins.map (·.eval e))]
   | .words ws => ws.map (· % P)
-  | .revertEmpty | .badJump => []
+  | .revertEmpty | .badJump | .underflow => []
 
 /-- The first input form and the table after it. -/
 def inputForm (fs : Facts) (t : Term) (tb : Tab) : Lin × Tab :=
@@ -945,5 +945,6 @@ theorem spec_sound (e : Env) (fs : Facts) (hf : Facts.Hold e fs) (ex : Expect) (
     simp [Lin.eval_const, ZMod.val_natCast]
   | revertEmpty => exact ⟨defsVal e tb.defs, hw.valid e, rfl⟩
   | badJump => exact ⟨defsVal e tb.defs, hw.valid e, rfl⟩
+  | underflow => exact ⟨defsVal e tb.defs, hw.valid e, rfl⟩
 
 end Poseidon2.Checker

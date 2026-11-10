@@ -8,7 +8,8 @@ The checker runs the bytecode once per case of the call (a set of `Facts`), with
 * concrete control flow: `JUMP` / `JUMPI` targets must be exact and valid jump destinations
   (EVMLean's `D_J`), a `JUMPI` condition must be decided by its interval; the one exception is
   a `JUMP` to a word whose interval holds no valid jump destination (`djAvoids`), where the run
-  ends in the EVM's exceptional halt (`badJump`);
+  ends in the EVM's exceptional halt (`badJump`), as it does at an `ADD` with fewer than two
+  stack items (`underflow`);
 * concrete memory: addresses exact, words keyed by address, overlapping unequal accesses
   rejected, `MSIZE` tracked;
 * symbolic values `SV`: an exact word term, a linear form with an upper bound on the raw
@@ -489,13 +490,17 @@ inductive Res where
   /-- `JUMP` to a word whose interval holds no valid jump destination: an exceptional halt, with
   the gas of the run through the `JUMP` -/
   | badJump (gas : Nat)
+  /-- `ADD` with fewer than two stack items: an exceptional halt, with the gas of the run before the
+  `ADD` -/
+  | underflow (gas : Nat)
   deriving Repr, Inhabited, DecidableEq
 
-/-- The gas of a run that returned, reverted or halted at a `JUMP`. -/
+/-- The gas of a run that returned, reverted or halted. -/
 def Res.gas : Res → Nat
   | .ret _ _ g => g
   | .revert _ g => g
   | .badJump g => g
+  | .underflow g => g
   | _ => 0
 
 /-- After one instruction: the instructions to run next and the state, or the end. -/
@@ -562,7 +567,9 @@ def ctl (fs : Facts) (code : Code) (pc : Nat) (i : Ins) (s : St) : Ctl :=
   | i =>
     match step fs code i s with
     | .ok s => .fall s
-    | .error e => .stop (.fail pc e)
+    | .error e =>
+      -- `ADD` with fewer than two items: the EVM halts (`StackUnderflow`)
+      if i = .op 0x01 ∧ s.stk.length < 2 then .stop (.underflow s.gas) else .stop (.fail pc e)
 
 /-- One instruction from the instruction list `is`. -/
 def step1 (fs : Facts) (code : Code) : List (Nat × Ins) → St → Out

@@ -11,7 +11,7 @@ import Poseidon2.Spec.Interface
 every call that satisfies the case's facts, run by `Eip8024.Ξ` with any gas, either runs out of
 gas (`OutOfGass`, or EVMLean's step budget `OutOfFuel`, which `Ξ` sets to the gas plus one) or
 ends exactly as the case expects: returns the spec's words, reverts with empty data, or halts
-with `BadJumpDestination` at a `JUMP`.
+with `BadJumpDestination` at a `JUMP` or `StackUnderflow`.
 
 `CheckerTotal` adds the gas: the checker also computes the gas `G` its run of the case uses
 (`checkCaseGas`), and every such call given at least `G` gas ends exactly as the case expects,
@@ -45,6 +45,7 @@ def outcome (e : Env) : Expect → Outcome
   | .words ws => .ret (encodeWords (ws.map (· % P)))
   | .revertEmpty => .revert []
   | .badJump => .badJump
+  | .underflow => .underflow
 
 /-- An execution environment running `code` on calldata `cd` with call value `v`. -/
 def env (code : ByteArray) (cd : List UInt8) (v : Nat) (I : ExecutionEnv) : Prop :=
@@ -58,17 +59,19 @@ def Matches : Except EVM.ExecutionException
   | .ok (.success _ o), .ret out => o.data.toList = out
   | .ok (.revert _ o), .revert out => o.data.toList = out
   | .error .BadJumpDestination, .badJump => True
+  | .error .StackUnderflow, .underflow => True
   | _, _ => False
 
 /-- An `Eip8024.Ξ` result that is exactly the interface outcome, with `gl` gas left: a success
-returning the outcome's bytes, a revert with them, or, for `badJump`, EVMLean's
-`BadJumpDestination` error, which carries no gas (the caller keeps none of the frame's gas, so
-`gl` plays no part). Running out of gas, any other exception, or other bytes or gas falsify it. -/
+returning the outcome's bytes, a revert with them, or, for `badJump` and `underflow`,
+EVMLean's `BadJumpDestination` and `StackUnderflow` errors, which carry no gas (the caller
+keeps none of the frame's gas, so `gl` plays no part). Running out of gas, any other exception, or other bytes or gas falsify it. -/
 def Exact (gl : Nat) : Except EVM.ExecutionException
     (ExecutionResult (AccountMap × UInt256 × Substate)) → Outcome → Prop
   | .ok (.success (_, g, _) o), .ret out => o.data.toList = out ∧ g.toNat = gl
   | .ok (.revert g o), .revert out => o.data.toList = out ∧ g.toNat = gl
   | .error .BadJumpDestination, .badJump => True
+  | .error .StackUnderflow, .underflow => True
   | _, _ => False
 
 theorem Exact.matches {gl : Nat} {r : Except EVM.ExecutionException
@@ -78,6 +81,7 @@ theorem Exact.matches {gl : Nat} {r : Except EVM.ExecutionException
   | .ok (.success (_, _, _) _), .ret _, h => exact h.1
   | .ok (.revert _ _), .revert _, h => exact h.1
   | .error .BadJumpDestination, .badJump, _ => trivial
+  | .error .StackUnderflow, .underflow, _ => trivial
 
 /-- **The soundness proposition** (proven in `Evm/Final.lean`): an accepted case is the EVM's
 behaviour. -/

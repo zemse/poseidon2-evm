@@ -748,12 +748,13 @@ theorem ins_head (bs : List Nat) {p : Nat} {i : Ins} {rest : List (Nat × Ins)}
     simp only [List.cons.injEq, Prod.mk.injEq] at h
     exact h.1.1.symm
 
-/-- A run ending in `RETURN`, `REVERT` or a `JUMP` to no jump destination (the only ends a check
-accepts). -/
+/-- A run ending in `RETURN`, `REVERT`, a `JUMP` to no jump destination or an `ADD` with too few
+stack items (the only ends a check accepts). -/
 def IsFinal : Res → Prop
   | .ret _ _ _ => True
   | .revert _ _ => True
   | .badJump _ => True
+  | .underflow _ => True
   | _ => False
 
 theorem final_of_resultOk {fs : Facts} {ex : Expect} {r : Res} (h : resultOk fs ex r = true) :
@@ -817,6 +818,17 @@ theorem ctl_badJump {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {g
     | rfl
     | (repeat' (split at h)) <;> cases h
 
+/-- `ctl` underflows only at `ADD` with fewer than two items, the gas being the run's so far. -/
+theorem ctl_underflow {fs : Facts} {code : Code} {pc : Nat} {i : Ins} {st : St} {g : Nat}
+    (h : ctl fs code pc i st = .stop (.underflow g)) :
+    i = .op 0x01 ∧ st.stk.length < 2 ∧ g = st.gas := by
+  unfold ctl at h
+  dsimp only at h
+  split at h
+  all_goals (repeat' (split at h)) <;> first
+    | (cases h; done)
+    | (cases h; rename_i hc; exact ⟨hc.1, hc.2, rfl⟩)
+
 /-- **The run up to the last instruction.** If the checker accepts a case, its run reaches a
 `RETURN` or `REVERT` at `p` in state `st'` after `k` instructions, and for every valuation valid
 on the atom table there, the EVM's run of the call (`X` from `fresh`, as `Eip8024.Ξ` starts it)
@@ -832,7 +844,7 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
       runN cs.facts (Code.ofBytes bs) k (Code.ofBytes bs).ins St.init =
         .next ((p, i) :: rest) st' ∧
       ctl cs.facts (Code.ofBytes bs) p i st' = .stop (runCase (Code.ofBytes bs) cs) ∧
-      (i = .op 0xf3 ∨ i = .op 0xfd ∨ i = .op 0x56) ∧
+      (i = .op 0xf3 ∨ i = .op 0xfd ∨ i = .op 0x56 ∨ i = .op 0x01) ∧
       ∀ ρ, Tab.Valid ⟨cd, v⟩ ρ st'.tab →
         (g.toNat < st'.gas ∧
           Eip8024.X (g.toNat + 1) (D_J I.code 0) (fresh σ σ₀ g A I) = .error .OutOfGass) ∨
@@ -849,7 +861,8 @@ theorem reaches_final (bs : List Nat) (hall : bs.all (· < 256) = true) (cs : Ca
     cases run cs.facts (Code.ofBytes bs) fuel (Code.ofBytes bs).ins St.init with
     | ret ws tb _ => intro _ hctl; exact Or.inl (ctl_ret hctl)
     | revert n _ => intro _ hctl; exact Or.inr (Or.inl (ctl_revert hctl))
-    | badJump _ => intro _ hctl; exact Or.inr (Or.inr (ctl_badJump hctl))
+    | badJump _ => intro _ hctl; exact Or.inr (Or.inr (Or.inl (ctl_badJump hctl)))
+    | underflow _ => intro _ hctl; exact Or.inr (Or.inr (Or.inr (ctl_underflow hctl).1))
     | stop => intro h; simp [IsFinal] at h
     | fail _ _ => intro h; simp [IsFinal] at h
   · obtain ⟨hcode, hcdl, hcv⟩ := henv
