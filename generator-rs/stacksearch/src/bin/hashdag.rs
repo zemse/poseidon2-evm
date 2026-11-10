@@ -70,7 +70,7 @@ struct Dag {
     goal_primes: i32,
     max_depth: usize,
     // per item: the nodes taking it once, twice, and its place in the goal
-    cons: Vec<(u32, u32, u32)>,
+    cons: Vec<(u64, u64, u32)>,
 }
 
 impl Dag {
@@ -85,11 +85,11 @@ impl Dag {
     }
     /// the uses still to come of an item: the args of the nodes not yet
     /// computed, and a goal node's place in the goal
-    fn uses(&self, item: u8, computed: u32) -> u32 {
+    fn uses(&self, item: u8, computed: u64) -> u32 {
         let (once, twice, goal) = self.cons[item as usize];
         (once & !computed).count_ones() + (twice & !computed).count_ones() + goal
     }
-    fn canon(&self, s: &mut Vec<u8>, computed: u32) {
+    fn canon(&self, s: &mut Vec<u8>, computed: u64) {
         for v in s.iter_mut() {
             if *v >= L0 && self.uses(*v, computed) == 0 {
                 *v = G;
@@ -101,7 +101,7 @@ impl Dag {
     }
     /// a lower bound on the gas left, None when a value only the stack
     /// held is gone while still needed
-    fn h(&self, s: &[u8], computed: u32) -> Option<u32> {
+    fn h(&self, s: &[u8], computed: u64) -> Option<u32> {
         let mut h = 0;
         let mut primes = self.goal_primes;
         for (j, nd) in self.nodes.iter().enumerate() {
@@ -135,30 +135,61 @@ impl Dag {
                 }
             }
         }
-        // an S-box left whose input is on the stack, below the top, with no
-        // DUP of it counted above: an op leaves its result on top, so only
-        // a DUP, SWAP, POP or load (2 at least) brings the input up, one
-        // for each such S-box (the top serves one)
-        let mut top_used = false;
+        // an op left whose operands are all on the stack already, none a
+        // load or push and none with a DUP counted above: an op leaves its
+        // result on top, so the move right before it is a DUP, SWAP or POP
+        // (2 at least) that nothing else counts, one for each such op (an
+        // op that can run now needs none)
+        let mut now = false;
         for (j, nd) in self.nodes.iter().enumerate() {
-            if nd.op != Op::Sbox || computed & (1 << j) != 0 {
+            if computed & (1 << j) != 0 {
                 continue;
             }
-            let v = nd.args[0];
-            if v >= self.n0 && computed & (1 << (v - self.n0)) == 0 {
+            let on_stack = nd.args.iter().all(|&v| {
+                if v >= self.n0 {
+                    computed & (1 << (v - self.n0)) != 0
+                } else {
+                    self.leaves[(v - L0) as usize].load.is_none()
+                }
+            });
+            if !on_stack
+                || nd.args.iter().any(|&v| {
+                    let have = count(v);
+                    have == 0 || self.uses(v, computed) as i32 > have
+                })
+            {
                 continue;
             }
-            let have = count(v);
-            if have == 0 || self.uses(v, computed) as i32 > have {
-                continue;
-            }
-            if s.first() == Some(&v) && !top_used {
-                top_used = true;
+            if !now && self.ready(nd, s).is_some() {
+                now = true;
                 continue;
             }
             h += 2;
         }
         Some(h)
+    }
+    /// how many slots the op of a node takes from the top, if it can run
+    fn ready(&self, nd: &Node, s: &[u8]) -> Option<usize> {
+        let d = s.len();
+        let ok = match nd.op {
+            Op::Mod | Op::Sbox => d >= 2 && s[0] == nd.args[0] && s[1] == P,
+            Op::Add | Op::Mul => {
+                d >= 2
+                    && ((s[0] == nd.args[0] && s[1] == nd.args[1])
+                        || (s[0] == nd.args[1] && s[1] == nd.args[0]))
+            }
+            Op::Addmod | Op::Mulmod => {
+                d >= 3
+                    && s[2] == P
+                    && ((s[0] == nd.args[0] && s[1] == nd.args[1])
+                        || (s[0] == nd.args[1] && s[1] == nd.args[0]))
+            }
+        };
+        let k = match nd.op {
+            Op::Addmod | Op::Mulmod => 3,
+            _ => 2,
+        };
+        ok.then_some(k)
     }
     fn is_goal(&self, s: &[u8]) -> bool {
         if let Some(l) = &self.layout {
@@ -169,7 +200,7 @@ impl Dag {
             && s[1] == P
             && self.goal[1..].iter().all(|g| s.contains(g))
     }
-    fn moves(&self, s: &[u8], computed: u32, out: &mut Vec<(u32, String, Vec<u8>, u32)>) {
+    fn moves(&self, s: &[u8], computed: u64, out: &mut Vec<(u32, String, Vec<u8>, u64)>) {
         out.clear();
         let d = s.len();
         let top = |v: u8| {
@@ -208,23 +239,7 @@ impl Dag {
             if computed & (1 << j) != 0 {
                 continue;
             }
-            let (k, ok) = match nd.op {
-                Op::Mod | Op::Sbox => (2, d >= 2 && s[0] == nd.args[0] && s[1] == P),
-                Op::Add | Op::Mul => (
-                    2,
-                    d >= 2
-                        && ((s[0] == nd.args[0] && s[1] == nd.args[1])
-                            || (s[0] == nd.args[1] && s[1] == nd.args[0])),
-                ),
-                Op::Addmod | Op::Mulmod => (
-                    3,
-                    d >= 3
-                        && s[2] == P
-                        && ((s[0] == nd.args[0] && s[1] == nd.args[1])
-                            || (s[0] == nd.args[1] && s[1] == nd.args[0])),
-                ),
-            };
-            if ok {
+            if let Some(k) = self.ready(nd, s) {
                 let mut t = vec![self.n0 + j as u8];
                 t.extend_from_slice(&s[k..]);
                 let name = format!("{}={}", format!("{:?}", nd.op).to_lowercase(), nd.name);
@@ -316,7 +331,7 @@ fn parse(n: usize, spec: &str, init: &[&str]) -> (Vec<Leaf>, Vec<Node>) {
             args,
         });
     }
-    assert!(nodes.len() <= 31, "a u32 of computed nodes");
+    assert!(nodes.len() <= 63, "a u64 of computed nodes");
     assert!(n0 as usize + nodes.len() <= 63, "6 bits a slot");
     (leaves, nodes)
 }
@@ -400,14 +415,14 @@ fn main() {
         })
         .collect();
     let dag = dag;
-    let pack = |s: &[u8], c: u32| -> u128 {
+    let pack = |s: &[u8], c: u64| -> u128 {
         let mut k: u128 = c as u128;
         for &v in s.iter().rev() {
             k = (k << 6) | (v as u128 + 1);
         }
         k | ((s.len() as u128) << 120)
     };
-    let unpack = |k: u128, nodes: usize| -> (Vec<u8>, u32) {
+    let unpack = |k: u128, nodes: usize| -> (Vec<u8>, u64) {
         let len = (k >> 120) as usize;
         let mut s = Vec::with_capacity(len);
         let mut x = k & ((1u128 << 120) - 1);
@@ -415,7 +430,7 @@ fn main() {
             s.push(((x & 63) as u8) - 1);
             x >>= 6;
         }
-        (s, (x as u32) & ((1u32 << nodes) - 1))
+        (s, (x as u64) & ((1u64 << nodes) - 1))
     };
     // WEIGHT=w orders by g + w/10 h: faster, no longer optimal
     let weight: u32 = std::env::var("WEIGHT").map_or(10, |v| v.parse().unwrap());
@@ -431,6 +446,30 @@ fn main() {
     };
     let mut init = init;
     dag.canon(&mut init, 0);
+    // REPLAY="<moves>": score a program in the printed move names instead,
+    // its stack and the heuristic after each move
+    if let Ok(program) = std::env::var("REPLAY") {
+        let (mut s, mut c, mut g) = (init.clone(), 0u64, 0u32);
+        let mut buf = Vec::new();
+        for mv in program.split_whitespace() {
+            dag.moves(&s, c, &mut buf);
+            let Some((cost, _, mut t, tc)) = buf.drain(..).find(|m| m.1 == mv) else {
+                println!(
+                    "no move {mv} from [{}]",
+                    s.iter().map(|&v| dag.name(v)).collect::<Vec<_>>().join(",")
+                );
+                return;
+            };
+            dag.canon(&mut t, tc);
+            g += cost;
+            (s, c) = (t, tc);
+            let names: Vec<String> = s.iter().map(|&v| dag.name(v)).collect();
+            println!("{g:4} h {:?} {mv:12} [{}]", dag.h(&s, c), names.join(","));
+        }
+        let done = c == (1u64 << dag.nodes.len()) - 1 && dag.is_goal(&s);
+        println!("gas {g}, goal {done}");
+        return;
+    }
     let start = pack(&init, 0);
     // a node a state reached at its cost: the key in two halves, the
     // parent node, g and the move; the map holds the node of a key's
@@ -452,7 +491,9 @@ fn main() {
     }];
     let mut dist: HashMap<[u64; 2], u32, Fx> = HashMap::default();
     dist.insert(key2(start), 0);
-    let entry = |f: u32, g: u32, i: u32| -> u64 { (f as u64) << 48 | (g as u64) << 32 | i as u64 };
+    // equal f: the larger g first, so a goal on the plateau comes out sooner
+    let entry =
+        |f: u32, g: u32, i: u32| -> u64 { (f as u64) << 48 | (0xffff - g as u64) << 32 | i as u64 };
     let mut pq = BinaryHeap::new();
     let h0 = dag
         .h(&init, 0)

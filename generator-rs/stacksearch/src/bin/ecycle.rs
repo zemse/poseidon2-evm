@@ -127,6 +127,9 @@ struct Pb {
     exch: bool,
     // FROM and TO fix the lanes: no reduction by the lane symmetry
     nosym: bool,
+    // STRICT=1 (with PRIME=1): real opcodes only, no moves of a value
+    // between depths, no SWAP with a PRIME copy below the live values
+    strict: bool,
     memo: std::cell::RefCell<HashMap<u64, [u32; NT]>>,
 }
 
@@ -377,7 +380,7 @@ impl Pb {
                 t.tok.swap(0, k);
                 push(out, t, 3);
             }
-            if k >= 2 {
+            if k >= 2 && !self.strict {
                 // the top to depth k, depth k to the top
                 let mut t = *s;
                 let v = t.tok[0];
@@ -401,6 +404,9 @@ impl Pb {
                         t.tok.swap(a, b);
                         push(out, t, 3);
                     }
+                    if self.strict {
+                        continue;
+                    }
                     let mut t = *s;
                     let v = t.tok[a];
                     t.tok.copy_within(a + 1..=b, a);
@@ -422,7 +428,7 @@ impl Pb {
             t.len += 1;
             push(out, t, 3);
         }
-        if self.prime && n >= 1 && s.tok[0] != PT {
+        if self.prime && !self.strict && n >= 1 && s.tok[0] != PT {
             // a SWAP with a PRIME copy below every live value: the top
             // goes to the bottom, the copy on top
             let mut t = *s;
@@ -603,6 +609,7 @@ fn main() {
         prime,
         exch: std::env::var_os("EXCHANGE").is_some(),
         nosym: std::env::var_os("FROM").is_some(),
+        strict: std::env::var_os("STRICT").is_some(),
         memo: Default::default(),
     };
     // FROM=s0,s1,s2,s3 TO=s0,s1,s2,s3: k rounds from that layout, the
