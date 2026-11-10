@@ -83,6 +83,7 @@ struct Pb {
     w: usize,
     perms: Vec<Vec<usize>>,
     exch: bool,
+    strict: bool,
 }
 
 impl Pb {
@@ -441,7 +442,7 @@ impl Pb {
                 ns.tok.swap(0, k);
                 emit(ns, 3, out);
             }
-            if k >= 2 && top != G {
+            if k >= 2 && top != G && !self.strict {
                 let mut ns = *s;
                 ns.tok.copy_within(1..=k, 0);
                 ns.tok[k] = top;
@@ -449,7 +450,7 @@ impl Pb {
                     emit(ns, 3, out);
                 }
             }
-            if k >= 2 && y != G {
+            if k >= 2 && y != G && !self.strict {
                 let mut ns = *s;
                 ns.tok.copy_within(0..k, 1);
                 ns.tok[0] = y;
@@ -589,6 +590,7 @@ fn main() {
         w,
         perms: lp,
         exch: std::env::var_os("EXCHANGE").is_some(),
+        strict: std::env::var_os("STRICT").is_some(),
     };
     let mut inputs: Vec<usize> = (0..n + 1 + defer as usize).collect();
     let mut ps = vec![];

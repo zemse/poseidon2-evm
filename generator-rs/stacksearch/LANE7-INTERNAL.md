@@ -82,3 +82,7 @@ The plain run reproduces lane copy's n + 1 moves. Our deferred round is 30 at n 
 ### Rebased onto lane E (opt f30f959)
 
 Lane E's stream terminal entry checks that the permutation before it is stack-only by a token whitelist (`t2_entry::stack_only`); firstSum's `sub` was not on it, so t12 to t28 fell back to the plain entry. With `sub` added, both stack. Amsterdam call gas after both: t8 23,039, t12 33,474, t16 43,742, t20 53,954, t24 64,238 (64,515 bytes), t28 75,884 (64,347 bytes).
+
+## 5. `defercycle STRICT` (search)
+
+`STRICT=1` leaves out the two relaxed moves (a value to or from any depth without a partner), so only DUP, SWAP and POP move values: `STRICT=1 plain 2 7 3` 24 (lane copy again); `STRICT=1 TRACE=1 defer 2 7 4` D_k - D_(k-1) in [29, 30], D_4 = 118 (29.5): rounds of 29 alternate with rounds of 30, the 29 one placing T' by a SWAP into a dead slot and a POP (5) where ours swaps it into the deepest element's slot. So without PRIME carriers the deferred round is within 0.5 gas a round of the cheapest cycle at n = 2, and the relaxed 28.5 needs carrier moves whose PRIME copy would land on top of s0^5 with nothing to consume it. Not pursued.
