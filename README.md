@@ -20,7 +20,7 @@ Call gas of the current sources, each figure proven exact in Lean (see [Formal v
 
 | Implementation                                | hash_1 | hash_2 | hash_3 |
 | --------------------------------------------- | ------ | ------ | ------ |
-| Huff (Amsterdam)                              | 11,883 | 11,890 | 11,963 |
+| Huff (Amsterdam)                              | 11,841 | 11,882 | 11,922 |
 | Yul, solc 0.8.30 via-IR, 1,000,000 runs       | 13,904 | 13,904 | 13,904 |
 | Yul, solc 0.8.30 legacy, 1,000,000 runs       | 15,153 | 15,153 | 15,153 |
 | Deployed v2 Huff (pre-Amsterdam, below)       | 14,869 | 14,869 | 14,869 |
@@ -30,16 +30,18 @@ Call gas of the current sources, each figure proven exact in Lean (see [Formal v
 
 | t   | Huff (Amsterdam) | Yul (least-gas setting)   |
 | --- | ---------------- | ------------------------- |
-| 2   | 5,898            | 7,560 (via-IR, 1M runs)   |
-| 3   | 7,644            | 9,505 (via-IR, 1M runs)   |
-| 8   | 23,547           | 29,321 (via-IR, 1M runs)  |
-| 12  | 33,912           | 43,682 (legacy, 1M runs)  |
-| 16  | 44,249           |                           |
-| 20  | 54,578           |                           |
-| 24  | 65,220           |                           |
-| 28  | 77,475           |                           |
+| 2   | 5,880            | 7,560 (via-IR, 1M runs)   |
+| 3   | 7,626            | 9,505 (via-IR, 1M runs)   |
+| 8   | 23,056           | 29,321 (via-IR, 1M runs)  |
+| 12  | 33,507           | 43,682 (legacy, 1M runs)  |
+| 16  | 43,822           |                           |
+| 20  | 54,129           |                           |
+| 24  | 64,449           |                           |
+| 28  | 76,600           |                           |
 
 Huff is the raw permutation entry (t words in, t words out). Yul is the `permute(uint256[t])` test wrapper, so it includes the ABI decoding and encoding of t words. Each Yul library states its least-gas solc settings in its natspec; with the legacy pipeline at 1,000,000 runs t = 2, 3, 8 cost 8,851, 10,740 and 31,229.
+
+The t = 4 Huff hash takes the arity from the exact calldata size and does not check the selector: 36, 68 or 100 bytes run `hash_1`, `hash_2` or `hash_3`, and any other size fails on an invalid jump, which consumes the gas of the call.
 
 ### Compile targets
 
