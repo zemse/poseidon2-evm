@@ -32,7 +32,7 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, hash_forms, internal3,
-    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4,
+    internal3_periodic, internal3_seam, internal4, linear_final4, ordered_blocks, round4, row0_4,
     stream_blocks, take_stream_block, templates,
 };
 use crate::bail;
@@ -1266,19 +1266,20 @@ impl<'a> Builder<'a> {
                 };
                 self.e
                     .push(self.params.round_constants[round][i], Some(mv))?;
-            } else if mv == "4" {
-                self.e.push(u256(4), None)?;
+            } else if let Ok(k) = mv.parse::<u64>() {
+                self.e.push(u256(k), None)?;
             } else if mv == "pop" {
                 self.e.pop()?;
             } else if let Some((op, name)) = mv.split_once('=') {
                 let op = match op {
                     "add" => Op::Add,
+                    "mul" => Op::Mul,
                     "addmod" => Op::Addmod,
                     "mulmod" => Op::Mulmod,
                     _ => bail!("unknown template move {mv}"),
                 };
                 let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
-                if op != Op::Add {
+                if !matches!(op, Op::Add | Op::Mul) {
                     operands.push(inplace(p));
                 }
                 let index = name
@@ -2301,13 +2302,26 @@ impl<'a> Builder<'a> {
     /// and the last product fit uint256 at 5(p-1); ADDMOD joins them. With
     /// [s0, P] on top and s0 + c0 a plain ADD, lane 0 runs first on them in
     /// place and the PRIME copy of the ADDMOD is swapped under 5 x0 at the
-    /// end; otherwise that copy goes down first and lane 0 runs last.
+    /// end; otherwise that copy goes down first and lane 0 runs last. With
+    /// external_template, every constant a plain ADD and [s0, P, s1, s2, s3]
+    /// on top, templates::row0_4 runs instead.
     fn final_round_row0(&mut self, round: usize) -> Result<()> {
         if self.t != 4 {
             bail!("finalRoundRow0 is t = 4 only");
         }
         let row = [5u64, 7, 1, 3];
         let p = self.p();
+        let fit = (0..4).all(|i| {
+            self.e.fits_add(
+                self.bound(self.state[i]),
+                self.params.round_constants[round][i],
+            )
+        });
+        let inputs = self.state.clone();
+        if self.opts.external_template && fit && self.template(row0_4(), &inputs).is_some() {
+            self.state = self.run_template(row0_4(), &inputs, &["s0'".to_string()], Some(round))?;
+            return Ok(());
+        }
         let c0 = self.params.round_constants[round][0];
         let first = self.e.top(0)? == self.state[0]
             && self.e.top(1)? == p
@@ -5833,7 +5847,8 @@ mod tests {
                 assert_eq!(before[1], b.p());
                 b.final_round_row0(63).unwrap();
                 assert_eq!(b.e.bound(b.state[0]), p1());
-                assert_eq!(&b.e.from_top()[1..], &before[2..]);
+                // row0_4 takes [s0, P, s1] in place and leaves s2, s3 dead
+                assert_eq!(&b.e.from_top()[1..], &before[3..]);
                 for (i, input) in vectors.iter().enumerate() {
                     let expected = permutation_steps(&params, input, 2, 65);
                     assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);

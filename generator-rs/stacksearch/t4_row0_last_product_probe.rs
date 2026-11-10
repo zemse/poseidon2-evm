@@ -186,8 +186,8 @@ enum RowProducts {
 }
 
 const ROWS: [RowProducts; 3] = [RowProducts::Original, RowProducts::Last, RowProducts::Both];
-// The production row runs lane 0 first on [s0, P] in place: three gas below `Both`.
-const IN_PLACE_GAS: u64 = 248;
+// The production row (templates::row0_4) takes lane 0 and s1 in place: six gas below `Both`.
+const IN_PLACE_GAS: u64 = 245;
 
 impl RowProducts {
     fn cost(self) -> (u64, usize) {
@@ -576,7 +576,7 @@ fn t4_row0_last_product_compiled() {
             SBOX.replace("c0", &format!("{:#066x}", constants[0]))
         );
         assert!(
-            actual.starts_with(&lane0) && actual.ends_with(" swap2 addmod"),
+            actual.starts_with(&lane0) && actual.ends_with(" mulmod add addmod"),
             "{actual}"
         );
         let production_bytes: usize = actual

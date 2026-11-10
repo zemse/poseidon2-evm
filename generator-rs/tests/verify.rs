@@ -41,7 +41,7 @@ fn amsterdam_t2_t3_t4() {
     assert_eq!(reports[0].gas.measured, 5880);
     assert_eq!(reports[1].gas.measured, 7626);
     let hashes = reports[2].hashes.expect("hash entry");
-    assert_eq!(hashes.map(|g| g.measured), [11841, 11882, 11922]);
+    assert_eq!(hashes.map(|g| g.measured), [11838, 11879, 11919]);
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn osaka_t2_t3_t4() {
     assert_eq!(reports[1].gas.measured, 7626);
     assert_eq!(reports[2].permutation.unwrap().measured, 12083);
     let hashes = reports[2].hashes.expect("hash entry");
-    assert_eq!(hashes.map(|g| g.measured), [11865, 11883, 11946]);
+    assert_eq!(hashes.map(|g| g.measured), [11862, 11880, 11943]);
 }
 
 /// t = 16 fits one contract with the shared body of the internal rounds

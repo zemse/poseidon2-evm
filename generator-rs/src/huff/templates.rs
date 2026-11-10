@@ -209,6 +209,18 @@ pub fn round4() -> &'static [Template] {
     std::slice::from_ref(&ROUND4[0])
 }
 
+/// Row 0 of the last t = 4 round when the caller reads s0' alone, s0' = 5
+/// x0 + 7 x1 + x2 + 3 x3 (stacksearch hashdag, 245 gas against 248): lane
+/// 0 in place, x3 and x2 from copies, s1 taken in place under the PRIME
+/// copies of its S-box, its MULMOD by 7 and the last ADDMOD. A number is
+/// a PUSH of it, mul=NAME a MUL; s2 and s3 stay dead under s0'.
+pub fn row0_4() -> &'static [Template] {
+    &[Template {
+        init: "s0,P,s1,s2,s3",
+        ops: "sbox0 5 mul=5x0 3 P dup6 sbox3 mul=3x3 P dup5 sbox2 add=x2+3x3 P 7 P P swap6 sbox1 mulmod=7x1 add=row0 addmod=s0'",
+    }]
+}
+
 /// The t = 4 internal round with the internal_template option: the program
 /// stacksearch's `internal` finds for three lanes, extended to four (166 gas
 /// against 169). The sum lands on a PRIME copy, its copies and the operands
