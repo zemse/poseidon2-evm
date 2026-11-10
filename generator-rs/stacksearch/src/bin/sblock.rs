@@ -46,9 +46,11 @@
 // value still to be consumed (`buried`), LIFT=2 also where two lanes are
 // still to run (`lanes_left`); both are admissible. ANY=1 accepts the exit
 // / final outputs on top in any order, ANY=2 anywhere on the working stack
-// with the first on top (with GARBAGE=1, dead values between them).
-// DAG= also takes `d=shl(u)` (PUSH1 1 SHL, 6) and `z=store(o)` (MSIZE
-// MSTORE, 5; the stores run in the order of the spec), with `stored` mode.
+// with the first on top (with GARBAGE=1, dead values between them), ANY=3
+// on top in order with dead values under them. DAG= also takes
+// `d=shl(u)` (PUSH1 1 SHL, 6), `z=store(o)` (MSIZE MSTORE, 5; the stores
+// run in the order of the spec) and `z=estore(o)` (PUSH MSTORE, 6, after
+// every MSIZE store), with `stored` mode.
 // The states sit in an arena of 24 bytes (key, g, parent, move) behind an
 // open-addressing table of indices, the queue in one u64 an entry.
 
@@ -81,6 +83,8 @@ enum Op {
     /// MSIZE MSTORE of the top (the last round's outputs in word order:
     /// the stores run in the order of the spec)
     Store,
+    /// PUSH offset MSTORE of the top, after every MSIZE store (any order)
+    EStore,
 }
 
 struct Node {
@@ -150,15 +154,19 @@ fn park(computed: u64, slot: usize, v: u8) -> u64 {
 
 impl Dag {
     fn build(floor: Vec<u8>, mode: &str, max_working: usize) -> Dag {
+        Self::with_spec(floor, mode, max_working, std::env::var("DAG").ok())
+    }
+
+    fn with_spec(floor: Vec<u8>, mode: &str, max_working: usize, spec: Option<String>) -> Dag {
         let m4 = "u0=u(x0,S0);u1=u(x1,S1);u2=u(x2,S2);u3=u(x3,S3);\
             t0=add(u0,u1);q0=q(t0);t1=add(u2,u3);d3=add(u3,u3);\
             t3=addmod(t0,d3);d1=add(u1,u1);q1=q(t1);o3=add(q1,t3);\
             t2=addmod(t1,d1);o2=add(o3,t2);o1=add(q0,t2);o0=add(t3,o1)";
         // DAG=<spec>: another M4 DAG in the same syntax, used as is (its
         // outputs o0..o3, its lanes z0..z3 when the mode keeps or stores)
-        let spec = match std::env::var("DAG") {
-            Ok(spec) => spec,
-            Err(_) => match mode {
+        let spec = match spec {
+            Some(spec) => spec,
+            None => match mode {
                 "stored" | "kept" => {
                     format!("{m4};z0=lane(o0);z1=lane(o1);z2=lane(o2);z3=lane(o3)")
                 }
@@ -187,6 +195,7 @@ impl Dag {
                 "q" => Op::Q,
                 "shl" => Op::Shl,
                 "store" => Op::Store,
+                "estore" => Op::EStore,
                 "lane" => Op::Lane,
                 _ => panic!("{op}"),
             };
@@ -272,6 +281,7 @@ impl Dag {
             Op::Q => 11,
             Op::Shl => 6,
             Op::Store => 5,
+            Op::EStore => 6,
             Op::Lane => LANE + if self.kept { 0 } else { STORE },
         }
     }
@@ -419,6 +429,16 @@ impl Dag {
             |kept: bool| parked(computed).all(|(_, v)| v == G || (kept && self.lanes.contains(&v)));
         let done = computed & MASK == (1 << self.nodes.len()) - 1;
         if !self.order.is_empty() {
+            // ANY=3: the outputs on top in order, dead values and PRIME
+            // copies under them
+            if self.any_order == 3 {
+                let n = self.order.len();
+                return done
+                    && s.len() >= n
+                    && s[..n] == self.order[..]
+                    && s[n..].iter().all(|&v| v == G || v == P)
+                    && pv_ok(false);
+            }
             // ANY=2: the outputs anywhere on the working stack (garbage
             // between them), the first output on top
             if self.any_order == 2 {
@@ -583,12 +603,22 @@ impl Dag {
                             .all(|(i, n)| n.op != Op::Store || computed & (1 << i) != 0),
                     1,
                 ),
+                Op::EStore => (
+                    d >= 1
+                        && s[0] == a[0]
+                        && self
+                            .nodes
+                            .iter()
+                            .enumerate()
+                            .all(|(i, n)| n.op != Op::Store || computed & (1 << i) != 0),
+                    1,
+                ),
             };
             if !ok {
                 continue;
             }
             let mut t = Vec::with_capacity(d + 1);
-            if (nd.op != Op::Lane || self.kept) && nd.op != Op::Store {
+            if (nd.op != Op::Lane || self.kept) && !matches!(nd.op, Op::Store | Op::EStore) {
                 t.push(N0 + j as u8);
             }
             t.extend_from_slice(&s[k..]);
@@ -945,5 +975,49 @@ mod tests {
         assert_eq!(new.0, 347);
         assert!(enabled.is_goal(&new.1, new.2));
         assert_eq!(enabled.h(&[], 0), 332);
+    }
+
+    /// The last round's blocks of templates::final_store_blocks: the
+    /// six-reduction DAG, its outputs stored as made, dead values left
+    #[test]
+    fn final_store_programs_replay() {
+        let six = "u0=u(x0,S0);u1=u(x1,S1);u2=u(x2,S2);u3=u(x3,S3);\
+            t0=add(u0,u1);t1=add(u2,u3);d1=add(u1,u1);d3=add(u3,u3);q0=q(t0);\
+            q1=q(t1);a1=add(q0,d1);a3=add(q1,d3);o1=addmod(a1,t1);\
+            o3=addmod(a3,t0);b0=add(o1,d3);b2=add(o3,d1);o0=addmod(b0,t0);\
+            o2=addmod(b2,t1)";
+        let cases = [
+            (
+                "z0=store(o0);z1=store(o1);z2=estore(o2);z3=estore(o3)",
+                "u1 u3 P u2 dup3 add=t1 dup4 dup1 add=d1 P u0 dup7 add=t0 dup6 dup1 add=d3 P P dup4 q=q0 dup6 add=a1 dup7 addmod=o1 P dup2 dup4 add=b0 dup5 addmod=o0 store=z0 store=z1 P dup6 q=q1 add=a3 addmod=o3 dup1 estore=z3 add=b2 addmod=o2 estore=z2",
+                196,
+                190,
+            ),
+            (
+                "z0=store(o0);z1=store(o1);z2=store(o2);z3=store(o3)",
+                "u3 u2 dup2 add=t1 u1 dup1 dup1 add=d1 P u0 dup4 add=t0 dup6 dup1 add=d3 P P dup4 q=q0 dup6 add=a1 dup8 addmod=o1 P dup2 dup4 add=b0 dup5 addmod=o0 store=z0 store=z1 P dup7 q=q1 add=a3 addmod=o3 P dup2 dup4 add=b2 dup6 addmod=o2 store=z2 store=z3",
+                200,
+                188,
+            ),
+        ];
+        for (stores, program, gas, h0) in cases {
+            let floor = "S0,S1,S2,S3,P,_,_,_,_,x0,x1,x2,x3"
+                .split(',')
+                .map(|a| item(a, &[]))
+                .collect();
+            let spec = format!("{six};{stores}");
+            let mut dag = Dag::with_spec(floor, "stored", 12, Some(spec));
+            dag.garbage = true;
+            dag.roll = false;
+            dag.exchange = false;
+            dag.reach = 235;
+            dag.take = 0;
+            dag.lift = 0;
+            dag.order_ops.clear();
+            let (g, s, c) = replay(&dag, &[], program);
+            assert_eq!(g, gas);
+            assert!(dag.is_goal(&s, c));
+            assert_eq!(dag.h(&[], 0), h0);
+        }
     }
 }

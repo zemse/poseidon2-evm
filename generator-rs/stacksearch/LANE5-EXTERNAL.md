@@ -49,8 +49,38 @@ The TAKE=1 run is the first exhaustive one: lane 2's took 11.4 GB in 37 min and 
 | exit, ANY=1 (any order) | 9 | 152 | none | 10.4M | 138 s | 1.5 GB (old A*) |
 | exit, ANY=2 GARBAGE=1 (anywhere, o0 on top) | 8 | 152 | none | 47.4M | 566 s | 1.8 GB |
 | exit0 | 10 | 155 | none | 31.7M | 478 s | 1.3 GB |
+| exit, ANY=3 GARBAGE=1 (in order, dead values under them) | 8 | 152 | none | 47.4M | 2,365 s (loaded machine) | 2.2 GB |
 
-So the exit block's 12 over h0 are not its output order: the M4 itself needs them.
+So the exit block's 12 over h0 are not its output order or its dead values: the M4 itself needs them.
+
+### Final layer storing its own outputs (landed)
+
+The last layer left [s0', .., s(t-1)'] on top in order and the entry stored them (`msize mstore`, 5 gas a word): a final block cost 183 + 4 x 5 = 203 with the order fixed. A private entry (as t2 / t3 already have: `Terminal::Stream`, the entry inlines the body) can store each block's outputs in word order as it makes them, blocks from 0 up, and leave dead values on the stack. `sblock` models it with `store` nodes after the six-reduction DAG (`stored` mode, GARBAGE=1): h0 188.
+
+| Run | Window | UB | Result | States | Time | RSS |
+| :-- | -: | -: | :-- | -: | -: | -: |
+| six-reduction DAG + stores | 7 | 203 | none | 18.1M | | |
+| six-reduction DAG + stores | 8 | 203 | stopped at f 197 | 84.6M | 30 min | 3 GB |
+| eight-reduction DAG + stores | 8 | 203 | stopped at f 201 (h0 192) | 41.3M | 23 min | 1.6 GB |
+| six-reduction + stores, WEIGHT=20 | 8 | 203 | none found, stopped | 31M | 658 s | 1.1 GB |
+
+The searches stay below the window the stores need: o2 depends on o3 and o0 on o1, while the stores want o0, o1 first and o2 before o3, so each pair runs as `P dup2` (a copy of o1 / o3 over a PRIME copy over it) and its two other operands DUPed on top, which takes 11 slots. By hand, 200 (traced by `sblock`): the column-sum side builds [d3, t0, P] with t1 and d1 under them, the o1 / o0 half runs on copies of all four and stores, the o3 / o2 half takes d3 and t0 in place. The 12 over h0 are four originals left dead (u1, u3, t1, d1), each read once more by a DUP: t1 and d1 are read last by o2 and b2, which sit over o3, so neither can be the one consumed in place.
+
+196 (`estore`: `PUSH offset MSTORE`, 6 gas, after the block's MSIZE stores): s3' is stored by offset first (`dup1`, then the store of the copy) and s2' by offset after it, so b2 and o2 take d1 and t1 in place from [o3, d1, t1, P]: two stores 1 gas dearer, two DUPs fewer. h0 190; the 6 over it are u1 and u3, each read by both a deep value (d1, t1) and one over a PRIME copy above it (t0, d3), so neither original is on top at its last read. Window 12 (`trace`).
+
+| Program | Final block with stores | t8 | t12 | t16 | t20 | t24 | t28 |
+| :-- | -: | -: | -: | -: | -: | -: | -: |
+| before (183 + 20) | 203 | 23,056 | 33,507 | 43,822 | 54,129 | 64,449 | 76,600 |
+| MSIZE stores only | 200 | 23,050 | 33,498 | 43,810 | 54,114 | 64,431 | 76,579 |
+| landed (`estore`) | 196 | 23,042 | 33,486 | 43,794 | 54,094 | 64,407 | 76,551 |
+
+Runtime bytes after: t8 24,645, t12 36,080, t16 47,828, t20 59,856, t24 64,529, t28 64,378 (all under 65,536). Osaka and Paris have no stack-only stream (reach 16), so no `Terminal::Stream`: unchanged.
+
+- Fixed op order of the 200 program, window 12, UB 200: stopped at 1,201 s (1.5 GB), f 191, nothing below 191 in that order.
+
+Why 196 looks like the floor of this DAG with these stores: u1 feeds d1 (deep, read last by b2) and t0 (over a PRIME copy above it), u3 feeds t1 and d3 the same way; whichever of the two is made first lands on top of u, so the other can only reach u by a DUP, and both live until the second half. All-offset stores (192 + 6 = 198) or the eight-reduction DAG (h0 192, t2 / t3 / t0 / t1 read across halves, 201 or more by the same count) do not do better.
+
+Gate (6ef34be): generate:huff twice, identical; verify Amsterdam, Osaka, Paris on all nine widths (+0; Osaka and Paris figures unchanged); cargo test --release --no-fail-fast (lib 108, cli 2, eip8024 3, generators 4, verify 8: all pass, verify 6,729 s on a loaded machine); forge test 127/127.
 
 ## Tooling
 
