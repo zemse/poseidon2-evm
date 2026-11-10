@@ -91,3 +91,7 @@ A lazier first-round sum does not help either: with cap 2 (root an ADD of two AD
 - t24/t28 diag constants pushed just before the last external M4 (Round 3) instead of at the macro start, so the external rounds DUP no deeper: same gas and the same bytes (63,679 at t24); every DUP there is a DUPN either way.
 - t4 rounds per arity (each region builds POSEIDON2_HASH_ROUNDS from its own prologue's bounds): every arity's round 0 leaves bounds [2, 1, 2, 1] (units of P), so all three build at 11,449, the shared program.
 - Osaka (item 4): the npm scripts emit Amsterdam only, so no Osaka output is checked in; not pursued.
+
+### Rebased onto opt 641b593 (lanes 1, 2, 3)
+
+The tables above are against f2d8830. On 641b593 (lane-copy internal rounds, lane 3's t4 rounds) the search picks t24 diagStack=4 and t28 diagStack=12: Amsterdam t24 64,749 to 64,449 (64,544 bytes), t28 76,976 to 76,600 (64,393 bytes). The t4 copies layout is 64,257 bytes: Amsterdam hash 11,880 / 11,887 / 11,960 to 11,841 / 11,882 / 11,922; Osaka (xor fallback) to 11,865 / 11,883 / 11,946.
