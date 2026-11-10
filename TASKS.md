@@ -6,12 +6,20 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 
 - [ ] 4x4 block program search over alternative M4 DAGs (current `sblock` fixes the paper's DAG, orders moves only), wider window (>10), EIP-8024 `EXCHANGE`. Est. 5-10 gas/block: 280-560 at t28, 80-160 at t8.
 - [ ] t2/t3/t4 re-search with restrictions lifted (window, live-only DUP filter, fixed DAG, whitelist). Relaxation floor gaps t2 339, t3 504, t4 672: upper bound, real gain unknown.
-- [ ] t4 hash arity dispatch by computed jump: hash_1 -15, hash_3 -25, hash_2 +19. Needs decision on primary arity.
+- [x] t4 hash arity dispatch by computed jump (e9bc320): `calldatasize 0x9 shl jump`, a copy of the rounds per arity, 64,257 bytes. hash 11,880 / 11,887 / 11,960 to 11,841 / 11,882 / 11,922; other calldata sizes fail.
 - [ ] t4 hash: fuse round-0 forms with ROUND4, consume p1/p3 in place. At most 6 gas per arity; search 881 s / 7.6 GB per round.
 - [ ] First consuming round costs 8 more than steady (lazier exit-layer bounds force an extra ADDMOD). 8 gas per width t >= 8.
 - [ ] Deferred-sum internal state (slots hold d_i s_i, sum added at next MULMOD). Measured ~1 gas/round net: ~57 at t28.
-- [ ] t24/t28 shared-body rounds pay 3 gas/round for `MLOAD` constants; inlining costs ~1,100 bytes/round against the 65,536 limit.
+- [x] t24/t28 diag constants on the stack on Amsterdam, no shared body (b9f1a4a): -300 / -376.
 - [ ] Osaka t8: `primeEarly` impossible within DUP16 reach (24,217 stays).
+- [x] Lane-copy steady internal rounds (c9b0314): -339 to -351 at t8 to t28.
+- [x] Lazy t8 column sums, in-place takes, six-reduction final block (4ea72b3): -146 t8 to -148 t28.
+- [x] t2/t3/t4 last rounds in place (572c52a) and chained external rounds (f5f2e63): t2 -18, t3 -18, t4 -3 per arity.
+- [ ] t4 hash junctions of consecutive ROUND4s (rounds 1-3, 60-62), as t2/t3: est. ~12 gas per arity. `seam` tool exists.
+- [ ] t3 junction of rounds 2 and 3 at window 8 (over 16 GB; 186 to beat), t2 junction of rounds 61/62 with other Final-pair layouts.
+- [ ] Steady internal round t8 290 against floor B 266: at most one of the n + 1 moves shown not inherent beyond t = 4.
+- [ ] External blocks: `sblock` take searches (TAKE=1..3) ran out of memory or found nothing below 344 / 183 / 155; needs symmetry reduction or tighter bounds.
+- [ ] Osaka t24/t28 shared body: with laneCopy the body period is free (any length, free mid entry); trade body length against call overhead.
 
 ## Yul, open directions
 
@@ -26,6 +34,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 
 - [x] Refresh proofs for every Huff/Yul bytecode changed since b4afc03 (5b2903a, aa1e499).
 - [x] Prove the via-IR 1M builds of t2/t3/t4/t8 (04f2d61, 75518ae); 39 targets proven.
+- [ ] Refresh proofs for the bytecode of the four gas lanes (cfd38de), with the t4 Huff hash failing outside the 36 / 68 / 100 byte calldata sizes.
 
 ## Code quality review
 
@@ -53,7 +62,7 @@ Keep segmented reflection, kernel checks, axiom audits and replay coverage. Do n
 
 ### Huff/Yul interfaces and tests
 
-- [ ] Medium: define malformed-calldata behavior for the Yul fallback and Huff t4 entry. Their arity dispatch differs outside canonical ABI lengths (e.g. 69 bytes). Test short payloads, partial/trailing words and wrong selectors. Document supported calls before choosing gas-costly rejection checks; update `Poseidon2Yul.sol` and the Huff entry renderer.
+- [ ] Medium: define malformed-calldata behavior for the Yul fallback and Huff t4 entry. Their arity dispatch differs outside canonical ABI lengths (e.g. 69 bytes); the Amsterdam Huff entry now fails on any size but 36 / 68 / 100. Test short payloads, partial/trailing words and wrong selectors. Document supported calls before choosing gas-costly rejection checks; update `Poseidon2Yul.sol` and the Huff entry renderer.
 - [ ] Medium: extend existing hash fuzzing beyond inputs bounded below PRIME. Test unchecked modulo equivalence and checked helper rejection at PRIME - 1, PRIME, PRIME + 1 and maximum uint256; assert the expected custom error. Preserve the deployed contracts' modulo semantics.
 - [ ] Medium: supplement generated Yul-versus-Huff permutation fuzzing with bounded randomized reference comparisons across supported widths and arbitrary uint256 inputs. Retain independently sourced fixed vectors; document shared constants/assumptions rather than treating agreement as full independence.
 
