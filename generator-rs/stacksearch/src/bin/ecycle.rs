@@ -125,6 +125,8 @@ struct Pb {
     sym: [u8; NT],
     prime: bool,
     exch: bool,
+    // FROM and TO fix the lanes: no reduction by the lane symmetry
+    nosym: bool,
     memo: std::cell::RefCell<HashMap<u64, [u32; NT]>>,
 }
 
@@ -198,28 +200,51 @@ impl Pb {
         u[PT as usize] = u32::MAX;
         u
     }
-    /// false when a value made and still needed has no entry left: it
-    /// cannot be made again, so no round after this one could end
+    /// false when this round or the next can no longer end: an output, or
+    /// one of the next round, neither on the stack nor computable from what
+    /// is (a node is made once). Alternative productions count: once s1' is
+    /// made from 4t0, the t23 path's use of 4t0 needs no copy kept.
     fn whole(&self, s: &St) -> bool {
-        let u = self.uses(s);
         let n = s.len as usize;
-        for v in 1..PT {
-            if u[v as usize] == 0 || s.tok[..n].contains(&v) {
-                continue;
-            }
-            let j = (v as usize - 1) % NJ;
-            let made = if (v as usize) <= NJ {
-                j < X || s.cur >> j & 1 == 1
-            } else if j < X {
-                s.out >> j & 1 == 1
-            } else {
-                s.next >> j & 1 == 1
-            };
-            if made {
-                return false;
+        let present = |v: u8| s.tok[..n].contains(&v);
+        // this round's nodes and outputs, the next round's nodes and outputs
+        let mut av = [false; NJ];
+        let mut ao = [false; 4];
+        let mut an = [false; NJ];
+        let mut ano = [false; 4];
+        for j in 0..NJ {
+            av[j] = present(tc(j));
+            an[j] = present(tn(j));
+        }
+        for (i, a) in ao.iter_mut().enumerate() {
+            *a = present(tn(i));
+        }
+        // the ops are in topological order: one pass for this round, one
+        // for the next on this round's outputs
+        for op in &self.ops {
+            let ok = op.args.iter().all(|&a| match a {
+                N::C(j) => av[j],
+                N::O(i) => ao[i],
+            });
+            match op.res {
+                N::C(j) => av[j] |= ok && s.cur >> j & 1 == 0,
+                N::O(i) => ao[i] |= ok && s.out >> i & 1 == 0,
             }
         }
-        true
+        for j in 0..X {
+            an[j] = ao[j] || s.next >> (X + j) & 1 == 1;
+        }
+        for op in &self.ops {
+            let ok = op.args.iter().all(|&a| match a {
+                N::C(j) => an[j],
+                N::O(i) => ano[i],
+            });
+            match op.res {
+                N::C(j) => an[j] |= ok && s.next >> j & 1 == 0,
+                N::O(i) => ano[i] |= ok,
+            }
+        }
+        (0..4).all(|i| (s.out >> i & 1 == 1 || ao[i]) && ano[i])
     }
     fn canon(&self, s: &mut St) {
         let u = self.uses(s);
@@ -263,6 +288,9 @@ impl Pb {
     /// the least key over the lane symmetry (0 2)(1 3) of M4
     fn key(&self, s: &St) -> u128 {
         let a = Self::pack(s);
+        if self.nosym {
+            return a;
+        }
         let mut r = *s;
         for i in 0..s.len as usize {
             r.tok[i] = self.sym[s.tok[i] as usize];
@@ -574,8 +602,101 @@ fn main() {
         sym,
         prime,
         exch: std::env::var_os("EXCHANGE").is_some(),
+        nosym: std::env::var_os("FROM").is_some(),
         memo: Default::default(),
     };
+    // FROM=s0,s1,s2,s3 TO=s0,s1,s2,s3: k rounds from that layout, the
+    // cheapest ending in TO (no round of the next one started), for a
+    // chain of rounds between fixed layouts
+    let layout = |var: &str| -> Option<St> {
+        let v = std::env::var(var).ok()?;
+        let mut s = St {
+            tok: [0; MAXW],
+            len: 0,
+            cur: 0,
+            out: 0,
+            next: 0,
+        };
+        for (i, name) in v.split(',').enumerate() {
+            s.tok[i] = match name {
+                "_" => G,
+                "P" => PT,
+                _ => tc(name[1..].parse().expect("s<i>")),
+            };
+            s.len += 1;
+        }
+        Some(s)
+    };
+    if let (Some(from), Some(to)) = (layout("FROM"), layout("TO")) {
+        let t0 = std::time::Instant::now();
+        let goal = pb.key(&to);
+        if std::env::var_os("PATH_ROUNDS").is_some() {
+            // one Dijkstra over `layers` rounds keeping parents: the
+            // cheapest program's stacks, one a move
+            let mut dist: HashMap<(u128, u8), (u32, (u128, u8), St)> = HashMap::new();
+            let start = (pb.key(&from), 0u8);
+            dist.insert(start, (0, start, from));
+            let mut pq = BinaryHeap::new();
+            pq.push(Reverse((0u32, start)));
+            let mut buf = Vec::new();
+            while let Some(Reverse((g, k))) = pq.pop() {
+                let (dg, _, s) = dist[&k];
+                if g > dg {
+                    continue;
+                }
+                if k.1 as usize == layers && k.0 == goal {
+                    println!(
+                        "{layers} rounds to TO: {g} ({:.1} s)",
+                        t0.elapsed().as_secs_f64()
+                    );
+                    let mut path = vec![];
+                    let mut at = k;
+                    while at != start {
+                        let (c, p, s) = dist[&at];
+                        path.push((c, s));
+                        at = p;
+                    }
+                    path.reverse();
+                    println!("   0 {}", pb.show(&from));
+                    for (c, s) in path {
+                        println!("{c:4} {}", pb.show(&s));
+                    }
+                    return;
+                }
+                if k.1 as usize == layers {
+                    continue;
+                }
+                pb.moves(&s, &mut buf);
+                for &(t, c, end) in &buf {
+                    let nk = (pb.key(&t), k.1 + u8::from(end));
+                    let ng = g + c;
+                    if nk.1 as usize == layers && nk.0 != goal {
+                        continue;
+                    }
+                    if dist.get(&nk).is_none_or(|e| ng < e.0) {
+                        dist.insert(nk, (ng, k, t));
+                        pq.push(Reverse((ng, nk)));
+                    }
+                }
+            }
+            println!("no path");
+            return;
+        }
+        let mut d: HashMap<u128, u32> = HashMap::new();
+        d.insert(pb.key(&from), 0);
+        for k in 1..=layers {
+            let (ends, states) = pb.round(&d);
+            let least = ends.values().min().copied().unwrap_or(u32::MAX);
+            println!(
+                "round {k}: to TO {:?}, least {least}, {} end layouts, {states} states, {:.1} s",
+                ends.get(&goal),
+                ends.len(),
+                t0.elapsed().as_secs_f64()
+            );
+            d = ends;
+        }
+        return;
+    }
     // the inputs in every order
     let mut starts: HashMap<u128, u32> = HashMap::new();
     let mut perm = [0usize, 1, 2, 3];
