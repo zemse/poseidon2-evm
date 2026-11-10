@@ -86,3 +86,15 @@ Lane E's stream terminal entry checks that the permutation before it is stack-on
 ## 5. `defercycle STRICT` (search)
 
 `STRICT=1` leaves out the two relaxed moves (a value to or from any depth without a partner), so only DUP, SWAP and POP move values: `STRICT=1 plain 2 7 3` 24 (lane copy again); `STRICT=1 TRACE=1 defer 2 7 4` D_k - D_(k-1) in [29, 30], D_4 = 118 (29.5): rounds of 29 alternate with rounds of 30, the 29 one placing T' by a SWAP into a dead slot and a POP (5) where ours swaps it into the deepest element's slot. So without PRIME carriers the deferred round is within 0.5 gas a round of the cheapest cycle at n = 2, and the relaxed 28.5 needs carrier moves whose PRIME copy would land on top of s0^5 with nothing to consume it. Not pursued.
+
+## Where the lane stands
+
+Steady rounds: t8 290, t12 414, t16 538 (lane copy, n + 1 moves over floor B, the plain cycle mean); t20 to t28 deferred (t28 901, n + 2 moves over its lower floor B), within 0.5 gas a round of the strict deferred cycle mean at n = 2. First round with firstSum: t28 918 to 614. Seam: t28 2,404 (carrier 3 included).
+
+Open leads, all small:
+
+- firstSum's K - s0 is rotated under [s0, P] by two SWAPs (6 gas at t12 to t28); a copy of s0 left under it by the exit block would save one or both, but the exit block is a searched program.
+- firstSum turns off the exit block's PRIME parking, so the seam pays a carrier (3 gas at t12 to t28); a PRIME copy left under the state for free would take it back.
+- Deferred at t16: +7 a round (two ADDMODs saved for the MULMOD of (t - 1) T, its ADD and a DUP); no cheaper (t - 1) T found (MUL overflows, any partial deferral keeps the units).
+- t24 / t28 keep 5 / 13 diag constants on the stack (15 / 39 gas); one fewer needs about 1,770 bytes, 1,021 / 1,189 are free.
+- The relaxed deferred cycle (28.5 at n = 2) needs PRIME carrier moves; a search with the PRIME copies explicit would settle whether any of the 1.5 moves is real.
