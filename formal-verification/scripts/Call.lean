@@ -46,6 +46,7 @@ def callOf (a : Artifact) : Option (List UInt8 × Nat × Outcome) :=
   match a.kind with
   | .huffPerm => let cd := calldata none a.t; some (cd, 0, huffPerm c cd)
   | .huffHash => let cd := calldata (some 0) 3; some (cd, 0, huffHash c cd)
+  | .huffHashXor j1 j3 jr => let cd := calldata (some 0) 3; some (cd, 0, huffHashXor c j1 j3 jr cd)
   | .yulHash => let cd := calldata (some 0) 3; some (cd, 0, yulHash c cd 0)
   | .yulPerm =>
     let cd := calldata (some (permuteSelector a.t)) a.t
@@ -67,6 +68,8 @@ def describe :
   | .ok (.revert _ o), .revert out =>
     s!"{if o.data.toList == out then "reverts as the spec" else "WRONG REVERT"}"
   | .ok _, _ => "WRONG OUTCOME"
+  | .error .BadJumpDestination, .badJump => "halts as the spec (BadJumpDestination)"
+  | .error .StackUnderflow, .underflow => "halts as the spec (StackUnderflow)"
   | .error .OutOfGass, _ => "out of gas"
   | .error .OutOfFuel, _ => "out of fuel"
   | .error _, _ => "OTHER ERROR"

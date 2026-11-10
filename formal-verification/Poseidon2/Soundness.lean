@@ -65,7 +65,8 @@ def Matches : Except EVM.ExecutionException
 /-- An `Eip8024.Ξ` result that is exactly the interface outcome, with `gl` gas left: a success
 returning the outcome's bytes, a revert with them, or, for `badJump` and `underflow`,
 EVMLean's `BadJumpDestination` and `StackUnderflow` errors, which carry no gas (the caller
-keeps none of the frame's gas, so `gl` plays no part). Running out of gas, any other exception, or other bytes or gas falsify it. -/
+keeps none of the frame's gas, so `gl` plays no part). Running out of gas, any other exception,
+or other bytes or gas falsify it. -/
 def Exact (gl : Nat) : Except EVM.ExecutionException
     (ExecutionResult (AccountMap × UInt256 × Substate)) → Outcome → Prop
   | .ok (.success (_, g, _) o), .ret out => o.data.toList = out ∧ g.toNat = gl

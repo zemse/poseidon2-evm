@@ -12,10 +12,20 @@ outside the ABI the contracts document, as read from the sources at this commit:
 * `huffPerm` (`src/bn254/huff/t<t>/Poseidon2.huff`, every width but 4): `t` words read with
   `CALLDATALOAD` at `0, 32, .., 32·(t-1)` (zero past the end of the calldata), each modulo `P`;
   the `t` output words returned. No selector, any calldata size, any call value.
-* `huffHash` (`src/bn254/huff/t4/Poseidon2.huff`, `IPoseidon2`): the 4-byte selector is not
-  read; the arity comes from the calldata size alone: 1 below `0x44` bytes (including empty
-  calldata), 2 at exactly `0x44`, 3 above. The words are read at `4, 0x24, 0x44`; one word,
-  `hashWords`, is returned. Any call value.
+* `huffHash` (`src/bn254/huff/t4/Poseidon2.huff`, Amsterdam, `IPoseidon2`): the 4-byte
+  selector is not read; the code jumps to `calldatasize << 9`, a jump destination only for the
+  ABI sizes `0x24`, `0x44`, `0x64` (`hash_1`, `hash_2`, `hash_3`), which read 1, 2, 3 words at
+  `4, 0x24, 0x44` and return one word, `hashWords`. Any other size halts at the `JUMP`
+  (`badJump`). Any call value.
+* `huffHashXor j1 j3 jr` (the same source generated for Osaka, where three copies of the
+  rounds do not fit): the code jumps to `calldatasize xor 0x21`. The ABI sizes land on `0x05`,
+  `0x65`, `0x45` and run `hash_1`, `hash_2`, `hash_3`. The code has three more jump
+  destinations: `j1` and `j3`, where the round 0 of `hash_1` and `hash_3` starts (after the hop
+  from `0x05` or `0x45`), and `jr`, the shared rounds after `hash_2`'s round 0. The sizes
+  `j1 xor 0x21` and `j3 xor 0x21` run `hash_1` and `hash_3` on the words at `4, ..` as the
+  ABI sizes do; at `jr xor 0x21` the rounds start without their state and halt at an `ADD` with
+  one stack item (`underflow`). Every other size halts at the `JUMP` (`badJump`). Any call
+  value.
 * `yulHash` (`Poseidon2Yul_BN254`, `src/bn254/yul/Poseidon2Yul.sol`, a non-payable fallback):
   reverts with empty data on a non-zero call value; otherwise always reads the three words at
   `4, 0x24, 0x44` and puts `((cds - 4) >> 5) << 64` in the capacity element, computed on
@@ -74,13 +84,32 @@ inductive Outcome where
 def huffPerm (c : Params) (cd : List UInt8) : Outcome :=
   .ret (encodeWords (permutationWords c (calldataWords cd 0 c.t)))
 
-/-- The arity the Huff t = 4 hash entry takes from the calldata size. -/
-def huffArity (cds : Nat) : Nat :=
-  if cds < 0x44 then 1 else if cds = 0x44 then 2 else 3
+/-- The arity of `hash_1` / `hash_2` / `hash_3` calldata (a selector and 1, 2 or 3 words), from
+its size. -/
+def huffArity (cds : Nat) : Option Nat :=
+  if cds = 0x24 then some 1 else if cds = 0x44 then some 2 else if cds = 0x64 then some 3
+  else none
 
-/-- The Huff t = 4 hash entry (`hash_1` / `hash_2` / `hash_3`, selector ignored). -/
+/-- `hashWords` of the `n` words at `4, 0x24, ..` (the selector not read), returned. -/
+def hashOf (c : Params) (n : Nat) (cd : List UInt8) : Outcome :=
+  .ret (encodeWords [hashWords c (calldataWords cd 4 n)])
+
+/-- The Huff t = 4 hash entry for Amsterdam: `JUMP` to `calldatasize << 9`. -/
 def huffHash (c : Params) (cd : List UInt8) : Outcome :=
-  .ret (encodeWords [hashWords c (calldataWords cd 4 (huffArity cd.length))])
+  match huffArity cd.length with
+  | some n => hashOf c n cd
+  | none => .badJump
+
+/-- The Huff t = 4 hash entry for Osaka: `JUMP` to `calldatasize xor 0x21`, with `j1`, `j3`, `jr`
+the jump destinations of `hash_1`'s and `hash_3`'s round 0 and of the shared rounds. -/
+def huffHashXor (c : Params) (j1 j3 jr : Nat) (cd : List UInt8) : Outcome :=
+  match huffArity cd.length with
+  | some n => hashOf c n cd
+  | none =>
+    if cd.length = j1 ^^^ 0x21 then hashOf c 1 cd
+    else if cd.length = j3 ^^^ 0x21 then hashOf c 3 cd
+    else if cd.length = jr ^^^ 0x21 then .underflow
+    else .badJump
 
 /-- The capacity word `Poseidon2Yul_BN254` computes: `shl(64, shr(5, sub(calldatasize(), 4)))`
 on 256-bit words. -/
@@ -127,8 +156,10 @@ def permuteSelector : Nat → Nat
 
 /-! On ABI calldata the entries are the documented functions. -/
 
-theorem huffArity_abi (n : Nat) (h1 : 1 ≤ n) (h3 : n ≤ 3) : huffArity (4 + 32 * n) = n := by
-  unfold huffArity; split_ifs <;> omega
+theorem huffArity_abi (n : Nat) (h1 : 1 ≤ n) (h3 : n ≤ 3) :
+    huffArity (4 + 32 * n) = some n := by
+  match n, h1, h3 with
+  | 1, _, _ | 2, _, _ | 3, _, _ => rfl
 
 theorem yulCapacity_abi (n : Nat) (h : n ≤ 3) : yulCapacity (4 + 32 * n) = n * 2 ^ 64 := by
   match n, h with
@@ -137,7 +168,8 @@ theorem yulCapacity_abi (n : Nat) (h : n ≤ 3) : yulCapacity (4 + 32 * n) = n *
 theorem calldataWord_nil (off : Nat) : calldataWord [] off = 0 := by
   simp [calldataWord]
 
-example : huffArity 0 = 1 ∧ huffArity 0x43 = 1 ∧ huffArity 0x44 = 2 ∧ huffArity 0x45 = 3 := by
+example : huffArity 0 = none ∧ huffArity 0x24 = some 1 ∧ huffArity 0x43 = none ∧
+    huffArity 0x44 = some 2 ∧ huffArity 0x64 = some 3 ∧ huffArity 0x65 = none := by
   decide
 
 /-- `cds = 3` wraps: `(3 - 4) mod 2^256 >> 5 << 64` keeps the low 192 bits of `2^251 - 1`. -/
@@ -151,6 +183,7 @@ theorem hash_entries_abi :
     let c := Constants.T4.params
     (List.all [[1000], [1000, 2000], [1000, 2000, 3000], [P + 5, 2 ^ 256 - 1]] fun ws =>
       huffHash c (sel ++ encodeWords ws) == .ret (encodeWords [hashWords c ws]) &&
+      huffHashXor c 0 0 0 (sel ++ encodeWords ws) == .ret (encodeWords [hashWords c ws]) &&
       yulHash c (sel ++ encodeWords ws) 0 == .ret (encodeWords [hashWords c ws])) = true := by
   decide +kernel
 

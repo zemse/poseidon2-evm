@@ -41,6 +41,7 @@ def casesExpr (a : Artifact) : String :=
   match a.kind with
   | .huffPerm => s!"huffPermCases {c}"
   | .huffHash => s!"huffHashCases {c}"
+  | .huffHashXor j1 j3 jr => s!"huffHashXorCases {c} {j1} {j3} {jr}"
   | .yulHash => s!"yulHashCases {c}"
   | .yulPerm => s!"yulPermCases {c} (Interface.permuteSelector {a.t})"
   | .hashV2 => s!"hashV2Cases {c}"
@@ -50,6 +51,7 @@ def casesOf (a : Artifact) (c : Params) : List Case :=
   match a.kind with
   | .huffPerm => huffPermCases c
   | .huffHash => huffHashCases c
+  | .huffHashXor j1 j3 jr => huffHashXorCases c j1 j3 jr
   | .yulHash => yulHashCases c
   | .yulPerm => yulPermCases c (Interface.permuteSelector a.t)
   | .hashV2 => hashV2Cases c
@@ -222,6 +224,8 @@ def emit (a : Artifact) (c : Params) (k sb per : Nat) (root : String) : IO Unit 
   let (iface, thm, args) := match a.kind with
     | .huffPerm => (s!"Interface.huffPerm {c} cd", "huffPerm", "")
     | .huffHash => (s!"Interface.huffHash {c} cd", "huffHash", "")
+    | .huffHashXor j1 j3 jr => (s!"Interface.huffHashXor {c} {j1} {j3} {jr} cd", "huffHashXor",
+        s!"{j1} {j3} {jr} (by decide) ")
     | .yulHash => (s!"Interface.yulHash {c} cd v", "yulHash", "")
     | .yulPerm => (s!"Interface.yulPerm {c} (Interface.permuteSelector {a.t}) cd v",
         "yulPerm", s!"(Interface.permuteSelector {a.t}) (by decide) (by decide) ")

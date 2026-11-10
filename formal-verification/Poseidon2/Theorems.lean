@@ -167,25 +167,55 @@ theorem eval_cds (cd : List UInt8) (v : Nat) (h : cd.length < 2 ^ 64) :
 
 /-! ## The t = 4 Huff hash entry -/
 
-/-- The three cases of `huffHash` cover every call. -/
+/-- A case of a list, by its index. -/
+theorem CasesGive.at {cases : List Case} {cd : List UInt8} {v : Nat} {R : Outcome → Prop}
+    (h : CasesGive cases cd v R) (j : Nat) (hj : j < cases.length)
+    (hin : ∀ t ∈ (cases.getD j default).expect.inputs, t.eval ⟨cd, v⟩ < W)
+    (hf : FactsHold ⟨cd, v⟩ (cases.getD j default).facts) :
+    R (outcome ⟨cd, v⟩ (cases.getD j default).expect) := by
+  have hd : cases.getD j default = cases[j] := by
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hj, Option.getD_some]
+  exact h _ (hd ▸ List.getElem_mem hj) hin hf
+
+theorem inputs_badJump (e : Env) : ∀ t ∈ Expect.badJump.inputs, t.eval e < W := by
+  simp [Expect.inputs]
+
+theorem inputs_underflow (e : Env) : ∀ t ∈ Expect.underflow.inputs, t.eval e < W := by
+  simp [Expect.inputs]
+
+theorem inputs_hash (c : Params) (e : Env) (n : Nat) :
+    ∀ t ∈ (Expect.hash c (cdlWords 4 n)).inputs, t.eval e < W :=
+  cdlWords_lt e 4 n
+
+/-- The seven cases of `huffHash` cover every call. -/
 theorem huffHash_of (c : Params) (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
     (R : Outcome → Prop) (h : CasesGive (huffHashCases c) cd v R) : R (huffHash c cd) := by
   have hl := eval_cds cd v hcd
-  rcases Nat.lt_trichotomy cd.length 0x44 with hlt | heq | hgt
-  · have := h ⟨"hash_1 (size < 0x44)", [(.cds, 0, 0x43)], .hash c (cdlWords 4 1)⟩
-      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
-      (by simp [FactsHold, hl]; omega)
-    simpa [outcome, huffHash, huffArity, hlt, cdlWords_eval] using this
-  · have := h ⟨"hash_2 (size = 0x44)", [(.cds, 0x44, 0x44)], .hash c (cdlWords 4 2)⟩
-      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
-      (by simp [FactsHold, hl, heq])
-    simpa [outcome, huffHash, huffArity, heq, cdlWords_eval] using this
-  · have := h ⟨"hash_3 (size > 0x44)", [(.cds, 0x45, cdsMax)], .hash c (cdlWords 4 3)⟩
-      (by simp [huffHashCases]) (cdlWords_lt _ _ _)
-      (by simp [FactsHold, hl, cdsMax]; omega)
-    have h1' : ¬ cd.length < 0x44 := by omega
-    have h2' : cd.length ≠ 0x44 := by omega
-    simpa [outcome, huffHash, huffArity, h1', h2', cdlWords_eval] using this
+  have go := h.at
+  simp only [huffHashCases, List.length_cons, List.length_nil] at go
+  have none_of : cd.length ≠ 0x24 → cd.length ≠ 0x44 → cd.length ≠ 0x64 →
+      huffHash c cd = .badJump := by
+    intro h1 h2 h3; simp [huffHash, huffArity, h1, h2, h3]
+  by_cases e1 : cd.length = 0x24
+  · have := go 1 (by omega) (inputs_hash c _ 1) (by simp [FactsHold, hl, e1])
+    simpa [outcome, huffHash, huffArity, hashOf, e1, cdlWords_eval] using this
+  by_cases e2 : cd.length = 0x44
+  · have := go 3 (by omega) (inputs_hash c _ 2) (by simp [FactsHold, hl, e2])
+    simpa [outcome, huffHash, huffArity, hashOf, e2, cdlWords_eval] using this
+  by_cases e3 : cd.length = 0x64
+  · have := go 5 (by omega) (inputs_hash c _ 3) (by simp [FactsHold, hl, e3])
+    simpa [outcome, huffHash, huffArity, hashOf, e3, cdlWords_eval] using this
+  rw [none_of e1 e2 e3]
+  rcases (show cd.length < 0x24 ∨ (0x24 < cd.length ∧ cd.length < 0x44) ∨
+      (0x44 < cd.length ∧ cd.length < 0x64) ∨ 0x64 < cd.length by omega) with r | r | r | r
+  · simpa [outcome] using
+      go 0 (by omega) (inputs_badJump _) (by simp [FactsHold, hl]; omega)
+  · simpa [outcome] using
+      go 2 (by omega) (inputs_badJump _) (by simp [FactsHold, hl]; omega)
+  · simpa [outcome] using
+      go 4 (by omega) (inputs_badJump _) (by simp [FactsHold, hl]; omega)
+  · simpa [outcome] using
+      go 6 (by omega) (inputs_badJump _) (by simp [FactsHold, hl, cdsMax]; omega)
 
 /-- The t = 4 Huff hash entry accepted by the checker computes `huffHash`. -/
 theorem huffHash_correct (a : Artifact) (c : Params)
@@ -202,6 +232,114 @@ theorem huffHash_total (a : Artifact) (c : Params) (gas : List Nat)
     (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
     Total (huffHashCases c) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I) (huffHash c cd) :=
   huffHash_of c cd v hcd _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
+
+theorem eval_xorTerm (cd : List UInt8) (v : Nat) (h : cd.length < 2 ^ 64) :
+    Term.eval ⟨cd, v⟩ xorTerm = cd.length ^^^ 0x21 := by
+  simp only [xorTerm, Term.eval, binOp, Option.getD_some]
+  rw [Nat.mod_eq_of_lt (Nat.lt_trans h (by decide))]
+
+theorem xor_lt (n : Nat) (h : n < 2 ^ 64) : n ^^^ 0x21 < 2 ^ 64 :=
+  Nat.xor_lt_two_pow h (by decide)
+
+theorem xor_eq_iff (n k : Nat) : n = k ^^^ 0x21 ↔ n ^^^ 0x21 = k := by
+  constructor
+  · rintro rfl; rw [Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
+  · intro h; rw [← h, Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
+
+/-- The thirteen cases of `huffHashXor` cover every call, the jump destinations in the order of
+the code. -/
+theorem huffHashXor_of (c : Params) (j1 j3 jr : Nat) (hord : 0x65 < jr ∧ jr < j3 ∧ j3 < j1)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64)
+    (R : Outcome → Prop) (h : CasesGive (huffHashXorCases c j1 j3 jr) cd v R) :
+    R (huffHashXor c j1 j3 jr cd) := by
+  have hx := eval_xorTerm cd v hcd
+  have hxl := xor_lt _ hcd
+  generalize hX : cd.length ^^^ 0x21 = x at hx hxl
+  have key : ∀ k, cd.length = k ^^^ 0x21 ↔ x = k := fun k => by rw [xor_eq_iff, hX]
+  have k24 : cd.length = 0x24 ↔ x = 0x05 := key 0x05
+  have k44 : cd.length = 0x44 ↔ x = 0x65 := key 0x65
+  have k64 : cd.length = 0x64 ↔ x = 0x45 := key 0x45
+  have go := h.at
+  simp only [huffHashXorCases, List.length_cons, List.length_nil] at go
+  obtain ⟨o1, o2, o3⟩ := hord
+  -- the spec by the jump target
+  have spec : huffHashXor c j1 j3 jr cd =
+      if x = 0x05 then hashOf c 1 cd else if x = 0x65 then hashOf c 2 cd
+      else if x = 0x45 then hashOf c 3 cd else if x = j1 then hashOf c 1 cd
+      else if x = j3 then hashOf c 3 cd else if x = jr then .underflow else .badJump := by
+    simp only [huffHashXor, huffArity, k24, k44, k64, key]
+    by_cases a1 : x = 0x05
+    · simp [a1]
+    by_cases a2 : x = 0x65
+    · simp [a2]
+    by_cases a3 : x = 0x45
+    · simp [a3]
+    simp [a1, a2, a3]
+  rw [spec]
+  by_cases b1 : x = 0x05
+  · simp only [b1, if_true]
+    simpa [outcome, hashOf, cdlWords_eval] using
+      go 1 (by omega) (inputs_hash c _ 1) (by simp [FactsHold, hx, b1])
+  by_cases b2 : x = 0x65
+  · simp only [b2, if_true, show (0x65 : Nat) ≠ 0x05 by decide, if_false]
+    simpa [outcome, hashOf, cdlWords_eval] using
+      go 5 (by omega) (inputs_hash c _ 2) (by simp [FactsHold, hx, b2])
+  by_cases b3 : x = 0x45
+  · simp only [b3, if_true, show (0x45 : Nat) ≠ 0x05 by decide,
+      show (0x45 : Nat) ≠ 0x65 by decide, if_false]
+    simpa [outcome, hashOf, cdlWords_eval] using
+      go 3 (by omega) (inputs_hash c _ 3) (by simp [FactsHold, hx, b3])
+  simp only [b1, b2, b3, if_false]
+  by_cases b4 : x = j1
+  · simp only [b4, if_true]
+    simpa [outcome, hashOf, cdlWords_eval] using
+      go 11 (by omega) (inputs_hash c _ 1) (by simp [FactsHold, hx, b4])
+  by_cases b5 : x = j3
+  · simp only [b5, show j3 ≠ j1 by omega, if_true, if_false]
+    simpa [outcome, hashOf, cdlWords_eval] using
+      go 9 (by omega) (inputs_hash c _ 3) (by simp [FactsHold, hx, b5])
+  by_cases b6 : x = jr
+  · simp only [b6, show jr ≠ j1 by omega, show jr ≠ j3 by omega, if_true, if_false]
+    simpa [huffHashXorCases, outcome] using
+      go 7 (by omega) (inputs_underflow _) (by simp [FactsHold, hx, b6])
+  simp only [b4, b5, b6, if_false]
+  rcases (show x < 0x05 ∨ (0x05 < x ∧ x < 0x45) ∨ (0x45 < x ∧ x < 0x65) ∨
+      (0x65 < x ∧ x < jr) ∨ (jr < x ∧ x < j3) ∨ (j3 < x ∧ x < j1) ∨ j1 < x by omega)
+    with r | r | r | r | r | r | r
+  · simpa [outcome] using
+      go 0 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 2 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 4 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 6 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 8 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 10 (by omega) (inputs_badJump _) (by simp [FactsHold, hx]; omega)
+  · simpa [outcome] using
+      go 12 (by omega) (inputs_badJump _) (by simp [FactsHold, hx, cdsMax]; omega)
+
+/-- The Osaka t = 4 Huff hash entry accepted by the checker computes `huffHashXor`. -/
+theorem huffHashXor_correct (a : Artifact) (c : Params) (j1 j3 jr : Nat)
+    (hord : 0x65 < jr ∧ jr < j3 ∧ j3 < j1)
+    (hc : (huffHashXorCases c j1 j3 jr).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Matches (Eip8024.Ξ σ σ₀ g A I) (huffHashXor c j1 j3 jr cd) :=
+  huffHashXor_of c j1 j3 jr hord cd v hcd _ (sound_gives a _ hc cd v hcd hv σ σ₀ g A I hI)
+
+/-- The Osaka t = 4 Huff hash entry accepted with gas `gas` computes `huffHashXor` with that
+gas. -/
+theorem huffHashXor_total (a : Artifact) (c : Params) (j1 j3 jr : Nat)
+    (hord : 0x65 < jr ∧ jr < j3 ∧ j3 < j1) (gas : List Nat)
+    (hc : CheckedGas (Code.ofBytes a.bytes) (huffHashXorCases c j1 j3 jr) gas)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    Total (huffHashXorCases c j1 j3 jr) gas ⟨cd, v⟩ g.toNat (Eip8024.Ξ σ σ₀ g A I)
+      (huffHashXor c j1 j3 jr cd) :=
+  huffHashXor_of c j1 j3 jr hord cd v hcd _ (total_gives a _ gas hc cd v hcd hv σ σ₀ g A I hI)
 
 /-! ## The `Poseidon2YulT<t>` wrappers -/
 
@@ -526,6 +664,16 @@ theorem huffHash_cancun (a : Artifact) (c : Params)
   huffHash_of c cd v hcd (fun _ => SameXi σ σ₀ g A I)
     (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
 
+theorem huffHashXor_cancun (a : Artifact) (c : Params) (j1 j3 jr : Nat)
+    (hord : 0x65 < jr ∧ jr < j3 ∧ j3 < j1)
+    (hc : (huffHashXorCases c j1 j3 jr).all (checkCase (Code.ofBytes a.bytes)) = true)
+    (hov : Sim.ovFree (Code.ofBytes a.bytes) = true)
+    (cd : List UInt8) (v : Nat) (hcd : cd.length < 2 ^ 64) (_hv : v < W)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (hI : Runs a cd v I) :
+    SameXi σ σ₀ g A I :=
+  huffHashXor_of c j1 j3 jr hord cd v hcd (fun _ => SameXi σ σ₀ g A I)
+    (cancun_gives a _ hc hov cd v hcd σ σ₀ g A I hI)
+
 theorem yulPerm_cancun (a : Artifact) (c : Params) (sel : Nat)
     (hsel0 : sel ≠ 0) (_hsel : sel < 2 ^ 32)
     (hc : (yulPermCases c sel).all (checkCase (Code.ofBytes a.bytes)) = true)
@@ -557,7 +705,7 @@ theorem hashV2_cancun (a : Artifact) (c : Params)
 /-! ## ABI calldata of the t = 4 hash
 
 On ABI calldata of `hash_1` / `hash_2` / `hash_3` (`sel ++ encodeWords ws`, `Spec/Abi.lean`) the
-case of `Total` is known: the arity's for `huffHash`, the one from 4 bytes on for `yulHash` and
+case of `Total` is known: the arity's for `huffHash` and `huffHashXor`, the one from 4 bytes on for `yulHash` and
 `hashV2`. So total correctness is the exact outcome `hashWords c ws` with that case's gas. -/
 
 /-- With at least `G` gas (`g`) the call `r` ends exactly in `o` with `G` used; with less it runs
@@ -575,25 +723,53 @@ theorem abi_length_lt (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (h3 : ws.length ≤ 3) : (sel ++ encodeWords ws).length < 2 ^ 64 := by
   rw [abi_length sel hsel ws]; omega
 
-/-- `huffHash` on `n = 1, 2, 3` ABI input words: case `n - 1`. -/
+/-- `huffHash` on `n = 1, 2, 3` ABI input words: case `2n - 1`. -/
 theorem huffHash_abi_total (c : Params) (gas : List Nat) (sel : List UInt8)
     (hsel : sel.length = 4) (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length)
     (h3 : ws.length ≤ 3) (v g : Nat)
     {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
     (h : Total (huffHashCases c) gas ⟨sel ++ encodeWords ws, v⟩ g r
       (huffHash c (sel ++ encodeWords ws))) :
-    ExactGas (gas.getD (ws.length - 1) 0) g r (.ret (encodeWords [hashWords c ws])) := by
+    ExactGas (gas.getD (2 * ws.length - 1) 0) g r (.ret (encodeWords [hashWords c ws])) := by
   obtain ⟨j, hj, hf, he, ho⟩ := h
   have hl := eval_cds _ v (abi_length_lt sel hsel ws h3)
   rw [abi_length sel hsel ws] at hl
-  have hj' : j = ws.length - 1 := by
+  have hj' : j = 2 * ws.length - 1 := by
     simp only [huffHashCases, List.length_cons, List.length_nil] at hj
-    rcases j with _ | _ | _ | j
+    rcases j with _ | _ | _ | _ | _ | _ | _ | j
     all_goals first | omega | (
       simp only [huffHashCases, List.getD_cons_zero, List.getD_cons_succ, factsHold_cons,
         factsHold_nil, and_true, hl, cdsMax] at hf; omega)
   subst hj'
   rw [huffHash_abi c sel hsel ws hws h1 h3] at he
+  exact ⟨he, ho⟩
+
+/-- `huffHashXor` on `n = 1, 2, 3` ABI input words: case 1, 5, 3 (jump target `0x05`, `0x65`,
+`0x45`). -/
+theorem huffHashXor_abi_total (c : Params) (j1 j3 jr : Nat)
+    (hord : 0x65 < jr ∧ jr < j3 ∧ j3 < j1) (gas : List Nat) (sel : List UInt8)
+    (hsel : sel.length = 4) (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length)
+    (h3 : ws.length ≤ 3) (v g : Nat)
+    {r : Except EVM.ExecutionException (ExecutionResult (AccountMap × UInt256 × Substate))}
+    (h : Total (huffHashXorCases c j1 j3 jr) gas ⟨sel ++ encodeWords ws, v⟩ g r
+      (huffHashXor c j1 j3 jr (sel ++ encodeWords ws))) :
+    ExactGas (gas.getD ([1, 5, 3].getD (ws.length - 1) 0) 0) g r
+      (.ret (encodeWords [hashWords c ws])) := by
+  obtain ⟨j, hj, hf, he, ho⟩ := h
+  have hx := eval_xorTerm _ v (abi_length_lt sel hsel ws h3)
+  rw [abi_length sel hsel ws] at hx
+  have hj' : j = [1, 5, 3].getD (ws.length - 1) 0 := by
+    simp only [huffHashXorCases, List.length_cons, List.length_nil] at hj
+    obtain ⟨o1, o2, o3⟩ := hord
+    rcases (show ws.length = 1 ∨ ws.length = 2 ∨ ws.length = 3 by omega) with hn | hn | hn <;>
+    · simp only [hn, Nat.reduceMul, Nat.reduceAdd, Nat.reduceXor, Nat.reduceSub,
+        List.getD_cons_zero, List.getD_cons_succ] at hx ⊢
+      rcases j with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | j
+      all_goals first | rfl | omega | (
+        simp only [huffHashXorCases, List.getD_cons_zero, List.getD_cons_succ, factsHold_cons,
+          factsHold_nil, and_true, hx, cdsMax] at hf; omega)
+  subst hj'
+  rw [huffHashXor_abi c j1 j3 jr sel hsel ws hws h1 h3] at he
   exact ⟨he, ho⟩
 
 /-- `yulHash` on 1 to 3 ABI input words and call value 0: the case from 4 bytes on (5). -/

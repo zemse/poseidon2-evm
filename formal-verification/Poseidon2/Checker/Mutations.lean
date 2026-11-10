@@ -8,8 +8,8 @@ import Poseidon2.Spec.Constants.T2
 The checker accepts the Huff t = 2 Amsterdam bytecode and rejects three one-byte mutations of
 it, all by kernel evaluation:
 
-* a flipped stack index: the `DUP2` at byte 224 made `DUP3`;
-* a removed reduction: the `ADDMOD` at byte 486 made `ADD` (the modulus stays on the stack);
+* a flipped stack index: the `DUP2` at byte 232 made `DUP3`;
+* a removed reduction: the `ADDMOD` at byte 483 made `ADD` (the modulus stays on the stack);
 * a wrong constant: bit 0 of the last byte (273) of the `PUSH32` round constant at 241 flipped.
 
 Each mutation first checks that the byte it changes is the one described.
@@ -26,10 +26,10 @@ def accepts (bs : List Nat) : Bool :=
 
 theorem original : accepts bytes = true := by decide +kernel
 
-theorem dup_flipped : bytes[224]? = some 0x81 ∧ accepts (bytes.set 224 0x82) = false := by
+theorem dup_flipped : bytes[232]? = some 0x81 ∧ accepts (bytes.set 232 0x82) = false := by
   decide +kernel
 
-theorem reduction_removed : bytes[486]? = some 0x08 ∧ accepts (bytes.set 486 0x01) = false := by
+theorem reduction_removed : bytes[483]? = some 0x08 ∧ accepts (bytes.set 483 0x01) = false := by
   decide +kernel
 
 theorem constant_changed :

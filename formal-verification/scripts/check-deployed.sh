@@ -24,7 +24,9 @@ table=$(find Poseidon2/Bytecode -name '*.lean' | sort | while read -r f; do
   awk -v mod="$(echo "${f%.lean}" | tr / .)" '
     $1 == "name" && $2 == ":=" { gsub(/"/, "", $3); name = $3 }
     $1 == "keccak" && $2 == ":=" { hash = tolower($3) }
-    $1 == "kind" && $2 == ":=" { kind = $3; sub(/^\./, "", kind) }
+    $1 == "kind" && $2 == ":=" {
+      kind = $0; sub(/^[^=]*:= */, "", kind); gsub(/[()]/, "", kind); sub(/^\./, "", kind)
+    }
     END { if (name != "" && hash != "") print hash, name, mod, kind }' "$f"
 done)
 if [ -z "$table" ]; then
@@ -47,7 +49,10 @@ for addr in "$@"; do
   hash=$(cast keccak "$code" | tr 'A-F' 'a-f')
   # the same code can be exported twice (Huff t = 3 is the same on both forks)
   match=$(echo "$table" | awk -v h="$hash" '
-    $1 == h { s = s (s == "" ? "" : ", ") $2 " (" $3 ", " $4 ")" }
+    $1 == h {
+      k = $4; for (i = 5; i <= NF; i++) k = k " " $i
+      s = s (s == "" ? "" : ", ") $2 " (" $3 ", " k ")"
+    }
     END { print s }')
   if [ -n "$match" ]; then
     echo "$addr: $size bytes, keccak256 $hash, matches $match"

@@ -39,6 +39,7 @@ def casesOf (a : Artifact) : List Case :=
   match a.kind with
   | .huffPerm => huffPermCases c
   | .huffHash => huffHashCases c
+  | .huffHashXor j1 j3 jr => huffHashXorCases c j1 j3 jr
   | .yulHash => yulHashCases c
   | .yulPerm => yulPermCases c (Interface.permuteSelector a.t)
   | .hashV2 => hashV2Cases c

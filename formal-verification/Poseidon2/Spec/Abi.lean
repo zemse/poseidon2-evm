@@ -5,10 +5,10 @@ import Poseidon2.Spec.Interface
 
 ABI calldata of `hash_1`, `hash_2`, `hash_3` (`IPoseidon2`): 4 selector bytes, any, then the
 `n = 1, 2, 3` input words, each below `2^256`, as 32 big-endian bytes (`sel ++ encodeWords ws`).
-On it `huffHash`, `yulHash` with call value 0 and `hashV2` return the one word
-`hashWords c ws` (`huffHash_abi`, `yulHash_abi`, `hashV2_abi`), and for t = 4 `hashWords` is
-the Barretenberg / Noir sponge `Poseidon2::hash` of the inputs read modulo `P`
-(`hashWords_eq_sponge`). With the contract theorems (`Theorems.lean`, `Proofs/`) the t = 4 hash
+On it `huffHash`, `huffHashXor`, `yulHash` with call value 0 and `hashV2` return the one word
+`hashWords c ws` (`huffHash_abi`, `huffHashXor_abi`, `yulHash_abi`, `hashV2_abi`), and for
+t = 4 `hashWords` is the Barretenberg / Noir sponge `Poseidon2::hash` of the inputs read modulo
+`P` (`hashWords_eq_sponge`). With the contract theorems (`Theorems.lean`, `Proofs/`) the t = 4 hash
 contracts compute `hash_1` / `hash_2` / `hash_3` on every ABI call, not only on the samples of
 `hash_entries_abi`.
 -/
@@ -129,13 +129,21 @@ theorem permWords_abi (c : Params) (hc : c.t = 4) (sel : List UInt8) (hsel : sel
   rw [permutationWords, capWords_abi sel hsel ws hws h1 h3, headD_val, hashWords,
     Poseidon2.Spec.hash_eq, hc]
 
-/-- `hash_1` / `hash_2` / `hash_3` of the Huff t = 4 entry. -/
+/-- `hash_1` / `hash_2` / `hash_3` of the Huff t = 4 entry (Amsterdam). -/
 theorem huffHash_abi (c : Params) (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3) :
     huffHash c (sel ++ encodeWords ws) = .ret (encodeWords [hashWords c ws]) := by
   have hlen : (sel ++ encodeWords ws).length = 4 + 32 * ws.length := by
     simp [hsel, encodeWords_length]
-  simp only [huffHash, hlen, huffArity_abi _ h1 h3, calldataWords_abi sel hsel ws hws]
+  simp only [huffHash, hlen, huffArity_abi _ h1 h3, hashOf, calldataWords_abi sel hsel ws hws]
+
+/-- `hash_1` / `hash_2` / `hash_3` of the Huff t = 4 entry (Osaka). -/
+theorem huffHashXor_abi (c : Params) (j1 j3 jr : Nat) (sel : List UInt8) (hsel : sel.length = 4)
+    (ws : List Nat) (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3) :
+    huffHashXor c j1 j3 jr (sel ++ encodeWords ws) = .ret (encodeWords [hashWords c ws]) := by
+  have hlen : (sel ++ encodeWords ws).length = 4 + 32 * ws.length := by
+    simp [hsel, encodeWords_length]
+  simp only [huffHashXor, hlen, huffArity_abi _ h1 h3, hashOf, calldataWords_abi sel hsel ws hws]
 
 /-- `hash_1` / `hash_2` / `hash_3` of `Poseidon2Yul_BN254` (call value 0). -/
 theorem yulHash_abi (c : Params) (hc : c.t = 4) (sel : List UInt8) (hsel : sel.length = 4)

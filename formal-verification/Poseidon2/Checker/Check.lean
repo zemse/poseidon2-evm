@@ -13,7 +13,9 @@ For an artifact and one case of the call (a set of `Facts` and the outcome
   bytecode built: every returned word must have a raw bound below `P` and the form the spec
   gives, so spec and checker share one definition (`permG`, `hashG`);
 * a case of fixed words (`words`) the same way, the spec's forms being constants;
-* a revert case with an empty `REVERT`.
+* a revert case with an empty `REVERT`;
+* a halt case with the run ending at a `JUMP` to no jump destination (`badJump`) or an `ADD`
+  with too few stack items (`underflow`).
 
 `cases` lists the cases of every contract kind; together they cover every call with calldata
 shorter than `2^64` bytes. `check` is the conjunction over them.
@@ -192,11 +194,38 @@ def capTerm (fs : Facts) : Term :=
 def huffPermCases (c : Params) : List Case :=
   [⟨"any calldata", [], .perm c (cdlWords 0 c.t)⟩]
 
-/-- `huffHash`: the three arities. -/
+/-- `huffHash` (Amsterdam, `JUMP` to `calldatasize << 9`): the three ABI sizes, and the sizes
+around them, whose jump target interval holds no jump destination. -/
 def huffHashCases (c : Params) : List Case :=
-  [⟨"hash_1 (size < 0x44)", [(.cds, 0, 0x43)], .hash c (cdlWords 4 1)⟩,
-   ⟨"hash_2 (size = 0x44)", [(.cds, 0x44, 0x44)], .hash c (cdlWords 4 2)⟩,
-   ⟨"hash_3 (size > 0x44)", [(.cds, 0x45, cdsMax)], .hash c (cdlWords 4 3)⟩]
+  [⟨"size < 0x24", [(.cds, 0, 0x23)], .badJump⟩,
+   ⟨"hash_1 (size 0x24)", [(.cds, 0x24, 0x24)], .hash c (cdlWords 4 1)⟩,
+   ⟨"size 0x25 to 0x43", [(.cds, 0x25, 0x43)], .badJump⟩,
+   ⟨"hash_2 (size 0x44)", [(.cds, 0x44, 0x44)], .hash c (cdlWords 4 2)⟩,
+   ⟨"size 0x45 to 0x63", [(.cds, 0x45, 0x63)], .badJump⟩,
+   ⟨"hash_3 (size 0x64)", [(.cds, 0x64, 0x64)], .hash c (cdlWords 4 3)⟩,
+   ⟨"size > 0x64", [(.cds, 0x65, cdsMax)], .badJump⟩]
+
+/-- The jump target of the Osaka t = 4 hash entry, `xor(calldatasize(), 0x21)`, as the checker
+normalizes it. -/
+def xorTerm : Term := .bin 0x18 .cds (.const 0x21)
+
+/-- `huffHashXor j1 j3 jr` (Osaka, `JUMP` to `calldatasize xor 0x21`), by the jump target: the
+six jump destinations (the ABI sizes' `0x05`, `0x45`, `0x65`, and `jr`, `j3`, `j1`, in this
+order in the code), and the targets between and around them. -/
+def huffHashXorCases (c : Params) (j1 j3 jr : Nat) : List Case :=
+  [⟨"target < 0x05", [(xorTerm, 0, 0x04)], .badJump⟩,
+   ⟨"hash_1 (size 0x24, target 0x05)", [(xorTerm, 0x05, 0x05)], .hash c (cdlWords 4 1)⟩,
+   ⟨"target 0x06 to 0x44", [(xorTerm, 0x06, 0x44)], .badJump⟩,
+   ⟨"hash_3 (size 0x64, target 0x45)", [(xorTerm, 0x45, 0x45)], .hash c (cdlWords 4 3)⟩,
+   ⟨"target 0x46 to 0x64", [(xorTerm, 0x46, 0x64)], .badJump⟩,
+   ⟨"hash_2 (size 0x44, target 0x65)", [(xorTerm, 0x65, 0x65)], .hash c (cdlWords 4 2)⟩,
+   ⟨s!"target 0x66 to {jr - 1}", [(xorTerm, 0x66, jr - 1)], .badJump⟩,
+   ⟨s!"rounds (target {jr})", [(xorTerm, jr, jr)], .underflow⟩,
+   ⟨s!"target {jr + 1} to {j3 - 1}", [(xorTerm, jr + 1, j3 - 1)], .badJump⟩,
+   ⟨s!"hash_3 round 0 (target {j3})", [(xorTerm, j3, j3)], .hash c (cdlWords 4 3)⟩,
+   ⟨s!"target {j3 + 1} to {j1 - 1}", [(xorTerm, j3 + 1, j1 - 1)], .badJump⟩,
+   ⟨s!"hash_1 round 0 (target {j1})", [(xorTerm, j1, j1)], .hash c (cdlWords 4 1)⟩,
+   ⟨s!"target > {j1}", [(xorTerm, j1 + 1, cdsMax)], .badJump⟩]
 
 /-- Calldata of `n < 4` bytes: the three argument words are zero. -/
 def shortFacts (n : Nat) : Facts := [(.cds, n, n), (.cdl 4, 0, 0), (.cdl 0x24, 0, 0), (.cdl 0x44, 0, 0)]

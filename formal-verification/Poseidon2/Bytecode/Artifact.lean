@@ -14,8 +14,10 @@ namespace Poseidon2.Bytecode
 inductive Kind where
   /-- `huffPerm` -/
   | huffPerm
-  /-- `huffHash` -/
+  /-- `huffHash` (Amsterdam) -/
   | huffHash
+  /-- `huffHashXor j1 j3 jr` (Osaka) -/
+  | huffHashXor (j1 j3 jr : Nat)
   /-- part `i` of `n` of a split Huff permutation (Osaka); no artifact at this commit -/
   | huffPart (i n : Nat)
   /-- `yulHash` -/

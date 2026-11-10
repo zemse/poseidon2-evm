@@ -34,6 +34,7 @@ def casesOf (a : Artifact) : List Case :=
   match a.kind with
   | .huffPerm => huffPermCases c
   | .huffHash => huffHashCases c
+  | .huffHashXor j1 j3 jr => huffHashXorCases c j1 j3 jr
   | .yulHash => yulHashCases c
   | .yulPerm => yulPermCases c (Interface.permuteSelector a.t)
   | .hashV2 => hashV2Cases c
@@ -42,6 +43,8 @@ def casesOf (a : Artifact) : List Case :=
 def describe : Res → String
   | .ret ws tb g => s!"return {ws.length} words, {tb.next} atoms, gas {g}"
   | .revert n g => s!"revert {n} bytes, gas {g}"
+  | .badJump g => s!"halt at a JUMP to no jump destination, gas {g}"
+  | .underflow g => s!"halt at an ADD with too few stack items, gas {g}"
   | .stop => "stop"
   | .fail pc msg => s!"FAIL at pc {pc}: {msg}"
 
