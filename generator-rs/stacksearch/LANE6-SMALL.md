@@ -55,3 +55,12 @@ The model leaves the PRIME copies out (8 a round, 24 gas, placed free). In the r
 
 - `PRIME=1 STRICT=1` (real opcodes only: no moves between depths, no SWAP with a copy below the live values) one round at window 10: stopped at the 30 min limit (7.9 GB, 12% of a core on the loaded machine).
 - hashdag, the ROUND4 junction from ROUND4's stack after `t2` (`[t2, t0, s3', _, t3]`) to the next round's after its `sbox3` (`[x3, P, t0, 2x1, _, s2]`, what ROUND4's suffix takes): 206 in production (41 + 165).
+
+  First run (S-box-only move bound): stopped at f = 203 (101.9M states, 9 GB). With the general move bound and larger-g ties: stopped at f = 203 (95.3M states). No program below 206 found; f 203 is the bound reached, so at most 3 gas could remain there, and fixing round B's suffix to ROUND4's likely forbids what the relaxed program does (it makes the next round's t3 and 4t0 before s2').
+- hashdag, one round of work from after `t2` to the next round's after `t2` (`INIT=t2,t0,s3',_,t3`, goal `t2',t0',s3'',_,t3'`, 16 nodes, 317 in production): passed 22 GB at f = 305 (222M states, 2,291 s), no program found. The exact searches cannot reach the relaxed program's depth; the next step is a real program written from the relaxed one with its PRIME copies placed by hand, replayed (`REPLAY`) and checked by `verify`.
+
+The R59/R60 seam with the new bound (`INIT=sum,P,x0,s1,s2,s3`, R60 to its `sbox3`, 254 in production): stopped at f = 239 (92.8M states). The t4 row 0 junction R62 tail + row 0 and the internal seam stay open.
+
+### 5. t4 hash_1 round 0 fused, with a PUSH0 under it
+
+hash_1's round 0 at 208 (item 1) leaves two dead values; a PUSH0 (2 gas, 3 on Paris) first keeps the three the rounds after expect: 363 to 362 on Amsterdam and Osaka, 363 on Paris. Landed: hash_1 11,838 to 11,837 (Amsterdam), 11,862 to 11,861 (Osaka), 11,863 (Paris). The forms interpreter takes `sboxI`, numbers and s<i>' outputs, so templates::hash_forms(1) holds the whole round.
