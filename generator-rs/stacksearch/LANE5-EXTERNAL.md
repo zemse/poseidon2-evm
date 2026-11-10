@@ -39,6 +39,8 @@ Machine shared with other lanes; every run under a guard (RSS cap, time cap). St
 | TAKE=1 (x), LIFT=2 | 8 | 344 | none (exhausted) | 48.7M | 646 s | 1.6 GB |
 | TAKE=1 (x), LIFT=2 | 9 | 344 | none (exhausted) | 136.4M | 15,456 s (1 h paused, load 100-250) | 5.2 GB |
 | TAKE=2 (x), LIFT=2 | 8 | 344 | none (exhausted) | 180.3M | 18,780 s (same) | 5.6 GB |
+| TAKE=1 TAKE_S=1 (last block, x or S), LIFT=2 | 8 | 344 | none (exhausted) | 93.0M | 4,445 s | 2.7 GB |
+| TAKE=1 GARBAGE=1 (dead values stay, spare copies), LIFT=2 | 8 | 344 | none (exhausted) | 246.4M | 9,058 s | 8.7 GB |
 | ROLL=1 GARBAGE=1 | 8 | 347 | 342.5 (7 half SWAPs) | 7.6M | 292 s | 0.3 GB |
 
 The take runs are the first exhaustive ones (lane 2's TAKE=1 took 11.4 GB in 37 min and was stopped, its TAKE=2 9.6 GB in 87 min): with one x read in place within window 9, or two within window 8, the middle kept block has nothing below 344.
@@ -90,3 +92,12 @@ Gate (6ef34be, again on 60911ae after the rebase onto lanes I and 6): generate:h
 
 - `sblock`: the states in an arena of 24 bytes behind an open-addressing table of indices, the queue an u64 an entry (exit window 8: 846 MB to 174 MB, same program, same states). `LIFT`, `ANY`, `shl` and `store` nodes (see the file's header).
 - `m4dag`: the DAG enumerator and the op-count search.
+
+## Where the lane stands
+
+- Landed: the final layer stores its own outputs (Terminal::Stream), 7 gas a final block (t8 -14 to t28 -49 on Amsterdam).
+- Arithmetic: the block M4 needs 12 ops (exhausted over nonnegative forms) and 4 reductions; every per-layer rearrangement of S tried keeps the count of binary ops. Open: DAGs with negative or fractional MULMOD constants (an 11-op DAG would cost 98 against 104), not searched.
+- Kept block: 344 is the least with one x take within window 9, two within window 8, an x or S take in the last block within 8, and with dead values left within 8. What is left is the ROLL bound (341 at window 10): a program over two blocks, where one block's lane burial is the other's lift.
+- Exit blocks: nothing below 152 / 155 with any order, garbage under or between the outputs, EXCHANGE, or window 10 for exit0. The first consuming round's +8 (lane 4) stands.
+- Final block: 196 with stores; the 6 over its h0 are u1 and u3, each read by a deep value and one above a PRIME copy over it. A cheaper one needs another DAG.
+- Osaka: Terminal::Stream with reach 16 (t8, t12) gives the same gas, so it is not taken.
