@@ -4,22 +4,30 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 
 ## Huff, open directions
 
-- [ ] 4x4 block program search over alternative M4 DAGs (current `sblock` fixes the paper's DAG, orders moves only), wider window (>10), EIP-8024 `EXCHANGE`. Est. 5-10 gas/block: 280-560 at t28, 80-160 at t8.
+- [x] 4x4 block program search over alternative M4 DAGs (lane 5, LANE5-EXTERNAL.md): no 11-op M4 DAG over nonnegative forms (126.8M sets exhausted), 12 ops with 4 reductions is least; kept block none below 344 (TAKE=1 w8/w9, TAKE=2 w8), exit / exit0 none below 152 / 155. No gain.
+- [ ] Two kept blocks interleaved: bound 341 at window 10, at most 3 gas a kept block (~147 at t28). Needs a two-block search.
+- [ ] M4 DAGs with MULMOD by negative or fractional constants: an 11-op DAG would cost 98 against 104 a block. Not searched.
 - [ ] t2/t3/t4 re-search with restrictions lifted (window, live-only DUP filter, fixed DAG, whitelist). Relaxation floor gaps t2 339, t3 504, t4 672: upper bound, real gain unknown.
 - [x] t4 hash arity dispatch by computed jump (e9bc320): `calldatasize 0x9 shl jump`, a copy of the rounds per arity, 64,257 bytes. hash 11,880 / 11,887 / 11,960 to 11,841 / 11,882 / 11,922; other calldata sizes fail.
-- [ ] t4 hash: fuse round-0 forms with ROUND4, consume p1/p3 in place. At most 6 gas per arity; search 881 s / 7.6 GB per round.
+- [ ] t4 hash: fuse round-0 forms with ROUND4. hash_1 done (cc13782, -1); hash_2 (f 246 vs 252) and hash_3 (f 277 vs 292) searches stopped unfinished.
 - [ ] First consuming round costs 8 more than steady (lazier exit-layer bounds force an extra ADDMOD). 8 gas per width t >= 8.
-- [ ] Deferred-sum internal state (slots hold d_i s_i, sum added at next MULMOD). Measured ~1 gas/round net: ~57 at t28.
+- [x] Deferred-sum internal state (421b4e2): t20 / t24 / t28 -67 / -56 / -522. Relaxed `defercycle` mean 28.5 against our 30 a round (STRICT 29.5): up to ~4.5 gas a round at t20-28 if the PRIME carrier moves are realizable.
 - [x] t24/t28 diag constants on the stack on Amsterdam, no shared body (b9f1a4a): -300 / -376.
 - [ ] Osaka t8: `primeEarly` impossible within DUP16 reach (24,217 stays).
 - [x] Lane-copy steady internal rounds (c9b0314): -339 to -351 at t8 to t28.
 - [x] Lazy t8 column sums, in-place takes, six-reduction final block (4ea72b3): -146 t8 to -148 t28.
 - [x] t2/t3/t4 last rounds in place (572c52a) and chained external rounds (f5f2e63): t2 -18, t3 -18, t4 -3 per arity.
-- [ ] t4 hash junctions of consecutive ROUND4s (rounds 1-3, 60-62), as t2/t3: est. ~12 gas per arity. `seam` tool exists.
-- [ ] t3 junction of rounds 2 and 3 at window 8 (over 16 GB; 186 to beat), t2 junction of rounds 61/62 with other Final-pair layouts.
+- [ ] t4 hash junctions of consecutive ROUND4s (rounds 1-3, 60-62): relaxed (PRIME copies free) 6 gas a junction; no exact search with PRIME placement finished (LANE6-SMALL.md).
+- [x] t3 junction of rounds 2 and 3 at window 8: none below 186 (closed). t2 rounds 60-63 as one chain (fe9e427): -3.
 - [ ] Steady internal round t8 290 against floor B 266: at most one of the n + 1 moves shown not inherent beyond t = 4.
-- [ ] External blocks: `sblock` take searches (TAKE=1..3) ran out of memory or found nothing below 344 / 183 / 155; needs symmetry reduction or tighter bounds.
+- [x] External blocks: `sblock` take searches finished with the 24-byte arena: none below 344 (kept), 152 / 155 (exit / exit0).
 - [ ] Osaka t24/t28 shared body: with laneCopy the body period is free (any length, free mid entry); trade body length against call overhead.
+- [x] t >= 8 entries store each final block's outputs as made (0aa5ea6): -14 / -21 / -28 / -35 / -42 / -49 at t8..t28.
+- [x] firstSum, the first internal sum from the exit layer's column sums (733f7d4): -3 / -12 / -52 / -73 / -113 / -145 at t8..t28.
+- [x] t4 hash row 0 in place (ad802b5): -3 per arity.
+- [ ] t4 hash_1: a rounds macro per dead-slot count (Amsterdam, one copy per arity) drops its PUSH0: -2.
+- [ ] firstSum: K - s0 takes two SWAPs (6 gas at t12..t28) and the seam carrier 3.
+- [ ] Clippy `manual_is_multiple_of` at `generator-rs/src/huff/schedule.rs` `column_cap`.
 - [ ] `src/bn254/README.md` figures not re-measured after the lanes: Osaka t2 code-size paragraph (3,914 / 7,387 bytes, 5,943-gas compact; t2 now 7,125 bytes), Osaka streamed-block 365 / 377 / 359 / 347 and "24 to 51 gas a call", the 231 to 867 streaming saving. The file also fails `prettier --check` (t8+ table rows).
 
 ## Yul, open directions
@@ -36,6 +44,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Refresh proofs for every Huff/Yul bytecode changed since b4afc03 (5b2903a, aa1e499).
 - [x] Prove the via-IR 1M builds of t2/t3/t4/t8 (04f2d61, 75518ae); 39 targets proven.
 - [x] Refresh proofs for the bytecode of the four gas lanes (cfd38de, 6feaeaa), with the t4 Huff hash failing outside the 36 / 68 / 100 byte calldata sizes.
+- [ ] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
 
 ## Code quality review
 
