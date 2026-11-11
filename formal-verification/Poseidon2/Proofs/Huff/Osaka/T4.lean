@@ -12,7 +12,7 @@ import Poseidon2.Spec.Constants.T4
 The checker accepts `huff/osaka/t4` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
 segment boundary is written out below (computed outside the kernel, checked by it). The
-gas of each case's run is `gas` ([16, 11865, 16, 11946, 16, 11883, 16, 20, 16, 11934, 16, 11853, 16]); `correct` is partial correctness, `total`
+gas of each case's run is `gas` ([16, 11861, 16, 11943, 16, 11880, 16, 20, 16, 11931, 16, 11849, 16]); `correct` is partial correctness, `total`
 total correctness with that gas.
 `cancun`: the code never runs DUPN / SWAPN, so every call is the same under EVMLean's
 Cancun `Ξ` as under the EIP-8024 overlay, and `totalCancun` is `total` of the former.
@@ -27,7 +27,7 @@ set_option maxHeartbeats 0
 
 def code : Code := Code.ofBytes Poseidon2.Bytecode.Huff.Osaka.T4.artifact.bytes
 
-def cases : List Case := huffHashXorCases Constants.T4.params 15666 15379 372
+def cases : List Case := huffHashXorCases Constants.T4.params 15633 15346 372
 
 theorem code_wf : code.WF := Code.ofBytes_wf _
 
@@ -45,11 +45,11 @@ theorem case0 : checkCaseGas code (cases.getD 0 default) 16 = true := by
 
 /-! ### Case 1: hash_1 (size 0x24, target 0x05) (0 boundaries) -/
 
-theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 11865
+theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 11861
     (run (cases.getD 1 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case1 : checkCaseGas code (cases.getD 1 default) 11865 = true := by
+theorem case1 : checkCaseGas code (cases.getD 1 default) 11861 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -69,11 +69,11 @@ theorem case2 : checkCaseGas code (cases.getD 2 default) 16 = true := by
 
 /-! ### Case 3: hash_3 (size 0x64, target 0x45) (0 boundaries) -/
 
-theorem end3 : resultOkGas (cases.getD 3 default).facts (cases.getD 3 default).expect 11946
+theorem end3 : resultOkGas (cases.getD 3 default).facts (cases.getD 3 default).expect 11943
     (run (cases.getD 3 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case3 : checkCaseGas code (cases.getD 3 default) 11946 = true := by
+theorem case3 : checkCaseGas code (cases.getD 3 default) 11943 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -93,11 +93,11 @@ theorem case4 : checkCaseGas code (cases.getD 4 default) 16 = true := by
 
 /-! ### Case 5: hash_2 (size 0x44, target 0x65) (0 boundaries) -/
 
-theorem end5 : resultOkGas (cases.getD 5 default).facts (cases.getD 5 default).expect 11883
+theorem end5 : resultOkGas (cases.getD 5 default).facts (cases.getD 5 default).expect 11880
     (run (cases.getD 5 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case5 : checkCaseGas code (cases.getD 5 default) 11883 = true := by
+theorem case5 : checkCaseGas code (cases.getD 5 default) 11880 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -127,7 +127,7 @@ theorem case7 : checkCaseGas code (cases.getD 7 default) 20 = true := by
   rw [e, ← Code.at_zero]
   exact end7
 
-/-! ### Case 8: target 373 to 15378 (0 boundaries) -/
+/-! ### Case 8: target 373 to 15345 (0 boundaries) -/
 
 theorem end8 : resultOkGas (cases.getD 8 default).facts (cases.getD 8 default).expect 16
     (run (cases.getD 8 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
@@ -139,19 +139,19 @@ theorem case8 : checkCaseGas code (cases.getD 8 default) 16 = true := by
   rw [e, ← Code.at_zero]
   exact end8
 
-/-! ### Case 9: hash_3 round 0 (target 15379) (0 boundaries) -/
+/-! ### Case 9: hash_3 round 0 (target 15346) (0 boundaries) -/
 
-theorem end9 : resultOkGas (cases.getD 9 default).facts (cases.getD 9 default).expect 11934
+theorem end9 : resultOkGas (cases.getD 9 default).facts (cases.getD 9 default).expect 11931
     (run (cases.getD 9 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case9 : checkCaseGas code (cases.getD 9 default) 11934 = true := by
+theorem case9 : checkCaseGas code (cases.getD 9 default) 11931 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end9
 
-/-! ### Case 10: target 15380 to 15665 (0 boundaries) -/
+/-! ### Case 10: target 15347 to 15632 (0 boundaries) -/
 
 theorem end10 : resultOkGas (cases.getD 10 default).facts (cases.getD 10 default).expect 16
     (run (cases.getD 10 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
@@ -163,19 +163,19 @@ theorem case10 : checkCaseGas code (cases.getD 10 default) 16 = true := by
   rw [e, ← Code.at_zero]
   exact end10
 
-/-! ### Case 11: hash_1 round 0 (target 15666) (0 boundaries) -/
+/-! ### Case 11: hash_1 round 0 (target 15633) (0 boundaries) -/
 
-theorem end11 : resultOkGas (cases.getD 11 default).facts (cases.getD 11 default).expect 11853
+theorem end11 : resultOkGas (cases.getD 11 default).facts (cases.getD 11 default).expect 11849
     (run (cases.getD 11 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case11 : checkCaseGas code (cases.getD 11 default) 11853 = true := by
+theorem case11 : checkCaseGas code (cases.getD 11 default) 11849 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
   exact end11
 
-/-! ### Case 12: target > 15666 (0 boundaries) -/
+/-! ### Case 12: target > 15633 (0 boundaries) -/
 
 theorem end12 : resultOkGas (cases.getD 12 default).facts (cases.getD 12 default).expect 16
     (run (cases.getD 12 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
@@ -189,7 +189,7 @@ theorem case12 : checkCaseGas code (cases.getD 12 default) 16 = true := by
 
 /-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
 `gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
-def gas : List Nat := [16, 11865, 16, 11946, 16, 11883, 16, 20, 16, 11934, 16, 11853, 16]
+def gas : List Nat := [16, 11861, 16, 11943, 16, 11880, 16, 20, 16, 11931, 16, 11849, 16]
 
 theorem checkG : CheckedGas code cases gas :=
   ⟨by decide, fun j hj => by
@@ -219,8 +219,8 @@ theorem correct (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) :
-    Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15666 15379 372 cd) :=
-  Theorems.huffHashXor_correct Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15666 15379 372 (by decide) check cd v hcd hv σ σ₀ g A I hI
+    Soundness.Matches (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15633 15346 372 cd) :=
+  Theorems.huffHashXor_correct Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15633 15346 372 (by decide) check cd v hcd hv σ σ₀ g A I hI
 
 /-- Total correctness: every call is in some case `j` of `cases`; given at least `gas[j]`
 gas it ends exactly as the interface says with `gas[j]` used, given less it runs out of gas
@@ -229,19 +229,19 @@ theorem total (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) :
-    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15666 15379 372 cd) :=
-  Theorems.huffHashXor_total Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15666 15379 372 (by decide) gas checkG cd v hcd hv σ σ₀ g A I hI
+    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Evm.Eip8024.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15633 15346 372 cd) :=
+  Theorems.huffHashXor_total Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15633 15346 372 (by decide) gas checkG cd v hcd hv σ σ₀ g A I hI
 
-/-- With at least 11946 gas (the most of any case) every call ends exactly as the
+/-- With at least 11943 gas (the most of any case) every call ends exactly as the
 interface says, using at most that much. -/
 theorem enough (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
-    (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) (hg : 11946 ≤ g.toNat) :
-    ∃ G, G ≤ 11946 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
-      (Interface.huffHashXor Constants.T4.params 15666 15379 372 cd) :=
+    (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) (hg : 11943 ≤ g.toNat) :
+    ∃ G, G ≤ 11943 ∧ Soundness.Exact (g.toNat - G) (Evm.Eip8024.Ξ σ σ₀ g A I)
+      (Interface.huffHashXor Constants.T4.params 15633 15346 372 cd) :=
   (total cd v hcd hv σ σ₀ g A I hI).exact
-    (le_trans (le_of_eq (show maxGas gas = 11946 by decide)) hg)
+    (le_trans (le_of_eq (show maxGas gas = 11943 by decide)) hg)
 
 /-- No DUPN / SWAPN where the run can get to: from `pc = 0` and from every jump destination,
 up to an instruction the run cannot fall through (`Evm.Sim.ovFree`). -/
@@ -255,14 +255,14 @@ theorem cancun (cd : List UInt8) (v : Nat)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) :
     Evm.Eip8024.Ξ σ σ₀ g A I = Ethereum.EVM.Ξ σ σ₀ g A I :=
-  Theorems.huffHashXor_cancun Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15666 15379 372 (by decide) check ovFree cd v hcd hv σ σ₀ g A I hI
+  Theorems.huffHashXor_cancun Poseidon2.Bytecode.Huff.Osaka.T4.artifact Constants.T4.params 15633 15346 372 (by decide) check ovFree cd v hcd hv σ σ₀ g A I hI
 
 /-- `total` of EVMLean's Cancun `Ξ`, without the overlay. -/
 theorem totalCancun (cd : List UInt8) (v : Nat)
     (hcd : cd.length < 2 ^ 64) (hv : v < W) (σ σ₀ : Ethereum.AccountMap)
     (g : Ethereum.UInt256) (A : Ethereum.Substate) (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Osaka.T4.artifact cd v I) :
-    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Ethereum.EVM.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15666 15379 372 cd) :=
+    Theorems.Total cases gas ⟨cd, v⟩ g.toNat (Ethereum.EVM.Ξ σ σ₀ g A I) (Interface.huffHashXor Constants.T4.params 15633 15346 372 cd) :=
   cancun cd v hcd hv σ σ₀ g A I hI ▸ total cd v hcd hv σ σ₀ g A I hI
 
 #assert_standard_axioms_here
