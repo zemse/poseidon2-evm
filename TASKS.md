@@ -28,7 +28,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [ ] t4 hash_1: a rounds macro per dead-slot count (Amsterdam, one copy per arity) drops its PUSH0: -2.
 - [ ] firstSum: K - s0 takes two SWAPs (6 gas at t12..t28) and the seam carrier 3.
 - [ ] Clippy `manual_is_multiple_of` at `generator-rs/src/huff/schedule.rs` `column_cap`.
-- [ ] `src/bn254/README.md` figures not re-measured after the lanes: Osaka t2 code-size paragraph (3,914 / 7,387 bytes, 5,943-gas compact; t2 now 7,125 bytes), Osaka streamed-block 365 / 377 / 359 / 347 and "24 to 51 gas a call", the 231 to 867 streaming saving. The file also fails `prettier --check` (t8+ table rows).
+- [x] `src/bn254/README.md` figures re-measured (2cd5769): Osaka t2 code size, streamed blocks 365 / 377 / 359; 231 to 867 and 24 to 51 kept as recorded when they landed. Tables hand-aligned; `prettier --check` not run (not installed).
 
 ## Yul, open directions
 
