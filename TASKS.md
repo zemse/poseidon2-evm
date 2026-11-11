@@ -44,7 +44,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Refresh proofs for every Huff/Yul bytecode changed since b4afc03 (5b2903a, aa1e499).
 - [x] Prove the via-IR 1M builds of t2/t3/t4/t8 (04f2d61, 75518ae); 39 targets proven.
 - [x] Refresh proofs for the bytecode of the four gas lanes (cfd38de, 6feaeaa), with the t4 Huff hash failing outside the 36 / 68 / 100 byte calldata sizes.
-- [ ] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
+- [x] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4, 6e05cd6): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
 
 ## Code quality review
 
