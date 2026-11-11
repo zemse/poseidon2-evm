@@ -368,7 +368,15 @@ def step (fs : Facts) (code : Code) (i : Ins) (s : St) : M St :=
         if k < 256 ∧ bnd * 2 ^ k < W then push s (.lin (l.scale (2 ^ k)) (bnd * 2 ^ k))
         else .error "SHL may overflow"
       | _, _ => push s (← wordBin fs b x y)
-    | 0x03 | 0x04 | 0x10 | 0x11 | 0x12 | 0x13 | 0x14 | 0x16 | 0x17 | 0x18 | 0x1c => do
+    | 0x03 => do
+      let (x, y, s) ← pop2 s
+      match x.exact, y with
+      -- `sub(k, v)` of a field value `v ≤ k`: `k - v`, which cannot wrap, read as `k - l`
+      | some k, .lin l bnd =>
+        if bnd ≤ k then push s (.lin ((Lin.const k).add (l.scale (P - 1))) k)
+        else .error "SUB may underflow"
+      | _, _ => push s (← wordBin fs b x y)
+    | 0x04 | 0x10 | 0x11 | 0x12 | 0x13 | 0x14 | 0x16 | 0x17 | 0x18 | 0x1c => do
       let (x, y, s) ← pop2 s
       push s (← wordBin fs b x y)
     | 0x15 | 0x19 => do

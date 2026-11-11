@@ -482,7 +482,7 @@ theorem wordBin_rel (fs : Facts) (hf : Facts.Hold e fs) (op : Nat) (x y v : SV)
 
 /-- The word-only binary operations of `step`. -/
 def WordBinOp (b : Nat) : Prop :=
-  b = 0x03 ∨ b = 0x04 ∨ b = 0x10 ∨ b = 0x11 ∨ b = 0x12 ∨ b = 0x13 ∨ b = 0x14 ∨ b = 0x16 ∨
+  b = 0x04 ∨ b = 0x10 ∨ b = 0x11 ∨ b = 0x12 ∨ b = 0x13 ∨ b = 0x14 ∨ b = 0x16 ∨
     b = 0x17 ∨ b = 0x18 ∨ b = 0x1c
 
 theorem step_wordBin (fs : Facts) (code : Code) (st st' : St) (b : Nat) (hb : WordBinOp b)
@@ -492,7 +492,7 @@ theorem step_wordBin (fs : Facts) (code : Code) (st st' : St) (b : Nat) (hb : Wo
   have h' : (do let (x, y, s) ← pop2 st; push s (← wordBin fs b x y)) = Except.ok st' := by
     unfold WordBinOp at hb
     unfold Checker.step at h; dsimp only at h
-    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     · rw [if_neg (by decide), if_neg (by decide)] at h; exact h
   obtain ⟨⟨x, y, st1⟩, hp, h1⟩ := bind_ok h'
   obtain ⟨v, hw, h2⟩ := bind_ok h1
@@ -500,7 +500,7 @@ theorem step_wordBin (fs : Facts) (code : Code) (st st' : St) (b : Nat) (hb : Wo
   obtain ⟨hl, rfl⟩ := push_ok h2
   exact ⟨x, y, st1.stk, v, hs, hw, hl, rfl⟩
 
-/-- `SUB`, `DIV`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `AND`, `OR`, `XOR`, `SHR` (on words), given
+/-- `DIV`, `LT`, `GT`, `SLT`, `SGT`, `EQ`, `AND`, `OR`, `XOR`, `SHR` (on words), given
 EVMLean's step for the operation `f`. -/
 theorem sim_wordBin (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
     (b c : Nat) (hb : WordBinOp b) (f : UInt256 → UInt256 → UInt256)
@@ -512,14 +512,6 @@ theorem sim_wordBin (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : F
   rw [hs] at hrel
   exact sim_bin e ρ s c f hx x y v r hrel hl (wordBin_rel e ρ fs hf b x y v f hbin hw)
 
-
-/-- `SUB`. -/
-theorem sim_sub (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
-    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SUB, none))
-    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x03) st = .ok st') :
-    Simulates e ρ s GasConstants.Gverylow 1 st'.stk :=
-  sim_wordBin e ρ fs code s st st' hf 0x03 _ (by unfold WordBinOp; decide) (UInt256.sub) binOp_sub
-    (fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_sub s hdec, ht]; rfl) hrel h
 
 /-- `DIV`. -/
 theorem sim_div (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
@@ -836,6 +828,39 @@ theorem sim_shl (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts
     obtain ⟨hl, rfl⟩ := push_ok h2
     exact sim_bin e ρ s _ _ hx x _ v st1.stk hrel hl
       (wordBin_rel e ρ fs hf 0x1b x _ v _ binOp_shl hw)
+
+/-- `SUB`: on words, or `k - v` of a field value from a constant `k` at least its bound. -/
+theorem sim_sub (fs : Facts) (code : Code) (s : State) (st st' : St) (hf : Facts.Hold e fs)
+    (hdec : decode s.executionEnv.code s.machineState.pc = some (.SUB, none))
+    (hrel : StkRel e ρ st.stk s.machineState.stack) (h : step fs code (.op 0x03) st = .ok st') :
+    Simulates e ρ s GasConstants.Gverylow 1 st'.stk := by
+  unfold Checker.step at h; dsimp only at h
+  rw [if_neg (by decide), if_neg (by decide)] at h
+  obtain ⟨⟨x, y, st1⟩, hp, h1⟩ := bind_ok h
+  obtain ⟨hs, -⟩ := pop2_ok hp
+  rw [hs] at hrel
+  have hx : BinStep s GasConstants.Gverylow UInt256.sub :=
+    fun a b t ht => by rw [xstep_overlay _ s _ _ hdec (by simp), step_sub s hdec, ht]; rfl
+  dsimp only at h1
+  split at h1
+  · rename_i k l bnd hk
+    split at h1
+    · rename_i hle
+      obtain ⟨hl, rfl⟩ := push_ok h1
+      refine sim_bin e ρ s _ _ hx x _ _ st1.stk hrel hl (fun a b ha hb => ?_)
+      have hak := rel_exact e ρ x a.toNat k ha hk
+      obtain ⟨hb1, -, hb3⟩ := hb
+      have hkW : k < W := hak ▸ toNat_lt a
+      have := subField_sound e ρ l bnd k b.toNat hb1 hle hkW hb3
+      have e1 := binOp_sub a b
+      rw [hak, binOp] at e1
+      rw [← Option.some.inj e1]
+      exact this
+    · cases h1
+  · obtain ⟨v, hw, h2⟩ := bind_ok h1
+    obtain ⟨hl, rfl⟩ := push_ok h2
+    exact sim_bin e ρ s _ _ hx x _ v st1.stk hrel hl
+      (wordBin_rel e ρ fs hf 0x03 x _ v _ binOp_sub hw)
 
 theorem exactOf_ok {what : String} {v : SV} {n : Nat} (h : exactOf what v = .ok n) :
     v.exact = some n := by

@@ -290,4 +290,16 @@ theorem shlField_sound (l : Lin) (bnd k y : Nat) (hb : y ≤ bnd) (hy : (y : F) 
   refine ⟨this, by omega, ?_⟩
   rw [Lin.eval_scale]; push_cast; rw [hy]; ring
 
+/-- `SUB` of a field value from a constant `k` at least its bound: `k - v`, which cannot wrap. -/
+theorem subField_sound (l : Lin) (bnd k y : Nat) (hb : y ≤ bnd) (hk : bnd ≤ k) (hkW : k < W)
+    (hy : (y : F) = l.eval ρ) :
+    (SV.lin ((Lin.const k).add (l.scale (P - 1))) k).Rel e ρ ((k + W - y) % W) := by
+  have h1 : (k + W - y) % W = k - y := by
+    rw [show k + W - y = (k - y) + W by omega, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+  rw [h1]
+  refine ⟨by omega, by omega, ?_⟩
+  have hP : ((P - 1 : Nat) : F) = -1 := by
+    rw [Nat.cast_sub (by decide), ZMod.natCast_self]; simp
+  rw [Lin.eval_add, Lin.eval_const, Lin.eval_scale, hP, ← hy, Nat.cast_sub (by omega)]; ring
+
 end Poseidon2.Checker

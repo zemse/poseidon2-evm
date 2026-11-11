@@ -691,6 +691,9 @@ theorem step_inv (fs : Facts) (code : Code) (i : Ins) (st st' : St)
     | (have p := pop2_inv ‹pop2 st = _› hs
        exact push_inv h p.1 (Lin.below_scale (SV.below_lin p.2.2.1 ‹_ = SV.lin _ _›) _))
     | (have p := pop2_inv ‹pop2 st = _› hs
+       exact push_inv h p.1 (Lin.below_add (Lin.below_const _ _)
+         (Lin.below_scale (SV.below_lin p.2.2.1 ‹_ = SV.lin _ _›) _)))
+    | (have p := pop2_inv ‹pop2 st = _› hs
        exact push_inv h p.1 (SV.below_eq p.2.1 ‹_ = SV.pw _ _ _›))
     | (have p := pop2_inv ‹pop2 st = _› hs
        have i := toLin_inv ‹toLin _ (St.tab _) = _› p.1.wf p.2.1
