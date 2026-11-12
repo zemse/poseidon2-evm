@@ -12,7 +12,7 @@ import Poseidon2.Spec.Constants.T4
 The checker accepts `huff/amsterdam/t4` on every case of its interface, by kernel evaluation in
 segments of at most 8000 instructions and 100 rounds of the spec; the checker state at each
 segment boundary is written out below (computed outside the kernel, checked by it). The
-gas of each case's run is `gas` ([16, 11837, 16, 11879, 16, 11919, 16]); `correct` is partial correctness, `total`
+gas of each case's run is `gas` ([16, 11835, 16, 11879, 16, 11919, 16]); `correct` is partial correctness, `total`
 total correctness with that gas.
 -/
 
@@ -43,11 +43,11 @@ theorem case0 : checkCaseGas code (cases.getD 0 default) 16 = true := by
 
 /-! ### Case 1: hash_1 (size 0x24) (0 boundaries) -/
 
-theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 11837
+theorem end1 : resultOkGas (cases.getD 1 default).facts (cases.getD 1 default).expect 11835
     (run (cases.getD 1 default).facts code 1000000 (code.at (some 0)) St.init) = true := by
   decide +kernel
 
-theorem case1 : checkCaseGas code (cases.getD 1 default) 11837 = true := by
+theorem case1 : checkCaseGas code (cases.getD 1 default) 11835 = true := by
   have e : fuel = 1000000 := by decide
   unfold checkCaseGas runCase
   rw [e, ← Code.at_zero]
@@ -115,7 +115,7 @@ theorem case6 : checkCaseGas code (cases.getD 6 default) 16 = true := by
 
 /-- The gas of each case's run, in the order of `cases`: a call in case `j` given at least
 `gas[j]` gas uses exactly that much, and with less runs out of gas (`total`). -/
-def gas : List Nat := [16, 11837, 16, 11879, 16, 11919, 16]
+def gas : List Nat := [16, 11835, 16, 11879, 16, 11919, 16]
 
 theorem checkG : CheckedGas code cases gas :=
   ⟨by decide, fun j hj => by

@@ -26,7 +26,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] t >= 8 entries store each final block's outputs as made (0aa5ea6): -14 / -21 / -28 / -35 / -42 / -49 at t8..t28.
 - [x] firstSum, the first internal sum from the exit layer's column sums (733f7d4): -3 / -12 / -52 / -73 / -113 / -145 at t8..t28.
 - [x] t4 hash row 0 in place (ad802b5): -3 per arity.
-- [ ] t4 hash_1: a rounds macro per dead-slot count (Amsterdam, one copy per arity) drops its PUSH0: -2.
+- [x] t4 hash_1: a rounds macro per dead-slot count (Amsterdam, one copy per arity) drops its PUSH0: 11,837 to 11,835; other arities, the 64,255-byte runtime and the shared-body fallback stay unchanged.
 - [ ] firstSum: K - s0 takes two SWAPs (6 gas at t12..t28) and the seam carrier 3.
 - [ ] Clippy `manual_is_multiple_of` at `generator-rs/src/huff/schedule.rs` `column_cap`.
 - [x] `src/bn254/README.md` figures re-measured (2cd5769): Osaka t2 code size, streamed blocks 365 / 377 / 359; 231 to 867 and 24 to 51 kept as recorded when they landed. Tables hand-aligned; `prettier --check` not run (not installed).
@@ -49,6 +49,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4, 6e05cd6): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
 - [x] Refresh all seven Yul ordered-sum bytecodes and their generated proofs: t8/t12 legacy 1M, 200 and off, t8 via-IR 1M; kernel builds and independent replay pass.
 - [x] Refresh t3 bytecode and proofs on Amsterdam/Osaka for the finite-horizon policy: exact gas 7,586, fresh kernel builds and independent replay pass.
+- [x] Refresh compact Amsterdam t4 hash_1 bytecode, its certificate and the ABI exact-gas theorem: 11,835, fresh kernel builds and independent replay pass.
 
 ## Code quality review
 

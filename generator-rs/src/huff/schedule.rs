@@ -2526,14 +2526,22 @@ impl<'a> Builder<'a> {
     /// K_i = M4[i][3] (n << 64) + c_i. The forms program of
     /// templates::hash_forms loads the inputs and leaves p_i over the
     /// PRIME copy SETUP pushed, then ROUND4 adds K_i in the S-boxes, leaving
-    /// [s0', PRIME, s1', s2', s3', 3 dead values, PRIME] for the rounds
-    /// after.
-    fn hash_round0(&mut self, n: usize, words: &[Vec<U256>]) -> Result<()> {
+    /// [s0', PRIME, s1', s2', s3', dead values, PRIME] for the rounds
+    /// after: three dead slots normalized, two for compact hash_1.
+    fn hash_round0(&mut self, n: usize, words: &[Vec<U256>], compact: bool) -> Result<()> {
         if self.t != 4 {
             bail!("hashRound0 is t = 4 only");
         }
         let Some(program) = hash_forms(n) else {
             bail!("hash arity {n}");
+        };
+        let program = if compact {
+            if n != 1 {
+                bail!("only hash_1 has a filler");
+            }
+            program.strip_prefix("0 ").expect("hash_1 filler")
+        } else {
+            program
         };
         let p = self.p();
         // the words as CALLDATALOAD leaves them, not reduced
@@ -4278,7 +4286,7 @@ impl<'a> Builder<'a> {
 /// 12 and its reductions a SWAP each
 const FUSE_MIN: usize = 6;
 
-/// The dead values hash round 0 leaves between its outputs and the PRIME
+/// The dead values normalized hash round 0 leaves between its outputs and the PRIME
 /// copy under them, which the rounds after copy from
 pub const HASH_DEAD: usize = 3;
 
@@ -4293,6 +4301,8 @@ pub struct Prologue {
     pub bytes: usize,
     /// stack depth at the end: the rounds after run on top of it
     pub depth: usize,
+    /// dead slots between the state outputs and the bottom PRIME
+    pub dead: usize,
     /// bound of [s0', s1', s2', s3'] after round 0, lazy
     pub bounds: Vec<U256>,
     /// their values per vector
@@ -4300,7 +4310,17 @@ pub struct Prologue {
 }
 
 pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> Result<Prologue> {
+    build_hash_prologue_with(params, inputs, fork, false)
+}
+
+fn build_hash_prologue_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+    compact: bool,
+) -> Result<Prologue> {
     let n = inputs[0].len();
+    let dead = HASH_DEAD - usize::from(compact);
     let states: Vec<Vec<U256>> = inputs
         .iter()
         .map(|input| sponge_state(params, input))
@@ -4317,7 +4337,7 @@ pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) ->
         true,
         &Boundary::default(),
     )?;
-    b.hash_round0(n, inputs)?;
+    b.hash_round0(n, inputs, compact)?;
     for (k, state) in states.iter().enumerate() {
         let want = permutation_steps(params, state, 0, 2);
         for (i, &w) in want.iter().enumerate() {
@@ -4328,11 +4348,13 @@ pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) ->
     }
     let mut layout: Vec<Option<Id>> = b.state.iter().map(|&v| Some(v)).collect();
     layout.insert(1, Some(b.p()));
-    layout.extend([None; HASH_DEAD]);
+    layout.extend(vec![None; dead]);
     layout.push(Some(b.p()));
     for (i, v) in layout.iter().enumerate() {
         if v.is_some() && b.e.at(i) != *v {
-            bail!("hash_{n} round 0: outputs are not [s0', PRIME, s1', s2', s3', 3 dead, PRIME]");
+            bail!(
+                "hash_{n} round 0: outputs are not [s0', PRIME, s1', s2', s3', {dead} dead, PRIME]"
+            );
         }
     }
     let bounds = b.state.iter().map(|&v| b.e.bound(v)).collect();
@@ -4346,6 +4368,7 @@ pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) ->
         gas: b.e.gas,
         bytes: b.e.bytes,
         depth,
+        dead,
         bounds,
         outputs,
     })
@@ -4361,9 +4384,16 @@ pub fn build_hash_rounds(
     fork: Fork,
 ) -> Result<Best> {
     let t = params.t;
+    let Some(first) = prologues.first() else {
+        bail!("no hash prologues");
+    };
+    let dead = first.dead;
     let mut inputs: Vec<Vec<U256>> = Vec::new();
     let mut bounds = vec![U256::ZERO; t];
     for p in prologues {
+        if p.dead != dead {
+            bail!("hash rounds need a common dead-slot layout");
+        }
         for (bound, &b) in bounds.iter_mut().zip(&p.bounds) {
             if b > *bound {
                 *bound = b;
@@ -4376,7 +4406,7 @@ pub fn build_hash_rounds(
         calldata: false,
         live: Some(vec![0]),
         prime_second: true,
-        prime_below: Some(HASH_DEAD),
+        prime_below: Some(dead),
         store_inputs: false,
     };
     let range = Range {
@@ -4387,6 +4417,44 @@ pub fn build_hash_rounds(
         Some(best) => Ok(best),
         None => bail!("the hash rounds do not fit on {}", fork.name),
     }
+}
+
+/// Replay the selected rounds on hash_1 without its unused prologue filler.
+/// The caller selects this only when its complete replicated entry fits.
+pub(super) fn build_compact_hash1(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+    opts: &BuildOptions,
+) -> Result<(Prologue, Best)> {
+    let p = build_hash_prologue_with(params, inputs, fork, true)?;
+    let boundary = Boundary {
+        bounds: Some(p.bounds.clone()),
+        calldata: false,
+        live: Some(vec![0]),
+        prime_second: true,
+        prime_below: Some(p.dead),
+        store_inputs: false,
+    };
+    let result = build_permutation_with(
+        params,
+        &p.outputs,
+        opts,
+        fork,
+        Range {
+            from: 2,
+            to: step_count(params),
+        },
+        true,
+        &boundary,
+    )?;
+    Ok((
+        p,
+        Best {
+            result,
+            opts: *opts,
+        },
+    ))
 }
 
 /// Builds steps [range.from, range.to) and checks the emitted stream against
@@ -5345,6 +5413,10 @@ fn build_best_with_candidates(
     }
     render(best)
 }
+
+#[cfg(test)]
+#[path = "hash_compact_tests.rs"]
+mod hash_compact_tests;
 
 #[cfg(test)]
 #[path = "fused_tests.rs"]

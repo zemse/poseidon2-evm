@@ -561,11 +561,18 @@ fn t4_row0_last_product_compiled() {
         files.insert(entry.clone(), source.clone());
         let production = files[path].clone();
         let marker = "// Round 63 (external, s0' only)";
-        assert_eq!(production.matches(marker).count(), 1);
-        let (prefix, last) = production.split_once(marker).unwrap();
-        let (body, suffix) = last.split_once("\n}").unwrap();
+        assert_eq!(
+            production.matches(marker).count(),
+            if name == "amsterdam" { 2 } else { 1 }
+        );
+        let (_, last) = production.split_once(marker).unwrap();
+        let (body, _) = last.split_once("\n}").unwrap();
         // the hash entry runs a copy of the rounds per arity where they fit
-        let copies = production.matches("POSEIDON2_HASH_ROUNDS()").count() - 1;
+        let copies = production.matches("POSEIDON2_HASH_ROUNDS()").count() - 1
+            + production
+                .matches("POSEIDON2_HASH1_ROUNDS()")
+                .count()
+                .saturating_sub(1);
         let actual = body
             .lines()
             .flat_map(|line| line.split("//").next().unwrap().split_whitespace())
@@ -606,10 +613,30 @@ fn t4_row0_last_product_compiled() {
         let mut results = Vec::new();
         for row in ROWS {
             let label = format!("{row:?}");
-            let mut text = format!(
-                "{prefix}{marker}\n    {}\n\n}}{suffix}",
-                row.lines(constants).join("\n    ")
-            );
+            let mut text = String::new();
+            let mut rest = production.as_str();
+            let mut body_index = 0;
+            while let Some((prefix, last)) = rest.split_once(marker) {
+                let (body, suffix) = last.split_once("\n}").unwrap();
+                let tokens = body
+                    .lines()
+                    .flat_map(|line| line.split("//").next().unwrap().split_whitespace())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if body_index == 1 {
+                    assert_eq!(actual.matches("dupn 83").count(), 3);
+                    assert_eq!(tokens, actual.replace("dupn 83", "dupn 82"));
+                } else {
+                    assert_eq!(tokens, actual);
+                }
+                body_index += 1;
+                text.push_str(&format!(
+                    "{prefix}{marker}\n    {}\n\n}}",
+                    row.lines(constants).join("\n    ")
+                ));
+                rest = suffix;
+            }
+            text.push_str(rest);
             // a row of another size moves the regions after the first: the
             // zero bytes before each take the difference back
             if copies > 1 {

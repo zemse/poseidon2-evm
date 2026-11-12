@@ -41,7 +41,7 @@ fn amsterdam_t2_t3_t4() {
     assert_eq!(reports[0].gas.measured, 5877);
     assert_eq!(reports[1].gas.measured, 7586);
     let hashes = reports[2].hashes.expect("hash entry");
-    assert_eq!(hashes.map(|g| g.measured), [11837, 11879, 11919]);
+    assert_eq!(hashes.map(|g| g.measured), [11835, 11879, 11919]);
 }
 
 #[test]

@@ -7,8 +7,8 @@
 use super::emitter::{dup_text, gas, push_bytes, push_gas, push_text};
 use super::fork::{DEFAULT_HARDFORK, Fork};
 use super::schedule::{
-    Best, BuildOptions, BuildResult, COMPACT_INPUT, HANDOVER_BOUND_TEXT, HASH_DEAD, Prologue,
-    RAW_INPUT, describe_options,
+    Best, BuildOptions, BuildResult, COMPACT_INPUT, HANDOVER_BOUND_TEXT, Prologue, RAW_INPUT,
+    describe_options,
 };
 use crate::bail;
 use crate::error::Result;
@@ -544,6 +544,15 @@ pub fn hash_entry(
     prologues: &[Prologue],
     rounds: (u64, usize, usize),
 ) -> Result<HashEntry> {
+    hash_entry_compact(fork, prologues, rounds, None)
+}
+
+pub(super) fn hash_entry_compact(
+    fork: Fork,
+    prologues: &[Prologue],
+    rounds: (u64, usize, usize),
+    compact: Option<(&Prologue, &Best)>,
+) -> Result<HashEntry> {
     let by = |n: usize| -> Result<&Prologue> {
         match prologues.iter().find(|p| p.n == n) {
             Some(p) => Ok(p),
@@ -577,10 +586,19 @@ pub fn hash_entry(
             let mut code = Code::new(fork);
             code.blank();
             label(&mut code, &format!("hash_{n}"));
-            branch(&mut code, by(n)?);
-            code.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
+            let memory = if n == 1
+                && let Some((p, r)) = compact
+            {
+                branch(&mut code, p);
+                code.op("POSEIDON2_HASH1_ROUNDS()", r.result.gas, r.result.bytes);
+                r.result.memory
+            } else {
+                branch(&mut code, by(n)?);
+                code.op("POSEIDON2_HASH_ROUNDS()", rounds.0, rounds.1);
+                rounds.2
+            };
             code.end("[s0', ...]");
-            ret(&mut code, 1, false, rounds.2);
+            ret(&mut code, 1, false, memory);
             Ok(code)
         })
         .collect::<Result<Vec<_>>>()?;
@@ -714,25 +732,43 @@ pub fn render_hash_entry(
     fork: &Fork,
     rounds: &Best,
     prologues: &[Prologue],
+    compact: Option<(&Prologue, &Best)>,
     utils_path: &str,
 ) -> Result<String> {
     let (t, rounds_f, rounds_p) = (params.t, params.rounds_f, params.rounds_p);
     let (result, opts) = (&rounds.result, &rounds.opts);
     let total = rounds_f + rounds_p;
-    let entry = hash_entry(*fork, prologues, (result.gas, result.bytes, result.memory))?;
+    let entry = hash_entry_compact(
+        *fork,
+        prologues,
+        (result.gas, result.bytes, result.memory),
+        compact,
+    )?;
+    let specialized = compact.map(|(p, r)| {
+        let mut inputs = vec!["s0".to_string(), "PRIME".to_string()];
+        inputs.extend((1..t).map(|i| format!("s{i}")));
+        inputs.extend(vec!["dead".to_string(); p.dead]);
+        inputs.push("PRIME".to_string());
+        format!("\n/// @dev hash_1 rounds on [{}], every lazy operation bound-checked\n{}\n#define macro POSEIDON2_HASH1_ROUNDS() = {{\n{}\n}}\n", inputs.join(", "), stats(&r.result), r.result.lines.join("\n"))
+    }).unwrap_or_default();
     // round 0 leaves a PRIME copy under s0' and another under its dead values
     let mut inputs = vec!["s0".to_string(), "PRIME".to_string()];
     inputs.extend((1..t).map(|i| format!("s{i}")));
-    inputs.extend(vec!["dead".to_string(); HASH_DEAD]);
+    inputs.extend(vec!["dead".to_string(); prologues[0].dead]);
     inputs.push("PRIME".to_string());
     let inputs = inputs.join(", ");
     // the rounds run on top of a prologue's garbage
     let depth = prologues
         .iter()
-        .map(|p| p.depth - t - 2 - HASH_DEAD)
+        .map(|p| p.depth - t - 2 - p.dead)
         .max()
         .unwrap_or(0)
         + result.max_depth;
+    let depth = depth.max(
+        compact
+            .map(|(p, r)| p.depth - t - 2 - p.dead + r.result.max_depth)
+            .unwrap_or(0),
+    );
     let gas: Vec<String> = entry
         .gas
         .iter()
@@ -750,7 +786,7 @@ pub fn render_hash_entry(
 #define macro POSEIDON2_HASH_ROUNDS() = {{
 {lines}
 }}
-
+{specialized}
 /// @notice hash_1 / hash_2 / hash_3 of IPoseidon2 (the arity from calldatasize, the selector is not checked): the sponge state [x0, x1, x2, n << 64] permuted once, s0' returned
 /// @dev Each arity runs its own round 0, with the missing words and the capacity n << 64 folded into its constants, then the rounds above
 /// @dev {gas}, {bytes} runtime bytes, max stack depth {depth}

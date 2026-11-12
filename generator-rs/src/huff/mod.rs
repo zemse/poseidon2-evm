@@ -39,13 +39,13 @@ use crate::round_constants::generate_params;
 use crate::vectors::test_inputs;
 use fork::{DEFAULT_HARDFORK, Fork};
 use render::{
-    MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, huff_dir, memory_gas, overhead,
-    render_deploy_parts, render_entry, render_entry_plan, render_forge_test, render_hash_entry,
-    render_hash_test, render_part, render_permutation, test_dir,
+    MEMORY_UNKNOWN, Vector, entry_bytes, hash_entry, hash_entry_compact, huff_dir, memory_gas,
+    overhead, render_deploy_parts, render_entry, render_entry_plan, render_forge_test,
+    render_hash_entry, render_hash_test, render_part, render_permutation, test_dir,
 };
 use schedule::{
-    BuildOptions, BuildResult, Range, build_best, build_hash_prologue, build_hash_rounds,
-    describe_options, step_count,
+    BuildOptions, BuildResult, Range, build_best, build_compact_hash1, build_hash_prologue,
+    build_hash_rounds, describe_options, step_count,
 };
 use split::{Part, split_permutation};
 
@@ -365,18 +365,40 @@ fn generate(t: usize, fork: &Fork) -> Result<Width> {
             let budget =
                 fork.code_size - hash_entry(*fork, &prologues, (0, 0, MEMORY_UNKNOWN))?.bytes;
             let rounds = build_hash_rounds(&params, &prologues, budget, *fork)?;
-            let entry = hash_entry(
-                *fork,
-                &prologues,
-                (rounds.result.gas, rounds.result.bytes, rounds.result.memory),
-            )?;
+            let costs = (rounds.result.gas, rounds.result.bytes, rounds.result.memory);
+            let mut entry = hash_entry(*fork, &prologues, costs)?;
+            let words: Vec<Vec<U256>> = inputs.iter().map(|input| input[..1].to_vec()).collect();
+            let mut compact = None;
+            match build_compact_hash1(&params, &words, *fork, &rounds.opts) {
+                Ok((p, r)) => {
+                    let candidate = hash_entry_compact(*fork, &prologues, costs, Some((&p, &r)))?;
+                    if candidate.gas[0] < entry.gas[0]
+                        && candidate.gas[1..] == entry.gas[1..]
+                        && candidate.bytes <= fork.code_size
+                        && candidate.bytes.saturating_add(16) <= fork.initcode_size
+                    {
+                        entry = candidate;
+                        compact = Some((p, r));
+                    }
+                }
+                Err(err) => {
+                    actions.push(Action::Log(format!("  compact hash_1 unavailable: {err}")))
+                }
+            }
             actions.push(Action::Log(format!(
                 "  hash rounds: {}",
                 describe(&rounds.result, &rounds.opts)
             )));
             actions.push(Action::Write(
                 format!("{dir}/Poseidon2.huff"),
-                render_hash_entry(&params, fork, &rounds, &prologues, utils_path)?,
+                render_hash_entry(
+                    &params,
+                    fork,
+                    &rounds,
+                    &prologues,
+                    compact.as_ref().map(|(p, r)| (p, r)),
+                    utils_path,
+                )?,
             ));
             // the default fork's test is the hand-written test/Poseidon2.t.sol
             let mut wrote = format!("{dir}/Permutation.huff, {dir}/Poseidon2.huff");

@@ -32,7 +32,7 @@ namespace Poseidon2.Proofs.Huff.Amsterdam.T4
 open Poseidon2.Checker Poseidon2.Spec
 
 /-- `huff/amsterdam/t4` on ABI calldata of 1 to 3 words, any call value: the sponge of the
-inputs, with 11837, 11879, 11919 gas for 1, 2, 3 inputs. -/
+inputs, with 11835, 11879, 11919 gas for 1, 2, 3 inputs. -/
 theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (hws : ∀ w ∈ ws, w < 2 ^ 256) (h1 : 1 ≤ ws.length) (h3 : ws.length ≤ 3)
     (v : Nat) (hv : v < W)
@@ -40,14 +40,14 @@ theorem abi (sel : List UInt8) (hsel : sel.length = 4) (ws : List Nat)
     (I : Ethereum.ExecutionEnv)
     (hI : Theorems.Runs Poseidon2.Bytecode.Huff.Amsterdam.T4.artifact
       (sel ++ Interface.encodeWords ws) v I) :
-    Theorems.ExactGas ([11837, 11879, 11919].getD (ws.length - 1) 0) g.toNat
+    Theorems.ExactGas ([11835, 11879, 11919].getD (ws.length - 1) 0) g.toNat
       (Evm.Eip8024.Ξ σ σ₀ g A I)
       (.ret (Interface.encodeWords
         [(sponge Constants.T4.params (ws.map fun w => (w : F))).val])) := by
   have hcd := Theorems.abi_length_lt sel hsel ws h3
   have h := Theorems.huffHash_abi_total _ gas sel hsel ws hws h1 h3 v g.toNat
     (total _ v hcd hv σ σ₀ g A I hI)
-  have hg : gas.getD (2 * ws.length - 1) 0 = [11837, 11879, 11919].getD (ws.length - 1) 0 := by
+  have hg : gas.getD (2 * ws.length - 1) 0 = [11835, 11879, 11919].getD (ws.length - 1) 0 := by
     rcases (show ws.length = 1 ∨ ws.length = 2 ∨ ws.length = 3 by omega) with hn | hn | hn <;>
       rw [hn] <;> rfl
   rwa [hg, Interface.hashWords_eq_sponge _ rfl ws h1 h3] at h

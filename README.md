@@ -20,7 +20,7 @@ Call gas of the current sources, each figure proven exact in Lean (see [Formal v
 
 | Implementation                                | hash_1 | hash_2 | hash_3 |
 | --------------------------------------------- | ------ | ------ | ------ |
-| Huff (Amsterdam)                              | 11,837 | 11,879 | 11,919 |
+| Huff (Amsterdam)                              | 11,835 | 11,879 | 11,919 |
 | Yul, solc 0.8.30 via-IR, 1,000,000 runs       | 13,904 | 13,904 | 13,904 |
 | Yul, solc 0.8.30 legacy, 1,000,000 runs       | 15,153 | 15,153 | 15,153 |
 | Deployed v2 Huff (pre-Amsterdam, below)       | 14,869 | 14,869 | 14,869 |
