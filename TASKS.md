@@ -50,6 +50,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Refresh all seven Yul ordered-sum bytecodes and their generated proofs: t8/t12 legacy 1M, 200 and off, t8 via-IR 1M; kernel builds and independent replay pass.
 - [x] Refresh t3 bytecode and proofs on Amsterdam/Osaka for the finite-horizon policy: exact gas 7,586, fresh kernel builds and independent replay pass.
 - [x] Refresh compact Amsterdam t4 hash_1 bytecode, its certificate and the ABI exact-gas theorem: 11,835, fresh kernel builds and independent replay pass.
+- [x] Current generator proof audit: all 39 certificates regenerated, built and replayed, including 12 inherited stale wide-Huff caches; replay coverage 4,441 modules; 6,665 gas-boundary runs without mismatch, 5,002 mismatches with the one-gas perturbation.
 
 ## Code quality review
 
