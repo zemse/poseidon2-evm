@@ -36,6 +36,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] t2/t3/t4/t8 tuned for via-IR 1M (999f493, d7fd8be): t2 7,560, t3 9,505, t4 13,904, t8 29,321.
 - [x] t12 all diag constants as PUSH32 and tree sum (4ac47ed, 870682a, fcb1904): 46,272 to 43,682 at legacy 1M.
 - [x] t8 via-IR compiles with a rounds function (aa12830).
+- [x] Bound-planned Yul interval sums: 57 fewer reductions at t8/t12, -456 gas at all legacy settings; t8 via-IR 1M 29,321 to 28,391. Full-word compiled reference checks and consumer compiler controls pass.
 - [ ] t2/t3 legacy: ~10-15 gas/round of stack moves left; needs a simulator of solc's CodeTransform + CSE to search shapes. Est. 300-600.
 - [ ] `Poseidon2Yul_BN254` fallback dispatch to hash_1/2/3 by calldatasize: ~-60/-20/+15.
 
@@ -45,6 +46,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Prove the via-IR 1M builds of t2/t3/t4/t8 (04f2d61, 75518ae); 39 targets proven.
 - [x] Refresh proofs for the bytecode of the four gas lanes (cfd38de, 6feaeaa), with the t4 Huff hash failing outside the 36 / 68 / 100 byte calldata sizes.
 - [x] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4, 6e05cd6): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
+- [x] Refresh all seven Yul ordered-sum bytecodes and their generated proofs: t8/t12 legacy 1M, 200 and off, t8 via-IR 1M; kernel builds and independent replay pass.
 
 ## Code quality review
 

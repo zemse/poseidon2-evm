@@ -122,6 +122,8 @@ The constants and permutation outputs for every generated t match other implemen
 
 ### Yul Generator
 
+The sum planner now compares ordered interval trees of ADD and ADDMOD with the serial and two-chain sums, using exact inclusive bounds and checking Yul's right-to-left operand evaluation against local reach. The old statement-flush path remains a fallback. At t = 8 the first internal sum needs one reduction and the other 56 need two; at t = 12 they need two and three. This removes 57 reductions, saving 456 gas at every legacy setting: t = 8 costs 30,773 / 44,287 / 34,563 with 1,000,000 runs / 200 runs / optimizer off, t = 12 costs 43,226 / 63,439 / 48,472. Via-IR t = 8 costs 28,391 gas and 59,562 runtime bytes at 1,000,000 runs (29,321 and 61,601 before), and 72,016 gas at 200 runs. The additional via-IR saving is a compiler/layout effect, not an arithmetic lower-bound claim. The history below describes the preceding layouts.
+
 `poseidon2-gen yul` builds the Yul libraries from the same `round_constants.rs`, `reference.rs` and `value.rs`:
 
 - `yul/program.rs` emits straight-line Yul. Every operand is a bound-tracked value whose name is the Yul text producing it (a local, a literal, an `mload` or a nested expression), so an `add` is only written where the bound allows it and the whole permutation is checked against the reference before the file is written.
@@ -134,8 +136,8 @@ t = 4 keeps `LibPoseidon2Yul` (`hash_1` / `hash_2` / `hash_3` / `poseidon2_core`
 | 2   | 8   | 56  | 8,851    | 5,057         | locals                                                                           |
 | 3   | 8   | 56  | 10,740   | 5,782         | locals                                                                           |
 | 4   | 8   | 56  | 15,153   | 7,369         | locals, diag constants as locals, 2-temp M4, raw inputs                          |
-| 8   | 8   | 57  | 31,229   | 27,484        | 8 locals, every diag constant a PUSH32, 2-temp M4, rounds function               |
-| 12  | 8   | 57  | 43,682   | 39,192        | 12 locals, every diag constant a PUSH32, 2-temp M4, tree sums                    |
+| 8   | 8   | 57  | 30,773   | 27,427        | 8 locals, every diag constant a PUSH32, 2-temp M4, rounds function               |
+| 12  | 8   | 57  | 43,226   | 39,135        | 12 locals, every diag constant a PUSH32, 2-temp M4, tree sums                    |
 
 Each library states the solc 0.8.30 settings that give a contract using it the least runtime gas in its natspec: via-IR with 1,000,000 runs for t = 2, 3 and 4 (7,560, 9,505 and 13,904 gas, the t = 4 consumer over the 24,576 byte limit before EIP-7954; the legacy pipeline with 1,000,000 runs is 8,851, 10,740 and 15,153) via-IR with 1,000,000 runs for t = 8 as well (29,321, the consumer 61,601 bytes; the legacy pipeline with 1,000,000 runs is 31,229) and the legacy pipeline with 1,000,000 runs for t = 12 (43,682, the consumer over the limit), which via-IR does not compile. The libraries are tuned for that setting first, with no regard to the code size of a contract using them; the table is the legacy pipeline with 1,000,000 runs.
 

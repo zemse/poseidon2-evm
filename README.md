@@ -32,14 +32,14 @@ Call gas of the current sources, each figure proven exact in Lean (see [Formal v
 | --- | ---------------- | ------------------------- |
 | 2   | 5,877            | 7,560 (via-IR, 1M runs)   |
 | 3   | 7,626            | 9,505 (via-IR, 1M runs)   |
-| 8   | 23,039           | 29,321 (via-IR, 1M runs)  |
-| 12  | 33,474           | 43,682 (legacy, 1M runs)  |
+| 8   | 23,039           | 28,391 (via-IR, 1M runs)  |
+| 12  | 33,474           | 43,226 (legacy, 1M runs)  |
 | 16  | 43,742           |                           |
 | 20  | 53,954           |                           |
 | 24  | 64,238           |                           |
 | 28  | 75,884           |                           |
 
-Huff is the raw permutation entry (t words in, t words out). Yul is the `permute(uint256[t])` test wrapper, so it includes the ABI decoding and encoding of t words. Each Yul library states its least-gas solc settings in its natspec; with the legacy pipeline at 1,000,000 runs t = 2, 3, 8 cost 8,851, 10,740 and 31,229.
+Huff is the raw permutation entry (t words in, t words out). Yul is the `permute(uint256[t])` test wrapper, so it includes the ABI decoding and encoding of t words. Each Yul library states its least-gas solc settings in its natspec; with the legacy pipeline at 1,000,000 runs t = 2, 3, 8 cost 8,851, 10,740 and 30,773.
 
 The t = 4 Huff hash takes the arity from the exact calldata size and does not check the selector: 36, 68 or 100 bytes run `hash_1`, `hash_2` or `hash_3`, and any other size fails on an invalid jump, which consumes the gas of the call.
 

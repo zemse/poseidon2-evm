@@ -9,6 +9,10 @@
 // use, the deepest local is the outermost operand, and every local is kept
 // within DUP16 / SWAP16 by the reach model below.
 
+#[cfg(test)]
+#[path = "sum_tests.rs"]
+mod sum_tests;
+
 use super::program::Program;
 use crate::bail;
 use crate::error::Result;
@@ -417,9 +421,23 @@ impl<'a> Builder<'a> {
         // descending rank, the unranked (infinite) first; stable like the TS
         // sort, where two infinities compare as equal
         order.sort_by_key(|a| std::cmp::Reverse(self.rank(a)));
-        if self.layout.tree_sum
-            && let Some(e) = self.tree_expr(&order, cap)?
-        {
+        let planned = self.planned_sum(&order, cap)?;
+        let existing = if self.layout.tree_sum {
+            self.tree_expr(&order, cap)?
+        } else {
+            self.chain_expr(&order, cap, 0)?
+        };
+        let expression = match (planned, existing) {
+            (Some(a), Some(b)) => Some(
+                if a.name.matches("addmod(").count() < b.name.matches("addmod(").count() {
+                    a
+                } else {
+                    b
+                },
+            ),
+            (a, b) => a.or(b),
+        };
+        if let Some(e) = expression.filter(|e| e.bound <= cap) {
             return self.p.let_(name, &e);
         }
         let cap = wide(cap);
@@ -543,6 +561,57 @@ impl<'a> Builder<'a> {
             };
         }
         Ok(Some(e))
+    }
+
+    /// An interval tree with fewer reductions than the serial chain. The
+    /// planner's left child is evaluated first, Yul's second argument first.
+    fn planned_sum(&self, order: &[Value], cap: U256) -> Result<Option<Value>> {
+        use crate::huff::sum_tree::{self, Node, Plan};
+
+        fn emit(
+            b: &Builder<'_>,
+            plan: &Plan,
+            order: &[Value],
+            above: usize,
+        ) -> Result<Option<Value>> {
+            match &plan.node {
+                Node::Leaf(i) => {
+                    let v = &order[order.len() - 1 - i];
+                    Ok(b.reachable(v, above).then(|| v.clone()))
+                }
+                Node::Pair {
+                    left,
+                    right,
+                    reduce,
+                    late_prime,
+                } => {
+                    debug_assert!(!late_prime);
+                    let extra = usize::from(*reduce);
+                    if *reduce && !b.reachable(&b.p.p, above) {
+                        return Ok(None);
+                    }
+                    let (Some(a), Some(c)) = (
+                        emit(b, left, order, above + extra)?,
+                        emit(b, right, order, above + extra + 1)?,
+                    ) else {
+                        return Ok(None);
+                    };
+                    Ok(Some(b.add(&c, &a, *reduce)?))
+                }
+            }
+        }
+
+        let bounds: Vec<U256> = order.iter().rev().map(|v| v.bound).collect();
+        let Some(plan) = sum_tree::plan_peak(&bounds, cap) else {
+            return Ok(None);
+        };
+        let (steps, _) = Self::steps(order, cap);
+        let serial = steps.iter().filter(|s| s.reduce).count() as u64;
+        let base = 6 * order.len() as u64 - 3;
+        if plan.gas >= base + 8 * serial {
+            return Ok(None);
+        }
+        emit(self, &plan, order, 0)
     }
 
     /// The sum as one expression: a left-deep chain, or where an operand of

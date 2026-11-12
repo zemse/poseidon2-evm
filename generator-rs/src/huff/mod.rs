@@ -19,7 +19,7 @@ pub mod fork;
 pub mod render;
 pub mod schedule;
 pub mod split;
-mod sum_tree;
+pub(crate) mod sum_tree;
 pub mod templates;
 pub mod verify;
 

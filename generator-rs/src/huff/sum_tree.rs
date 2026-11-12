@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::field::{PRIME, U256, u256};
 
-pub(super) enum Node {
+pub(crate) enum Node {
     Leaf(usize),
     Pair {
         left: Arc<Plan>,
@@ -21,7 +21,7 @@ pub(super) enum Node {
     },
 }
 
-pub(super) struct Plan {
+pub(crate) struct Plan {
     pub node: Node,
     pub bound: U256,
     pub gas: u64,
@@ -32,15 +32,15 @@ pub(super) struct Plan {
 type Cache = HashMap<(Vec<U256>, U256, bool, bool), Option<Arc<Plan>>>;
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
 
-pub(super) fn plan(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
+pub(crate) fn plan(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
     cached_plan(bounds, cap, false, false)
 }
 
-pub(super) fn plan_peak(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
+pub(crate) fn plan_peak(bounds: &[U256], cap: U256) -> Option<Arc<Plan>> {
     cached_plan(bounds, cap, true, false)
 }
 
-pub(super) fn plan_late(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>> {
+pub(crate) fn plan_late(bounds: &[U256], cap: U256, peak_aware: bool) -> Option<Arc<Plan>> {
     cached_plan(bounds, cap, peak_aware, true)
 }
 
@@ -165,7 +165,7 @@ fn frontier(bounds: &[U256], peak_aware: bool, late_prime: bool) -> Vec<Arc<Plan
 /// Reprice placement on a fixed arithmetic tree. Depths and reach are fixed
 /// for this local memo; no layout-dependent result enters the global cache.
 /// An out-of-reach leaf adds a three-gas load estimate, not its store cost.
-pub(super) fn place_for_reach(base: &Arc<Plan>, depths: &[usize], reach: usize) -> Arc<Plan> {
+pub(crate) fn place_for_reach(base: &Arc<Plan>, depths: &[usize], reach: usize) -> Arc<Plan> {
     type Placed = (Arc<Plan>, usize);
     fn place(
         base: &Arc<Plan>,
