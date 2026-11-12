@@ -670,10 +670,10 @@ mod tests {
                 production.swaps
             ),
             (
-                candidate.gas,
-                candidate.bytes,
+                candidate.gas - 40,
+                candidate.bytes - 5,
                 candidate.max_depth,
-                candidate.max_dup,
+                8,
                 candidate.swaps
             )
         );
@@ -692,7 +692,7 @@ mod tests {
         for (label, result, options, expected_gas) in [
             ("baseline", &baseline, &OPTIONS, baseline_gas),
             ("candidate", &candidate, &OPTIONS, baseline_gas - 3),
-            ("production", production, &selected.opts, baseline_gas - 3),
+            ("production", production, &selected.opts, baseline_gas - 43),
         ] {
             assert!(!result.state_in_memory);
             assert_eq!(
@@ -738,6 +738,7 @@ mod tests {
             );
         }
         assert_eq!(measured[0] - measured[1], 3);
+        assert_eq!(measured[1] - measured[2], 40);
     }
 
     #[test]

@@ -31,7 +31,7 @@ Call gas of the current sources, each figure proven exact in Lean (see [Formal v
 | t   | Huff (Amsterdam) | Yul (least-gas setting)   |
 | --- | ---------------- | ------------------------- |
 | 2   | 5,877            | 7,560 (via-IR, 1M runs)   |
-| 3   | 7,626            | 9,505 (via-IR, 1M runs)   |
+| 3   | 7,586            | 9,505 (via-IR, 1M runs)   |
 | 8   | 23,039           | 28,391 (via-IR, 1M runs)  |
 | 12  | 33,474           | 43,226 (legacy, 1M runs)  |
 | 16  | 43,742           |                           |

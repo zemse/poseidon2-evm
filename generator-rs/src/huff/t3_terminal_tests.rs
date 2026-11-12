@@ -329,7 +329,7 @@ fn t3_terminal_bounds_tails_and_store_guards() {
                 let (result, _) =
                     build_fixture(&params, &[vec![l; 3]], fork, memory, tail_len).unwrap();
                 assert_eq!(result.max_depth, 72 + tail_len);
-                assert_eq!(result.max_dup, 9);
+                assert_eq!(result.max_dup, 8);
             }
         }
     }

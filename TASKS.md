@@ -19,6 +19,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] t2/t3/t4 last rounds in place (572c52a) and chained external rounds (f5f2e63): t2 -18, t3 -18, t4 -3 per arity.
 - [ ] t4 hash junctions of consecutive ROUND4s (rounds 1-3, 60-62): relaxed (PRIME copies free) 6 gas a junction; no exact search with PRIME placement finished (LANE6-SMALL.md).
 - [x] t3 junction of rounds 2 and 3 at window 8: none below 186 (closed). t2 rounds 60-63 as one chain (fe9e427): -3.
+- [x] t3 finite-horizon bound policy and guarded lazy seam: 7,626 to 7,586 on Amsterdam/Osaka, five runtime bytes less; exact-bound, split/fallback, public/private-entry and full-word compiled checks pass.
 - [ ] Steady internal round t8 290 against floor B 266: at most one of the n + 1 moves shown not inherent beyond t = 4.
 - [x] External blocks: `sblock` take searches finished with the 24-byte arena: none below 344 (kept), 152 / 155 (exit / exit0).
 - [ ] Osaka t24/t28 shared body: with laneCopy the body period is free (any length, free mid entry); trade body length against call overhead.
@@ -47,6 +48,7 @@ Goal: fastest Poseidon2 EVM code theoretically possible, with a proof of optimal
 - [x] Refresh proofs for the bytecode of the four gas lanes (cfd38de, 6feaeaa), with the t4 Huff hash failing outside the 36 / 68 / 100 byte calldata sizes.
 - [x] Refresh proofs for the bytecode of lanes 5 to 7 (23735b4, 6e05cd6): t2, the t4 hash, t8..t28 on Amsterdam (SUB in firstSum), t2 and t4 on Osaka.
 - [x] Refresh all seven Yul ordered-sum bytecodes and their generated proofs: t8/t12 legacy 1M, 200 and off, t8 via-IR 1M; kernel builds and independent replay pass.
+- [x] Refresh t3 bytecode and proofs on Amsterdam/Osaka for the finite-horizon policy: exact gas 7,586, fresh kernel builds and independent replay pass.
 
 ## Code quality review
 

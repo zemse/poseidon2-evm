@@ -168,6 +168,67 @@ pub(crate) fn build_fixture(
 }
 
 #[test]
+fn planned_policy_templates_replay_at_inclusive_bounds() {
+    let mut params = generate_params_uncached(3);
+    params.round_constants[4][0] = p1();
+    for name in ["paris", "osaka", "amsterdam"] {
+        for policy in t3_policy::Policy::ALL {
+            for b in 1..=5 {
+                for c in 1..=5 {
+                    let bounds = vec![p1() * u256(4), p1() * u256(b), p1() * u256(c)];
+                    let Some(expected) = policy.bounds(bounds[1], bounds[2]) else {
+                        continue;
+                    };
+                    let inputs = vec![vec![U256::ZERO; 3], bounds.clone()];
+                    let mut builder =
+                        builder(&params, &inputs, bounds, fork(name).unwrap()).unwrap();
+                    let tail = vec![builder.p()];
+                    internal_layout(&mut builder, &tail);
+                    let names: Vec<_> = (0..3).map(|i| format!("s{i}'")).collect();
+                    let state = builder.state.clone();
+                    builder.state = builder
+                        .run_template(internal3_planned(policy), &state, &names, Some(4))
+                        .unwrap();
+                    assert_eq!(builder.e.gas, policy.gas());
+                    assert_eq!(
+                        builder
+                            .state
+                            .iter()
+                            .map(|&id| builder.bound(id))
+                            .collect::<Vec<_>>(),
+                        expected
+                    );
+                    assert_eq!(builder.e.top(1).unwrap(), builder.p());
+                    assert_eq!(&builder.e.from_top()[5..], tail);
+                    check_values(&builder, &inputs, 5, 6);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn lazy_seam_checks_the_full_constant_expression() {
+    let mut params = generate_params_uncached(3);
+    params.round_constants[59][0] = p1();
+    params.round_constants[60][2] = p1();
+    for name in ["paris", "osaka", "amsterdam"] {
+        for c in 1..=2 {
+            let bounds = vec![p1() * u256(4), p1() * u256(3), p1() * u256(c)];
+            let inputs = vec![vec![U256::ZERO; 3], bounds.clone()];
+            let mut b = builder(&params, &inputs, bounds, fork(name).unwrap()).unwrap();
+            b.opts.external_seam = true;
+            let tail = vec![b.p()];
+            internal_layout(&mut b, &tail);
+            assert!(b.internal_external3(59).unwrap());
+            assert_eq!(b.e.gas, if c == 1 { 287 } else { 295 });
+            check_values(&b, &inputs, 60, 62);
+            assert_eq!(&b.e.from_top()[5..], tail);
+        }
+    }
+}
+
+#[test]
 fn t3_external_seam_production_replay_and_guards() {
     let params = generate_params_uncached(3);
     let bounds = vec![p1() * u256(2), p1() * u256(3), p1() * u256(2)];
@@ -336,9 +397,9 @@ fn t3_external_seam_production_ranges_and_step_bytes() {
                     assert_eq!(candidate.step_bytes, baseline.step_bytes);
                 }
                 if from == 0 && to == 65 {
-                    assert_eq!(candidate.gas + 3, baseline.gas);
-                    assert_eq!(candidate.bytes, baseline.bytes + 31);
-                    assert_eq!(&candidate.step_bytes[..60], &baseline.step_bytes[..60]);
+                    assert_eq!(candidate.gas + 43, baseline.gas);
+                    assert_eq!(candidate.bytes, baseline.bytes + 26);
+                    assert_eq!(&candidate.step_bytes[..5], &baseline.step_bytes[..5]);
                     assert_eq!(*candidate.step_bytes.last().unwrap(), candidate.bytes);
                 }
             }
@@ -358,19 +419,24 @@ fn t3_external_seam_production_exact_byte_budget() {
         let fork = fork(name).unwrap();
         let baseline = build_permutation(&params, &inputs, &OPTIONS, fork, range, true).unwrap();
         let fixture = build_fixture(&params, &inputs, fork).unwrap();
-        for budget in [baseline.bytes, fixture.bytes - 1, fixture.bytes] {
+        let planned_bytes = fixture.bytes - 5;
+        for budget in [baseline.bytes, planned_bytes - 1, planned_bytes] {
             let best = build_best(&params, &inputs, budget, fork, range)
                 .unwrap()
                 .unwrap();
-            let fused = budget == fixture.bytes;
+            let fused = budget == planned_bytes;
             assert_eq!(best.opts.external_seam, fused, "{name} budget {budget}");
             assert_eq!(
                 best.result.gas,
-                if fused { fixture.gas } else { baseline.gas }
+                if fused {
+                    fixture.gas - 40
+                } else {
+                    baseline.gas
+                }
             );
             assert_eq!(
                 best.result.bytes,
-                if fused { fixture.bytes } else { baseline.bytes }
+                if fused { planned_bytes } else { baseline.bytes }
             );
             assert!(best.result.bytes <= budget);
             assert_eq!(best.result.step_bytes.len(), step_count(&params));

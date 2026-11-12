@@ -81,7 +81,7 @@ fn t3_terminal_production_builder_and_selection_guards() {
                 candidate.max_depth,
                 candidate.max_dup
             ),
-            (7569, 6593, 96, 72, 9)
+            (7529, 6588, 96, 72, 8)
         );
         assert_eq!(candidate.step_bytes, fixture.step_bytes);
         assert_eq!(&candidate.step_bytes[..62], &prior.result.step_bytes[..62]);

@@ -32,8 +32,9 @@ use super::fork::Fork;
 use super::render::memory_gas;
 use super::templates::{
     BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, final_store_blocks,
-    hash_forms, internal3, internal3_periodic, internal3_seam, internal4, linear_final4,
-    ordered_blocks, round4, row0_4, stream_blocks, take_stream_block, templates,
+    hash_forms, internal3, internal3_periodic, internal3_planned, internal3_seam,
+    internal3_seam_lazy, internal4, linear_final4, ordered_blocks, round4, row0_4, stream_blocks,
+    take_stream_block, templates,
 };
 use crate::bail;
 use crate::error::{Error, Result};
@@ -41,6 +42,9 @@ use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
 use crate::reference::{permutation_steps, sponge_state};
 use crate::round_constants::Params;
 use crate::value::Op;
+
+#[path = "t3_policy.rs"]
+pub(super) mod t3_policy;
 
 #[path = "t2_entry.rs"]
 mod t2_entry;
@@ -2702,26 +2706,28 @@ impl<'a> Builder<'a> {
         Ok(x5)
     }
 
+    fn internal_external3_available(&self) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.t == 3
+            && self.opts.external_seam
+            && self.opts.external_template
+            && self.opts.internal_template
+            && !self.opts.internal_consume
+            && !self.opts.shadow
+            && !self.opts.prime_in_memory
+            && !self.opts.shared_body
+            && self.lane_constants.is_none()
+            && p_end + 2 < self.range.to
+            && p_end + 2 < self.params.rounds_f + self.params.rounds_p
+            && self.e.max_reach >= 9
+            && self.params.internal_diag_minus_one == [u256(1), u256(1), u256(2)]
+    }
+
     /// Fuse the last internal round with external re-entry when both and
     /// the following layout adapter belong to this range.
     fn internal_external3(&mut self, round: usize) -> Result<bool> {
         let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
-        let total = self.params.rounds_f + self.params.rounds_p;
-        if self.t != 3
-            || !self.opts.external_seam
-            || !self.opts.external_template
-            || !self.opts.internal_template
-            || self.opts.internal_consume
-            || self.opts.shadow
-            || self.opts.prime_in_memory
-            || self.opts.shared_body
-            || self.lane_constants.is_some()
-            || round + 1 != p_end
-            || round + 3 >= self.range.to
-            || round + 3 >= total
-            || self.e.max_reach < 9
-            || self.params.internal_diag_minus_one != [u256(1), u256(1), u256(2)]
-        {
+        if !self.internal_external3_available() || round + 1 != p_end {
             return Ok(false);
         }
         let [start, end] = internal3_seam();
@@ -2741,6 +2747,8 @@ impl<'a> Builder<'a> {
         {
             return Ok(false);
         }
+        let lazy_seam =
+            l + wide(self.bound(state[2])) * U512::from(2u64) + wide(constants[2]) <= wmax();
         self.run_template(start, &state, &[], Some(round))?;
         self.e.comment("");
         self.step_bytes.push(self.e.bytes);
@@ -2756,6 +2764,11 @@ impl<'a> Builder<'a> {
             self.e.top(4)?,
         ];
         let names: Vec<String> = (0..3).map(|i| format!("s{i}'")).collect();
+        let end = if lazy_seam {
+            internal3_seam_lazy()
+        } else {
+            end
+        };
         self.state = self.run_template(end, &inputs, &names, Some(round + 1))?;
         self.dead.clear();
         Ok(true)
@@ -2782,6 +2795,23 @@ impl<'a> Builder<'a> {
             let state = self.state.clone();
             let b1 = wide(self.bound(state[1]));
             let b2 = wide(self.bound(state[2]));
+            let end = self.params.rounds_f / 2 + self.params.rounds_p - 1;
+            if next_internal
+                && self.internal_external3_available()
+                && round < end
+                && self
+                    .e
+                    .fits_add(self.bound(state[0]), self.params.round_constants[round][0])
+                && let Some(policy) =
+                    t3_policy::choose(self.bound(state[1]), self.bound(state[2]), end - round)
+                && let planned = internal3_planned(policy)
+                && self.template(planned, &state).is_some()
+            {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(planned, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
             if b1 <= wide(p1()) * U512::from(4u64) && b2 <= wide(p1()) * U512::from(5u64) {
                 let final_round =
                     !next_internal || round == self.params.rounds_f / 2 + self.params.rounds_p - 1;

@@ -103,7 +103,7 @@ fn t3_terminal_compiled_whole_entry() {
         );
         assert_eq!(checked.step_bytes, result.step_bytes);
         let model = super::super::entry_gas(&fork, 3, &result);
-        assert_eq!(model, if name == "paris" { 7646 } else { 7644 });
+        assert_eq!(model, if name == "paris" { 7606 } else { 7604 });
         let path = huff_name(&fork, 3, "Poseidon2");
         let public_path = huff_name(&fork, 3, "Permutation");
         let utils = if name == "amsterdam" {
@@ -131,7 +131,7 @@ fn t3_terminal_compiled_whole_entry() {
             code.runtime.len(),
             result.bytes + entry_bytes(fork, 3, &result.input_slots, false, 0)
         );
-        assert_eq!(code.runtime.len(), if fork.push0 { 6745 } else { 6747 });
+        assert_eq!(code.runtime.len(), if fork.push0 { 6740 } else { 6742 });
         let runtime = calls(&fork, code, &params, &raw, model);
         println!(
             "T3_TERMINAL baseline {name}: {} reference-checked calls, {model} gas, {} bytes, depth {}, dup {}",
@@ -172,7 +172,7 @@ fn t3_terminal_compiled_whole_entry() {
             (candidate.max_depth, candidate.max_dup),
             (original.max_depth, original.max_dup)
         );
-        assert_eq!((candidate.max_depth, candidate.max_dup), (72, 9));
+        assert_eq!((candidate.max_depth, candidate.max_dup), (72, 8));
         assert!(candidate.max_depth <= 1000);
         assert!(candidate.max_dup <= fork.reach);
         assert_eq!(candidate.step_bytes.len(), step_count(&params));
@@ -198,7 +198,7 @@ fn t3_terminal_compiled_whole_entry() {
             code.runtime.len(),
             candidate.bytes + entry_bytes(fork, 3, &candidate.input_slots, true, 96)
         );
-        assert_eq!(code.runtime.len(), if fork.push0 { 6643 } else { 6645 });
+        assert_eq!(code.runtime.len(), if fork.push0 { 6638 } else { 6640 });
         assert_eq!(code.runtime.len() + 102, runtime.len());
         // the same code up to the last round
         let common = runtime
@@ -285,7 +285,7 @@ fn t3_terminal_production_compiled_whole_entry() {
         assert_eq!(tokens(&selected.lines), tokens(&fixture.lines));
         let baseline_gas = super::super::entry_gas(&fork, 3, original);
         let model = super::super::entry_gas(&fork, 3, selected);
-        assert_eq!(baseline_gas, if fork.push0 { 7644 } else { 7646 });
+        assert_eq!(baseline_gas, if fork.push0 { 7604 } else { 7606 });
         assert_eq!(model + 18, baseline_gas);
         let path = huff_name(&fork, 3, "Poseidon2");
         let public_path = huff_name(&fork, 3, "Permutation");
@@ -335,7 +335,7 @@ fn t3_terminal_production_compiled_whole_entry() {
         assert_eq!(production.initcode, checked.initcode);
         assert_eq!(
             production.runtime.len(),
-            if fork.push0 { 6643 } else { 6645 }
+            if fork.push0 { 6638 } else { 6640 }
         );
         assert_eq!(production.runtime.len() + 102, baseline_runtime.len());
         assert_eq!(
