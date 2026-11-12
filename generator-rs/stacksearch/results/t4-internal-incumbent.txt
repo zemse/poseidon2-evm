@@ -1,0 +1,3 @@
+cost 166
+layout s0',P,s1',s2',s3',s3
+dsl sbox0 P P dup5 dup4 dup6 add=x+s1 dup8 add=x+s1+s3 addmod=sum dup2 d0 dup3 dup3 dup2 dup2 dup1 d3 dup14 mulmod=m3 dup3 add=s3' swap11 d2 mulmod=m2 add=s2' swap8 d1 mulmod=m1 add=s1' swap5 mulmod=m0 add=s0'

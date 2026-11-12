@@ -8,10 +8,13 @@
   },
   "scripts": {
     "test": "forge test",
-    "fmt": "prettier --write '**/*.{ts,js,json,md}' && forge fmt",
-    "generate:yul": "npx tsx generate-yul.ts && forge fmt",
-    "generate:huff": "npx tsx generate-huff.ts",
-    "generate:gas-report": "./gas-report.sh"
+    "fmt": "prettier --write '**/*.{json,md}' && forge fmt",
+    "prepublishOnly": "forge clean && forge build",
+    "generate:yul": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- yul 2 3 4 8 12 && forge fmt",
+    "generate:huff": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- huff 2 3 4 8 12 16 20 24 28 && forge fmt",
+    "verify:huff": "cargo run --release --quiet --manifest-path generator-rs/Cargo.toml -- verify 2 3 4 8 12 16 20 24 28",
+    "generate:gas-report": "./gas-report.sh",
+    "check:compat": "./compat-check.sh"
   },
   "keywords": [
     "solidity",

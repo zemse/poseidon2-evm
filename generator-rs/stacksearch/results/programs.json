@@ -1,0 +1,238 @@
+[
+  {
+    "file": "m4-block.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "x",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 125,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "m4-exit.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "x",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 128,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "m4-final.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3",
+      "t6,t5,t7,t4",
+      "16",
+      "0",
+      "8",
+      "final",
+      "2",
+      "lazy",
+      "--clean-goal"
+    ],
+    "cost": 157,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-reentry.program",
+    "args": [
+      "3",
+      "s0,P,s1,s2",
+      "O,P,O,O",
+      "16",
+      "2",
+      "8",
+      "x",
+      "1"
+    ],
+    "cost": 189,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-final-C.program",
+    "args": [
+      "3",
+      "s0,P,s2,s1",
+      "o0,o1,o2,P",
+      "16",
+      "2",
+      "8",
+      "final",
+      "1"
+    ],
+    "cost": 216,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t3-final-A.program",
+    "args": [
+      "3",
+      "s2,P,s1,s0",
+      "o0,o1,o2,P",
+      "16",
+      "2",
+      "8",
+      "final",
+      "1"
+    ],
+    "cost": 216,
+    "scope": "A* within the configured macro graph"
+  },
+  {
+    "file": "t4-round-prime.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 326,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 13
+  },
+  {
+    "file": "t4-round-canonical.program",
+    "args": [
+      "4",
+      "s0,s1,s2,s3,P",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 332,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 14
+  },
+  {
+    "file": "t4-round-raw.program",
+    "args": [
+      "4",
+      "s0,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1"
+    ],
+    "cost": 332,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 13
+  },
+  {
+    "file": "t4-final-prime.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,t5,t7,t4,P",
+      "16",
+      "8",
+      "13",
+      "final",
+      "1"
+    ],
+    "cost": 358,
+    "scope": "fixed S-box prefix, then a separate linear-layer search",
+    "peak_depth": 15
+  },
+  {
+    "file": "internal3.program",
+    "args": [
+      "3",
+      "s0,P,s1,s2",
+      "s0,P,s1,s2",
+      "4",
+      "12"
+    ],
+    "env": {
+      "NO_POP": "1"
+    },
+    "cost": 137,
+    "scope": "A* over single opcodes with the S-box as one move, the DUP rule, depth 12, garbage 4, no POP; three-lane analogue of the t = 4 internal round"
+  },
+  {
+    "file": "internal4.replay",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "s0,P,s1,s2,s3",
+      "1",
+      "15",
+      "s=3,2,3,2;o=2,2,2,2"
+    ],
+    "cost": 166,
+    "scope": "the three-lane program extended to four lanes by hand and replayed (REPLAY); the four-lane search did not finish (f = 157 still open after 18M expansions)"
+  },
+  {
+    "file": "t4-entry.program",
+    "args": [
+      "4",
+      "x0,x1,x2,x3,P",
+      "t6,P,t5,t7,t4",
+      "16",
+      "2",
+      "8",
+      "x",
+      "1",
+      "lazy"
+    ],
+    "cost": 122,
+    "scope": "A* within the configured macro graph; the initial linear layer straight to the round layout, garbage 2"
+  },
+  {
+    "file": "t4-round-k2.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,P,t5,t7,t4",
+      "16",
+      "8",
+      "13",
+      "x",
+      "1",
+      "lazy"
+    ],
+    "cost": 317,
+    "scope": "S-boxes 0 and 1 fixed (interleave.py 2 round 2), then A* over the other S-boxes and the linear layer; no cheaper program with only S-box 0 fixed or unrestricted (garbage 4)"
+  },
+  {
+    "file": "t4-final-k3.program",
+    "args": [
+      "4",
+      "s0,P,s1,s2,s3",
+      "t6,t5,t7,t4,P",
+      "16",
+      "8",
+      "13",
+      "final",
+      "1",
+      "lazy"
+    ],
+    "cost": 352,
+    "scope": "S-boxes 0, 1 and 3 fixed (interleave.py 3 final 2), then A* over S-box 2 and the linear layer; no cheaper program with two S-boxes or only S-box 0 fixed"
+  }
+]

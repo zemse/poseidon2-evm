@@ -1,0 +1,6240 @@
+// Stack schedule for the Poseidon2 permutation (huff/schedule.ts).
+//
+// Results are produced on top of the stack, operands are DUPed rather than
+// SWAPed, PRIME copies and other operands are pushed early so later results
+// land in place on top of them, and dead values are left behind as garbage.
+// Every ADD / MUL is backed by the emitter's bound check; the schedule only
+// chooses when to reduce, it never asserts safety by itself.
+//
+// A build covers a range of steps (step 0 is the initial linear layer, step
+// r + 1 is round r) so that a permutation too large for the fork's code size
+// can be cut into parts.
+//
+// The consuming internal rounds rotate the stack layout by one slot per
+// round, so after `period` rounds (the elements the stack holds) the layout
+// is back where it started and the bounds are a fixed point after the first
+// round. With shared_body the steady internal rounds (all but the first and
+// the last of the range) are therefore emitted once as a body of one period
+// that every call reaches by JUMP with its return label in memory and its
+// round constants CODECOPYed from a code table to a memory scratch; a last
+// call of fewer rounds leaves the body at a mid exit. With consume_group the
+// round consumes the elements in sub-chains of that many slots, each
+// rotating on its own (one SWAP more per chain), so the period is the
+// chains' lcm and the body shorter, which is what lets a part hold its
+// rounds within the legacy code size.
+
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+
+use rayon::prelude::*;
+
+use super::emitter::{Emitter, Id, Key, Operand, Table};
+use super::fork::Fork;
+use super::render::memory_gas;
+use super::templates::{
+    BlockKind, Internal3Kind, Template, TemplateKind, blocks, chains, final_store_blocks,
+    hash_forms, internal3, internal3_periodic, internal3_planned, internal3_seam,
+    internal3_seam_lazy, internal4, linear_final4, ordered_blocks, round4, row0_4, stream_blocks,
+    take_stream_block, templates,
+};
+use crate::bail;
+use crate::error::{Error, Result};
+use crate::field::{PRIME, U256, U512, UINT256_MAX, u256, wide};
+use crate::reference::{permutation_steps, sponge_state};
+use crate::round_constants::Params;
+use crate::value::Op;
+
+#[path = "t3_policy.rs"]
+pub(super) mod t3_policy;
+
+#[path = "t2_entry.rs"]
+mod t2_entry;
+pub(crate) use t2_entry::build as build_terminal;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BuildOptions {
+    /// keep the internal diag constants in memory instead of PUSH32 (t >= 4)
+    pub diag_in_memory: bool,
+    /// reclaim the old state slot after each element's S-box
+    pub gc_external: bool,
+    /// reclaim the M4 temporaries t0, t1, t2 (and t3 when it does not
+    /// disturb the in-place layout)
+    pub gc_m4: bool,
+    /// reclaim old state slots in internal rounds as each element is replaced
+    pub gc_internal: bool,
+    /// reduce the internal sum with [PRIME] swap1 mod instead of pre-placing
+    /// ADDMOD operands under the chain
+    pub chain_swap_mod: bool,
+    /// t = 4k external layer as out_b = M4(s_b + S) with S = sum of blocks
+    pub external_d: bool,
+    /// leave a PRIME copy under the outputs of an external layer when
+    /// another external round follows
+    pub prime_under_external: bool,
+    /// internal rounds: keep the sum lazy and reduce every output but s0
+    /// with ADDMOD (t <= 3)
+    pub internal_reduce_outputs: bool,
+    /// internal rounds: leave a PRIME copy under the new state only when the
+    /// nearest copy would leave the reach; t = 2 with internal_mul3 omits
+    /// backing copies when false
+    pub float_prime_internal: bool,
+    /// internal rounds consume the old state in place
+    pub internal_consume: bool,
+    /// with internal_consume, stack the PRIME copies of a round under m0 at
+    /// once so each swapped element lands on its own instead of getting one
+    /// swapped under it
+    pub prime_stack: bool,
+    /// with prime_stack, push the copies under the sum's own before the
+    /// chain sums, so the MULMOD of s0^5 lands m0 on them (no SWAP)
+    pub prime_early: bool,
+    /// with gc_internal, leave the garbage of the first gc_internal_from
+    /// internal rounds in place as far as the depth allows
+    pub gc_internal_from: usize,
+    /// with gc_m4, leave the M4 temporaries of the first gc_m4_from external
+    /// layers in place as far as the depth allows
+    pub gc_m4_from: usize,
+    /// with diag_in_memory, keep the last diag_push32 diag constants as
+    /// PUSH32 as far as the code size allows
+    pub diag_push32: usize,
+    /// shadow the values the reach cannot DUP in memory and hand the outputs
+    /// over in memory instead of on the stack
+    pub shadow: bool,
+    /// with internal_consume, run the steady internal rounds through one
+    /// body of a period reached by JUMP (see above)
+    pub shared_body: bool,
+    /// with shared_body, keep the first body_inline steady rounds inline as
+    /// far as the code size allows
+    pub body_inline: usize,
+    /// with internal_consume, consume the elements of a round that leads to
+    /// another in sub-chains of consume_group slots (the last takes the
+    /// rest), each rotating on its own, for a shorter body (0: one chain)
+    pub consume_group: usize,
+    /// with internal_consume, the elements the stack holds when the reach
+    /// cannot hold them all (0: reach - 4); each one more takes a slot of
+    /// the sum chain's PRIME copies and saves its loads and store
+    pub consume_slots: usize,
+    /// external rounds (t <= 4) and, with external_d, the M4 of every block
+    /// as the stack programs of templates.rs, from restricted searches:
+    /// the lanes are S-boxed in place and the linear layer consumes its
+    /// operands, so a round leaves at most one dead value and a block none
+    pub external_template: bool,
+    /// t = 4 internal rounds as the stack program of templates.rs
+    /// (internal4): one dead value a round instead of five, for three SWAPs;
+    /// t = 3 uses periodic bound-checked reductions, with internal3 fallbacks
+    pub internal_template: bool,
+    /// stream the last internal outputs into the next external round: t = 3
+    /// through its own programs, from t = 8 the consuming round runs the
+    /// S-boxes on its outputs over stacked copies (with prime_early)
+    pub external_seam: bool,
+    /// t = 2 internal rounds: s1' = (3 s1 mod P) + s0^5 and
+    /// s0' = 2 s0^5 + s1 lazy, instead of a shared lazy sum
+    /// (one op less per round, after the first generic bridge)
+    pub internal_mul3: bool,
+    /// store PRIME in memory once and load it (PUSH, MLOAD) where no copy
+    /// is within reach instead of PUSH32 (3 gas more, 30 bytes less)
+    pub prime_in_memory: bool,
+    /// with external_d (t >= 8), the external rounds as a stream of
+    /// blocks: each block's M4 runs straight into the next round's
+    /// S-boxes; with shadow the S-box outputs go to memory slots, but those
+    /// of the last blocks of a layer, which the next layer takes first, and
+    /// the column sums load them; without, all stay on the stack
+    pub external_stream: bool,
+    /// leave every shadowed input in calldata without a placeholder slot
+    pub compact_inputs: bool,
+    /// sum trees of bound-checked ADDs and ADDMODs instead of serial chains
+    pub tree_sums: bool,
+    /// retain bound/gas/peak Pareto alternatives when planning sum trees
+    pub tree_peak: bool,
+    /// supply tree ADDMOD moduli after both operands, with SWAP2
+    pub tree_late_prime: bool,
+    /// choose tree PRIME placement using current leaf depths
+    pub tree_adaptive_prime: bool,
+    /// stream memory-held internal outputs into a planned sum tree
+    pub fused_tree: FusedTree,
+    /// with prime_early, the consuming rounds that lead to another one DUP
+    /// their deepest element and swap every output into the next one's
+    /// slot, the last into s0^5's: n SWAPs and one dead value a round
+    /// instead of n + 3 SWAPs
+    pub lane_copy: bool,
+    /// keep the first diag_stack internal diag constants on the stack,
+    /// pushed once at the entry, and DUP them (3 gas, 2 bytes) instead of
+    /// PUSH32 (3 gas, 33 bytes)
+    pub diag_stack: usize,
+    /// with lane_copy, the consuming rounds before the last keep the
+    /// products d_i s_i and the sum T apart (s_i = a_i + T): the next round
+    /// sums the reduced products and (t - 1) T by one MULMOD, so its tree
+    /// takes about nine leaves an ADDMOD instead of four
+    pub defer_sum: bool,
+    /// with lane_copy, the first consuming round sums the exit layer's
+    /// outputs from its column sums S: sum_i s_i = (1 + t / 4) (11 (S0 + S2) +
+    /// 17 (S1 + S3)) by the column sums of M4, two MULMODs, less s0
+    pub first_sum: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FusedTree {
+    #[default]
+    Serial,
+    Preplaced,
+    Late,
+    PreplacedBounded,
+    LateBounded,
+    PreplacedSeeded,
+}
+
+pub const DEFAULT_OPTIONS: BuildOptions = BuildOptions {
+    diag_in_memory: false,
+    gc_external: false,
+    gc_m4: false,
+    gc_internal: false,
+    chain_swap_mod: false,
+    external_d: false,
+    prime_under_external: true,
+    internal_reduce_outputs: false,
+    float_prime_internal: false,
+    internal_consume: false,
+    prime_stack: false,
+    prime_early: false,
+    gc_internal_from: 0,
+    gc_m4_from: 0,
+    diag_push32: 0,
+    shadow: false,
+    shared_body: false,
+    body_inline: 0,
+    consume_group: 0,
+    consume_slots: 0,
+    external_template: false,
+    internal_template: false,
+    external_seam: false,
+    internal_mul3: false,
+    prime_in_memory: false,
+    external_stream: false,
+    compact_inputs: false,
+    tree_sums: false,
+    tree_peak: false,
+    tree_late_prime: false,
+    tree_adaptive_prime: false,
+    fused_tree: FusedTree::Serial,
+    lane_copy: false,
+    diag_stack: 0,
+    defer_sum: false,
+    first_sum: false,
+};
+
+/// Steps [from, to) of the permutation (see permutation_steps).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Range {
+    pub from: usize,
+    pub to: usize,
+}
+
+/// What a build takes and what its caller reads: the bound of every input
+/// (clean, PRIME - 1, by default), whether the inputs sit in calldata at
+/// [0, 32t) as the stack holds them (a part after the first, whose entry
+/// loads them as they are: a shadowed input is then loaded from there
+/// instead of a memory slot the entry fills) and the outputs the caller
+/// uses (all by default). The t = 4 hash entry starts its rounds from the
+/// lazy values of its round 0 and reads s0' alone, so its last linear layer
+/// computes only that row (final_round_row0).
+#[derive(Debug, Clone, Default)]
+pub struct Boundary {
+    pub bounds: Option<Vec<U256>>,
+    pub calldata: bool,
+    pub live: Option<Vec<usize>>,
+    /// the inputs as [s0, PRIME, s1, ...] rather than over the PRIME copy
+    pub prime_second: bool,
+    /// with prime_second, a PRIME copy this many dead values below them
+    pub prime_below: Option<usize>,
+    /// store the shadowed inputs to their slots at the entry, also those
+    /// out of reach that the first part otherwise leaves in calldata
+    pub store_inputs: bool,
+}
+
+/// A part hands its state over below 2p: an internal round leaves m_i + sum
+/// with both reduced, and any output above the bound is reduced before it
+/// is stored. The next part takes the words as they are, within that bound.
+pub fn handover_bound() -> U256 {
+    PRIME * u256(2) - u256(1)
+}
+pub const HANDOVER_BOUND_TEXT: &str = "2p";
+
+/// input_slots entry of an input the entry leaves in calldata (see
+/// Emitter::declare_raw)
+pub const RAW_INPUT: usize = usize::MAX;
+/// a raw calldata input with no stack placeholder
+pub const COMPACT_INPUT: usize = usize::MAX - 1;
+
+/// the boundary of part `from` of a split: lazy inputs from calldata
+pub fn part_boundary(t: usize, from: usize) -> Boundary {
+    if from == 0 {
+        return Boundary::default();
+    }
+    Boundary {
+        bounds: Some(vec![handover_bound(); t]),
+        calldata: true,
+        live: None,
+        prime_second: false,
+        prime_below: None,
+        store_inputs: false,
+    }
+}
+
+pub fn step_count(params: &Params) -> usize {
+    1 + params.rounds_f + params.rounds_p
+}
+
+/// The enabled options in declaration order, numbers with their value:
+/// "gcInternal, diagPush32=6"
+pub fn describe_options(opts: &BuildOptions) -> String {
+    let flags = [
+        ("diagInMemory", opts.diag_in_memory),
+        ("gcExternal", opts.gc_external),
+        ("gcM4", opts.gc_m4),
+        ("gcInternal", opts.gc_internal),
+        ("chainSwapMod", opts.chain_swap_mod),
+        ("externalD", opts.external_d),
+        ("primeUnderExternal", opts.prime_under_external),
+        ("internalReduceOutputs", opts.internal_reduce_outputs),
+        ("floatPrimeInternal", opts.float_prime_internal),
+        ("internalConsume", opts.internal_consume),
+        ("primeStack", opts.prime_stack),
+        ("primeEarly", opts.prime_early),
+    ];
+    let mut enabled: Vec<String> = flags
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(k, _)| k.to_string())
+        .collect();
+    if opts.gc_internal_from > 0 {
+        enabled.push(format!("gcInternalFrom={}", opts.gc_internal_from));
+    }
+    if opts.gc_m4_from > 0 {
+        enabled.push(format!("gcM4From={}", opts.gc_m4_from));
+    }
+    if opts.diag_push32 > 0 {
+        enabled.push(format!("diagPush32={}", opts.diag_push32));
+    }
+    if opts.diag_stack > 0 {
+        enabled.push(format!("diagStack={}", opts.diag_stack));
+    }
+    if opts.shadow {
+        enabled.push("shadow".to_string());
+    }
+    if opts.shared_body {
+        enabled.push("sharedBody".to_string());
+    }
+    if opts.body_inline > 0 {
+        enabled.push(format!("bodyInline={}", opts.body_inline));
+    }
+    if opts.consume_group > 0 {
+        enabled.push(format!("consumeGroup={}", opts.consume_group));
+    }
+    if opts.consume_slots > 0 {
+        enabled.push(format!("consumeSlots={}", opts.consume_slots));
+    }
+    if opts.external_template {
+        enabled.push("externalTemplate".to_string());
+    }
+    if opts.internal_template {
+        enabled.push("internalTemplate".to_string());
+    }
+    if opts.external_seam {
+        enabled.push("externalSeam".to_string());
+    }
+    if opts.internal_mul3 {
+        enabled.push("internalMul3".to_string());
+    }
+    if opts.prime_in_memory {
+        enabled.push("primeInMemory".to_string());
+    }
+    if opts.external_stream {
+        enabled.push("externalStream".to_string());
+    }
+    if opts.compact_inputs {
+        enabled.push("compactInputs".to_string());
+    }
+    if opts.tree_sums {
+        enabled.push("treeSums".to_string());
+    }
+    if opts.tree_peak {
+        enabled.push("treePeak".to_string());
+    }
+    if opts.tree_late_prime {
+        enabled.push("treeLatePrime".to_string());
+    }
+    if opts.tree_adaptive_prime {
+        enabled.push("treeAdaptivePrime".to_string());
+    }
+    if opts.fused_tree != FusedTree::Serial {
+        enabled.push(format!("fusedTree={:?}", opts.fused_tree));
+    }
+    if opts.lane_copy {
+        enabled.push("laneCopy".to_string());
+    }
+    if opts.defer_sum {
+        enabled.push("deferSum".to_string());
+    }
+    if opts.first_sum {
+        enabled.push("firstSum".to_string());
+    }
+    if enabled.is_empty() {
+        "none".to_string()
+    } else {
+        enabled.join(", ")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BuildResult {
+    pub lines: Vec<String>,
+    pub gas: u64,
+    pub bytes: usize,
+    pub max_depth: usize,
+    pub max_dup: usize,
+    pub swaps: usize,
+    pub pops: usize,
+    pub stores: usize,
+    pub loads: usize,
+    pub range: Range,
+    /// the state ends in memory at [0, 32t) (a part that hands over, or
+    /// shadow)
+    pub state_in_memory: bool,
+    /// memory slot of each input the entry must shadow, by index
+    pub input_slots: Vec<Option<usize>>,
+    /// cumulative bytes emitted for each step of the range; streamed steps
+    /// may overlap round work, so a split rebuilds both ranges independently
+    pub step_bytes: Vec<usize>,
+    pub memory: usize,
+    /// the round constants of the shared body's calls
+    pub tables: Vec<Table>,
+}
+
+pub const DIAG_MEMORY_BASE: usize = 0;
+
+/// blocks a streamed external layer keeps on the stack
+const STREAM_KEEP: usize = 2;
+
+/// The internal rounds of the range but its first and last, whose code
+/// differs (the entry's PRIME copy, the final round's layout): the ones the
+/// shared body may run, from round `first`.
+pub fn steady_rounds(params: &Params, range: Range) -> (usize, usize) {
+    let rf_half = params.rounds_f / 2;
+    let first = (range.from as i64 - 1).max(rf_half as i64) + 1;
+    let last = (range.to as i64 - 2).min((rf_half + params.rounds_p) as i64 - 1) - 1;
+    (first as usize, (last - first + 1).max(0) as usize)
+}
+
+/// elements the consuming round holds on the stack: consume_slots, or as
+/// many as leave 4 slots of the reach ([output, sum, m0] and a PRIME copy)
+pub fn held_slots(t: usize, reach: usize, consume_slots: usize) -> usize {
+    if consume_slots > 0 {
+        return consume_slots.min(t - 1);
+    }
+    (t - 1).min(reach - 4)
+}
+
+/// How many of the elements a consuming round swaps up, at `depths` under
+/// [m0, sum], can have their PRIME copies (`per` each) stacked under m0 at
+/// once: the k-th sits under the copies left over its turn, so its swap
+/// must still reach it.
+fn stacked_copies(depths: &[usize], per: usize, reach: usize) -> usize {
+    let fits = |n: usize| (0..n).all(|k| depths[k] + per * (n - k) - 1 <= reach);
+    (0..=depths.len()).rev().find(|&n| fits(n)).unwrap_or(0)
+}
+
+/// elements the consuming round holds on the stack: the rounds the layout
+/// takes to rotate back, the length of the shared body; in sub-chains of
+/// `group` slots each rotates on its own, so the lcm of their lengths
+pub fn body_period(params: &Params, fork: &Fork, consume_slots: usize, group: usize) -> usize {
+    let slots = held_slots(params.t, fork.reach, consume_slots);
+    if group == 0 || group >= slots {
+        return slots;
+    }
+    let rem = slots % group;
+    if rem == 0 { group } else { lcm(group, rem) }
+}
+
+fn lcm(a: usize, b: usize) -> usize {
+    fn gcd(x: usize, y: usize) -> usize {
+        if y == 0 { x } else { gcd(y, x % y) }
+    }
+    a / gcd(a, b) * b
+}
+
+/// The sub-chain lengths worth trying, by the period they give, shortest
+/// first: the one with the fewest chains per period (the chains cost a
+/// SWAP each, the calls of a shorter body their overhead)
+pub fn group_candidates(params: &Params, fork: &Fork, consume_slots: usize) -> Vec<usize> {
+    let slots = body_period(params, fork, consume_slots, 0);
+    let mut by_period: BTreeMap<usize, usize> = BTreeMap::new();
+    for group in 1..slots {
+        let period = body_period(params, fork, consume_slots, group);
+        if period >= slots {
+            continue;
+        }
+        match by_period.get(&period) {
+            Some(&prev) if slots.div_ceil(group) >= slots.div_ceil(prev) => {}
+            _ => {
+                by_period.insert(period, group);
+            }
+        }
+    }
+    by_period.into_values().collect()
+}
+
+fn wmax() -> U512 {
+    wide(UINT256_MAX)
+}
+
+fn p1() -> U256 {
+    PRIME - u256(1)
+}
+
+/// The cap of column sum i of an external_d layer over k blocks: S1 and S3
+/// reduced, S0 and S2 lazy at 2(p-1) when two blocks leave them so, since
+/// u0 and u2 only feed t0 = u0 + u1 and t1 = u2 + u3, which stay within
+/// 5(p-1).
+fn column_cap(k: usize, i: usize) -> U256 {
+    if k == 2 && i % 2 == 0 {
+        p1() + p1()
+    } else {
+        p1()
+    }
+}
+
+/// Hooks of m4: the TS passes closures, every one of which pushes a PRIME
+/// copy, so they are flags here.
+#[derive(Default)]
+struct M4Hooks {
+    before_outputs: bool,
+    before_last: bool,
+    /// keep [o0, o1, o2, o3] in order (final round)
+    keep_order: bool,
+    /// dead values below the temporaries that may be collected as well
+    extra_garbage: Vec<Id>,
+    /// collect garbage regardless of the gcM4 option
+    force_gc: bool,
+}
+
+struct Builder<'a> {
+    e: Emitter,
+    t: usize,
+    params: &'a Params,
+    opts: BuildOptions,
+    range: Range,
+    vectors: usize,
+    state_in_memory: bool,
+    diag_base: usize,
+    /// the shared body's scratch: the round constants of a call, then the
+    /// return offsets of its mid exit and of its end
+    rc_base: usize,
+    period: usize,
+    input_slots: Vec<Option<usize>>,
+    step_bytes: Vec<usize>,
+    state: Vec<Id>,
+    /// dead values left near the top of the state by the previous round
+    dead: Vec<Id>,
+    /// the outputs the caller reads, in state order (all when None)
+    live: Option<Vec<usize>>,
+    /// external layers built so far
+    layers: usize,
+    /// what the S-boxes of a template add in place of the round constants
+    /// (the hash entry's round 0, Builder::hash_round0)
+    lane_constants: Option<Vec<U256>>,
+    /// the state holds the S-box outputs of the current round
+    /// (external_stream)
+    sboxed: bool,
+    /// the outputs are already at [0, 32t) (stream_final)
+    stored: bool,
+    /// a private raw entry stores its last linear outputs directly
+    terminal: Option<t2_entry::Terminal>,
+    /// the sum of the elements the previous consuming round stored, in
+    /// memory (internal_round_consume)
+    fused: Option<Id>,
+    /// the layout the body round at the remainder call's entry starts from,
+    /// by lane (emit_body_calls)
+    entry_layout: Option<Vec<Tag>>,
+    /// whether a remainder call may take the mid entry, and whether one did
+    mid_entry: bool,
+    entered: bool,
+    /// the diag constants on the stack (diag_stack)
+    diag_vals: Vec<Id>,
+    /// the sum T the lanes of the state still lack (defer_sum)
+    defer: Option<Id>,
+    /// the column sums of the exit layer (first_sum)
+    exit_sums: Option<[Id; 4]>,
+}
+
+/// A stack entry by what it holds: an element of the state by index, a
+/// PRIME copy or any other value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tag {
+    Lane(usize),
+    Prime,
+    Other(Id),
+}
+
+/// SWAPs (the depth of each) that turn the stack `cur` (top first) into
+/// `want`, the top as the buffer: a cycle of misplaced entries under the top
+/// takes one more SWAP than its length. None when an entry has no place.
+fn swap_plan<T: PartialEq + Copy>(cur: &[T], want: &[T]) -> Option<Vec<usize>> {
+    let mut cur = cur.to_vec();
+    let mut plan = Vec::new();
+    loop {
+        let j = if cur[0] != want[0] {
+            (1..cur.len()).find(|&j| want[j] == cur[0] && cur[j] != want[j])?
+        } else {
+            match (1..cur.len()).find(|&j| cur[j] != want[j]) {
+                Some(j) => j,
+                None => return Some(plan),
+            }
+        };
+        cur.swap(0, j);
+        plan.push(j);
+    }
+}
+
+/// `takex<i>` (true, i): u_i with x_i taken in place, `take<i>` (false,
+/// i) with S_i
+fn take_move(mv: &str) -> Option<(bool, usize)> {
+    let rest = mv.strip_prefix("take")?;
+    let (input, i) = match rest.strip_prefix('x') {
+        Some(i) => (true, i),
+        None => (false, rest),
+    };
+    i.parse().ok().filter(|&i| i < 4).map(|i| (input, i))
+}
+
+fn val(v: Id) -> Operand {
+    Operand::Val(v)
+}
+
+fn inplace(v: Id) -> Operand {
+    Operand::Inplace(v)
+}
+
+fn constant(c: U256, name: &str) -> Operand {
+    Operand::Const(c, name.to_string())
+}
+
+fn constant_hex(c: U256) -> Operand {
+    Operand::Const(c, format!("0x{}", crate::field::hex_digits(c)))
+}
+
+impl<'a> Builder<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        params: &'a Params,
+        inputs: &[Vec<U256>],
+        opts: BuildOptions,
+        fork: Fork,
+        range: Range,
+        shadow: HashSet<Key>,
+        permissive: bool,
+        text: bool,
+        boundary: &Boundary,
+    ) -> Result<Builder<'a>> {
+        let t = params.t;
+        let state_in_memory = opts.shadow || range.to < step_count(params);
+        let mut e = Emitter::new(inputs.len(), fork, shadow, permissive, text);
+        // the hand-off region [0, 32t) comes first, then the diag table, the
+        // body scratch and the shadow slots
+        let diag_base = if state_in_memory {
+            32 * t
+        } else {
+            DIAG_MEMORY_BASE
+        };
+        let rc_base = diag_base
+            + if opts.diag_in_memory {
+                32 * (t - opts.diag_push32)
+            } else {
+                0
+            };
+        let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
+        e.slot_base = rc_base
+            + if opts.shared_body {
+                32 * (period + 2)
+            } else {
+                0
+            };
+        if opts.prime_in_memory {
+            e.slot_base += 32;
+        }
+        // takes: [s0, s1, ..., s(t-1), PRIME]
+        let mut state = Vec::with_capacity(t);
+        let mut input_slots = vec![None; t];
+        for (i, slot) in input_slots.iter_mut().enumerate() {
+            let vals = inputs.iter().map(|inp| inp[i]).collect();
+            let bound = boundary.bounds.as_ref().map_or(p1(), |b| b[i]);
+            let v = e.alloc(crate::value::Value::new(
+                format!("s{i}"),
+                bound,
+                vals,
+                None,
+            )?);
+            e.key(v, Key::In(i));
+            if e.shadows(Key::In(i)) {
+                if boundary.calldata {
+                    e.declare_calldata(v, 32 * i);
+                } else if (i + 1 > fork.reach || opts.compact_inputs) && !boundary.store_inputs {
+                    e.declare_raw(v, 32 * i);
+                    *slot = Some(if opts.compact_inputs {
+                        COMPACT_INPUT
+                    } else {
+                        RAW_INPUT
+                    });
+                } else {
+                    *slot = Some(e.declare(v));
+                }
+            }
+            state.push(v);
+        }
+        // raw inputs keep their slots as zeros unless compact_inputs omits them
+        let mut stack = Vec::with_capacity(t + 1);
+        for (i, &v) in state.iter().enumerate() {
+            match input_slots[i] {
+                Some(COMPACT_INPUT) => {}
+                Some(RAW_INPUT) => {
+                    let vals = vec![U256::ZERO; inputs.len()];
+                    let z = crate::value::Value::new(format!("z{i}"), U256::ZERO, vals, None)?;
+                    stack.push(e.alloc(z));
+                }
+                _ => stack.push(v),
+            }
+        }
+        if boundary.prime_second {
+            stack.insert(1, e.p);
+            if let Some(dead) = boundary.prime_below {
+                for k in 0..dead {
+                    let vals = vec![U256::ZERO; inputs.len()];
+                    let g = crate::value::Value::new(format!("g{k}"), U256::ZERO, vals, None)?;
+                    stack.push(e.alloc(g));
+                }
+                stack.push(e.p);
+            }
+        } else {
+            stack.push(e.p);
+        }
+        e.set_stack(&stack);
+        e.max_depth = stack.len();
+        Ok(Builder {
+            e,
+            t,
+            params,
+            opts,
+            range,
+            vectors: inputs.len(),
+            state_in_memory,
+            diag_base,
+            rc_base,
+            period,
+            input_slots,
+            step_bytes: Vec::new(),
+            state,
+            dead: Vec::new(),
+            live: boundary.live.clone(),
+            layers: 0,
+            lane_constants: None,
+            sboxed: false,
+            stored: false,
+            terminal: None,
+            fused: None,
+            entry_layout: None,
+            mid_entry: true,
+            entered: false,
+            diag_vals: Vec::new(),
+            defer: None,
+            exit_sums: None,
+        })
+    }
+
+    fn p(&self) -> Id {
+        self.e.p
+    }
+
+    fn bound(&self, v: Id) -> U256 {
+        self.e.bound(v)
+    }
+
+    fn fits(&self, a: Id, b: Id) -> bool {
+        self.e.fits_add(self.bound(a), self.bound(b))
+    }
+
+    /// true when diag constant i is loaded from memory rather than pushed
+    fn diag_stored(&self, i: usize) -> bool {
+        self.opts.diag_in_memory && i < self.t - self.opts.diag_push32
+    }
+
+    fn diag(&self, i: usize) -> Operand {
+        let d = self.params.internal_diag_minus_one[i];
+        if let Some(&v) = self.diag_vals.get(i) {
+            return val(v);
+        }
+        if !self.diag_stored(i) {
+            return constant(d, &format!("d{i}"));
+        }
+        Operand::Mload(d, self.diag_base + 32 * i, format!("d{i}"))
+    }
+
+    /// Indices of values sorted by stack depth, deepest first, so that each
+    /// DUP happens before the shallower ones push it further down.
+    fn by_depth(&self, values: &[Id]) -> Vec<usize> {
+        let mut order: Vec<(usize, usize)> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i, self.e.find(v)))
+            .collect();
+        order.sort_by_key(|a| std::cmp::Reverse(a.1));
+        order.into_iter().map(|(i, _)| i).collect()
+    }
+
+    /// Reclaim the slot of a dead value: the top moves into its place. With
+    /// shadow, garbage the reach cannot swap is left behind.
+    fn gc(&mut self, v: Id) -> Result<()> {
+        let pos = self.e.find(v);
+        if self.opts.shadow && (pos < 2 || pos > self.e.max_reach + 1) {
+            return Ok(());
+        }
+        self.gc_at(pos)
+    }
+
+    fn gc_at(&mut self, pos: usize) -> Result<()> {
+        if pos < 2 {
+            bail!("cannot gc slot {pos}");
+        }
+        self.e.swap(pos - 1)?;
+        self.e.pop()
+    }
+
+    /// SWAP the nearest copy of v to the top.
+    fn swap_up(&mut self, v: Id) -> Result<()> {
+        match self.e.find(v) {
+            0 => bail!("swap-1 out of range"),
+            n => self.e.swap(n - 1),
+        }
+    }
+
+    // ---- building blocks ---------------------------------------------------
+
+    /// Computes a via make_a (which must leave it on top) then a + b, either
+    /// as a plain ADD with b DUPed on top, or as ADDMOD with b and PRIME
+    /// placed under a beforehand so the result lands in place.
+    fn add_to(
+        &mut self,
+        make_a: impl FnOnce(&mut Self) -> Result<Id>,
+        b: Id,
+        name: &str,
+        reduce: bool,
+    ) -> Result<Id> {
+        if reduce {
+            self.e.push_prime()?;
+            self.e.dup(b)?;
+            let a = make_a(self)?;
+            let p = self.p();
+            return self
+                .e
+                .compute(Op::Addmod, &[inplace(a), inplace(b), inplace(p)], name);
+        }
+        let a = make_a(self)?;
+        self.e.compute(Op::Add, &[val(b), inplace(a)], name)
+    }
+
+    /// a + b from two existing values
+    fn pair_add(&mut self, a: Id, b: Id, name: &str, reduce: bool) -> Result<Id> {
+        if reduce || !self.fits(a, b) {
+            let p = self.p();
+            return self.e.compute(Op::Addmod, &[val(a), val(b), val(p)], name);
+        }
+        self.e.compute(Op::Add, &[val(a), val(b)], name)
+    }
+
+    /// Sum of values as a chain, reducing only when a partial sum would
+    /// overflow or when the final sum would exceed cap.
+    fn chain_sum(&mut self, values: &[Id], name: &str, cap: U256) -> Result<Id> {
+        let n = values.len();
+        if n < 2 {
+            bail!("chainSum needs two values");
+        }
+        let cap = wide(cap);
+        // plan both directions, keep the one with fewer reductions; on a tie
+        // start from the last value so the deepest DUPs happen first
+        let plan = |order: &[Id]| -> Vec<bool> {
+            let mut reduce = Vec::with_capacity(n);
+            let mut bound = wide(self.bound(order[0]));
+            for (j, &v) in order.iter().enumerate().skip(1) {
+                let last = j == n - 1;
+                let lazy = bound + wide(self.bound(v));
+                let r = lazy > wmax() || (last && lazy > cap);
+                reduce.push(r);
+                bound = if r { wide(p1()) } else { lazy };
+            }
+            reduce
+        };
+        let reversed: Vec<Id> = values.iter().rev().copied().collect();
+        let count = |r: &[bool]| r.iter().filter(|x| **x).count();
+        let plan_fwd = plan(values);
+        let plan_rev = plan(&reversed);
+        let (order, reduce) = if count(&plan_fwd) < count(&plan_rev) {
+            (values.to_vec(), plan_fwd)
+        } else {
+            (reversed, plan_rev)
+        };
+        let p = self.p();
+        if self.opts.chain_swap_mod {
+            // reduce the accumulator with MOD right before an ADD would
+            // overflow, and once more at the end if the cap demands it
+            let mut acc = self.e.dup(order[0])?;
+            for &v in &order[1..] {
+                if !self.fits(acc, v) {
+                    acc = self.mod_top(acc)?;
+                }
+                acc = self.e.compute(Op::Add, &[val(v), inplace(acc)], name)?;
+            }
+            if wide(self.bound(acc)) > cap {
+                acc = self.mod_top(acc)?;
+            }
+            return Ok(acc);
+        }
+        // [value, PRIME] for every reduced step, last step deepest
+        for j in (2..n).rev() {
+            if reduce[j - 1] {
+                self.e.push_prime()?;
+                self.e.dup(order[j])?;
+            }
+        }
+        let mut acc = if reduce[0] {
+            self.e
+                .compute(Op::Addmod, &[val(order[0]), val(order[1]), val(p)], name)?
+        } else {
+            self.e
+                .compute(Op::Add, &[val(order[0]), val(order[1])], name)?
+        };
+        for j in 2..n {
+            acc = if reduce[j - 1] {
+                self.e.compute(
+                    Op::Addmod,
+                    &[inplace(acc), inplace(order[j]), inplace(p)],
+                    name,
+                )?
+            } else {
+                self.e
+                    .compute(Op::Add, &[val(order[j]), inplace(acc)], name)?
+            };
+        }
+        Ok(acc)
+    }
+
+    fn emit_sum_tree(
+        &mut self,
+        plan: &super::sum_tree::Plan,
+        values: &[Id],
+        name: &str,
+        scaled: Option<(usize, U256)>,
+    ) -> Result<Id> {
+        match &plan.node {
+            super::sum_tree::Node::Leaf(i) => match scaled {
+                // k v by a MULMOD of a copy (defer_sum: (t - 1) T)
+                Some((j, k)) if j == *i => {
+                    let p = self.p();
+                    self.e.compute(
+                        Op::Mulmod,
+                        &[constant(k, "k"), val(values[*i]), val(p)],
+                        "kT",
+                    )
+                }
+                _ => self.e.dup(values[*i]),
+            },
+            super::sum_tree::Node::Pair {
+                left,
+                right,
+                reduce,
+                late_prime,
+            } => {
+                if *reduce && !late_prime {
+                    self.e.push_prime()?;
+                }
+                let left = self.emit_sum_tree(left, values, name, scaled)?;
+                let right = self.emit_sum_tree(right, values, name, scaled)?;
+                if *reduce {
+                    let p = self.p();
+                    let (top, next) = if *late_prime {
+                        self.e.push_prime()?;
+                        self.e.swap(2)?;
+                        (left, right)
+                    } else {
+                        (right, left)
+                    };
+                    self.e
+                        .compute(Op::Addmod, &[inplace(top), inplace(next), inplace(p)], name)
+                } else {
+                    self.e
+                        .compute(Op::Add, &[inplace(right), inplace(left)], name)
+                }
+            }
+        }
+    }
+
+    fn emit_fused_tree(
+        &mut self,
+        plan: &super::sum_tree::Plan,
+        old: &[Id],
+        sum: Id,
+        out: &mut [Id],
+    ) -> Result<Id> {
+        match &plan.node {
+            super::sum_tree::Node::Leaf(i) => {
+                let j = i + 1;
+                let s = old[j];
+                let slot = self.e.slot_of(s);
+                self.e.push_prime()?;
+                self.e.dup(s)?;
+                let o = self.consume_out(j, s, sum, out)?;
+                self.e.store_at(o, slot)?;
+                self.e.end_line();
+                Ok(o)
+            }
+            super::sum_tree::Node::Pair {
+                left,
+                right,
+                reduce,
+                late_prime,
+            } => {
+                if *reduce && !late_prime {
+                    self.e.push_prime()?;
+                }
+                let left = self.emit_fused_tree(left, old, sum, out)?;
+                let right = self.emit_fused_tree(right, old, sum, out)?;
+                if *reduce {
+                    let p = self.p();
+                    let (top, next) = if *late_prime {
+                        self.e.push_prime()?;
+                        self.e.swap(2)?;
+                        (left, right)
+                    } else {
+                        (right, left)
+                    };
+                    self.e.compute(
+                        Op::Addmod,
+                        &[inplace(top), inplace(next), inplace(p)],
+                        "fused",
+                    )
+                } else {
+                    self.e
+                        .compute(Op::Add, &[inplace(right), inplace(left)], "fused")
+                }
+            }
+        }
+    }
+
+    fn seed_fused_tree(&mut self, values: &[Id]) -> Result<Id> {
+        let bounds: Vec<_> = values.iter().map(|&v| self.bound(v)).collect();
+        let plan = if self.opts.tree_peak {
+            super::sum_tree::plan_peak(&bounds, UINT256_MAX)
+        } else {
+            super::sum_tree::plan(&bounds, UINT256_MAX)
+        };
+        let Some(plan) = plan else {
+            bail!("no seeded fused sum tree");
+        };
+        let acc = self.emit_sum_tree(&plan, values, "fused", None)?;
+        if self.bound(acc) != plan.bound {
+            bail!("seeded fused tree bound differs from the plan");
+        }
+        Ok(acc)
+    }
+
+    /// Without tree_sums, every operand is DUPed in advance, deepest value
+    /// first, so the serial chain runs in place and leaves nothing behind. A
+    /// reduction (where a partial sum would overflow or the final one exceed
+    /// cap) is an ADDMOD with a PRIME copy placed under its operand while
+    /// the reach of the later DUPs allows (loads from memory have none), the
+    /// first steps first, else an ADDMOD with a copy DUPed on top and
+    /// swapped under the accumulator (3 gas more, no slot).
+    fn chain_sum_in_place(&mut self, values: &[Id], name: &str, cap: U256) -> Result<Id> {
+        if values.len() < 2 {
+            bail!("chainSumInPlace needs two values");
+        }
+        if self.opts.tree_sums {
+            let ordered: Vec<Id> = self
+                .by_depth(values)
+                .into_iter()
+                .map(|i| values[i])
+                .collect();
+            let bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
+            let planned = if self.opts.tree_late_prime {
+                super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+            } else if self.opts.tree_peak {
+                super::sum_tree::plan_peak(&bounds, cap)
+            } else {
+                super::sum_tree::plan(&bounds, cap)
+            };
+            let Some(plan) = planned else {
+                bail!("no sum tree meets the bound");
+            };
+            let plan = if self.opts.tree_adaptive_prime {
+                let depths: Vec<_> = ordered.iter().map(|&v| self.e.find(v)).collect();
+                super::sum_tree::place_for_reach(&plan, &depths, self.e.max_reach)
+            } else {
+                plan
+            };
+            return self.emit_sum_tree(&plan, &ordered, name, None);
+        }
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Step {
+            Add,
+            Addmod,
+            AddmodTop,
+        }
+        let n = values.len();
+        let order: Vec<Id> = self
+            .by_depth(values)
+            .into_iter()
+            .rev()
+            .map(|i| values[i])
+            .collect();
+        let cap = wide(cap);
+        let mut steps = Vec::with_capacity(n);
+        let mut bound = wide(self.bound(order[0]));
+        for (j, &v) in order.iter().enumerate().skip(1) {
+            let lazy = bound + wide(self.bound(v));
+            let last = j == n - 1;
+            if lazy <= wmax() && !(last && lazy > cap) {
+                steps.push(Step::Add);
+                bound = lazy;
+            } else {
+                steps.push(Step::AddmodTop);
+                bound = wide(p1());
+            }
+        }
+        // the slots each DUPed operand has left: order[i] is DUPed after
+        // the n - 1 - i operands below it and the copies placed under them
+        let mut room: Vec<Option<usize>> = (0..n)
+            .map(|i| {
+                let at = self.e.find(order[i]);
+                let index = at + (n - 1 - i);
+                (at > 0 && index <= self.e.max_reach).then(|| self.e.max_reach - index)
+            })
+            .collect();
+        for j in 1..n {
+            if steps[j - 1] == Step::AddmodTop && room[..j].iter().all(|r| r.is_none_or(|r| r > 0))
+            {
+                steps[j - 1] = Step::Addmod;
+                for r in room[..j].iter_mut().flatten() {
+                    *r -= 1;
+                }
+            }
+        }
+        for j in (1..n).rev() {
+            if steps[j - 1] == Step::Addmod {
+                self.e.push_prime()?;
+            }
+            self.e.dup(order[j])?;
+        }
+        self.e.dup(order[0])?;
+        let p = self.p();
+        let mut acc = order[0];
+        for j in 1..n {
+            acc = match steps[j - 1] {
+                Step::Add => self
+                    .e
+                    .compute(Op::Add, &[inplace(acc), inplace(order[j])], name)?,
+                Step::Addmod => self.e.compute(
+                    Op::Addmod,
+                    &[inplace(acc), inplace(order[j]), inplace(p)],
+                    name,
+                )?,
+                Step::AddmodTop => {
+                    self.e.push_prime()?;
+                    self.e.swap(2)?;
+                    self.e.compute(
+                        Op::Addmod,
+                        &[inplace(order[j]), inplace(acc), inplace(p)],
+                        name,
+                    )?
+                }
+            };
+        }
+        Ok(acc)
+    }
+
+    /// v % PRIME for v on top: [PRIME] swap1 mod
+    fn mod_top(&mut self, v: Id) -> Result<Id> {
+        if self.e.top(0)? != v {
+            bail!("modTop expects the value on top");
+        }
+        self.e.push_prime()?;
+        self.e.swap(1)?;
+        let p = self.p();
+        let name = self.e.name(v).to_string();
+        self.e.compute(Op::Mod, &[inplace(v), inplace(p)], &name)
+    }
+
+    /// x^5 for y sitting on top with a PRIME copy right under it, which the
+    /// last MULMOD consumes together with y itself.
+    fn sbox(&mut self, y: Id, name: &str) -> Result<Id> {
+        let p = self.p();
+        if self.e.top(0)? != y || self.e.top(1)? != p {
+            bail!("sbox expects [y, P] on top");
+        }
+        self.e.push_prime()?;
+        let x2 = self
+            .e
+            .compute(Op::Mulmod, &[val(y), val(y), val(p)], "x2")?;
+        let x4 = self
+            .e
+            .compute(Op::Mulmod, &[val(x2), inplace(x2), inplace(p)], "x4")?;
+        self.e
+            .compute(Op::Mulmod, &[inplace(x4), inplace(y), inplace(p)], name)
+    }
+
+    /// x^5 for y on top without a PRIME copy under it: the copies are DUPed
+    /// and SWAPped under the operands instead, same gas as sbox with its
+    /// copy pre-placed.
+    fn sbox_no_prime(&mut self, y: Id, name: &str) -> Result<Id> {
+        let p = self.p();
+        if self.e.top(0)? != y {
+            bail!("sboxNoPrime expects y on top");
+        }
+        self.e.push_prime()?;
+        let x2 = self
+            .e
+            .compute(Op::Mulmod, &[val(y), val(y), inplace(p)], "x2")?;
+        self.e.push_prime()?;
+        self.e.swap(1)?;
+        let x4 = self
+            .e
+            .compute(Op::Mulmod, &[val(x2), inplace(x2), inplace(p)], "x4")?;
+        self.e.push_prime()?;
+        self.e.swap(2)?;
+        self.e
+            .compute(Op::Mulmod, &[inplace(y), inplace(x4), inplace(p)], name)
+    }
+
+    /// Keeps a PRIME copy near the top so later copies stay within reach.
+    fn float_prime(&mut self) -> Result<()> {
+        let n = self.e.find_prime();
+        // n > reach / 2 in the TS doubles
+        if n == 0 || 2 * n > self.e.max_reach {
+            self.e.push_prime()?;
+        }
+        Ok(())
+    }
+
+    // ---- external rounds from templates ------------------------------------
+
+    /// The template of a list whose layout the stack holds for `inputs` (the
+    /// s<i> of the layout), if any.
+    fn template(&self, list: &'static [Template], inputs: &[Id]) -> Option<&'static Template> {
+        let p = self.p();
+        list.iter().find(|tpl| {
+            tpl.init
+                .split(',')
+                .enumerate()
+                .all(|(k, name)| match self.e.at(k) {
+                    None => false,
+                    Some(v) => {
+                        if name == "P" {
+                            v == p
+                        } else {
+                            let i: usize = name[1..].parse().expect("state index");
+                            v == inputs[i]
+                        }
+                    }
+                })
+        })
+    }
+
+    /// Replays the stack program of a template (templates.rs) on `inputs`;
+    /// `round` names the round constants of its lanes. Returns the values
+    /// its moves name s<i>', as names[i], which end in the template's final
+    /// layout.
+    fn run_template(
+        &mut self,
+        list: &'static [Template],
+        inputs: &[Id],
+        names: &[String],
+        round: Option<usize>,
+    ) -> Result<Vec<Id>> {
+        let Some(tpl) = self.template(list, inputs) else {
+            bail!("no template fits the layout");
+        };
+        let p = self.p();
+        let mut out: Vec<Option<Id>> = vec![None; names.len()];
+        for mv in tpl.ops.split(' ') {
+            if let Some(n) = mv.strip_prefix("dup") {
+                let n: usize = n.parse().expect("dup slot");
+                let v = self.e.top(n - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(n) = mv.strip_prefix("swap") {
+                let n: usize = n.parse().expect("swap slot");
+                self.e.swap(n)?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Some(i) = mv.strip_prefix('d').and_then(|i| i.parse::<usize>().ok()) {
+                let d = self.params.internal_diag_minus_one[i];
+                if self.diag_stored(i) {
+                    self.e.mload(d, self.diag_base + 32 * i, &format!("d{i}"))?;
+                } else {
+                    self.e.push(d, Some(&format!("d{i}")))?;
+                }
+            } else if let Some(i) = mv.strip_prefix('c').and_then(|i| i.parse::<usize>().ok()) {
+                let Some(round) = round else {
+                    bail!("constant needs a round");
+                };
+                self.e
+                    .push(self.params.round_constants[round][i], Some(mv))?;
+            } else if let Ok(k) = mv.parse::<u64>() {
+                self.e.push(u256(k), None)?;
+            } else if mv == "pop" {
+                self.e.pop()?;
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let op = match op {
+                    "add" => Op::Add,
+                    "mul" => Op::Mul,
+                    "addmod" => Op::Addmod,
+                    "mulmod" => Op::Mulmod,
+                    _ => bail!("unknown template move {mv}"),
+                };
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                if !matches!(op, Op::Add | Op::Mul) {
+                    operands.push(inplace(p));
+                }
+                let index = name
+                    .strip_prefix('s')
+                    .and_then(|r| r.strip_suffix('\''))
+                    .and_then(|i| i.parse::<usize>().ok());
+                let name = match index {
+                    Some(i) => names[i].as_str(),
+                    None => name,
+                };
+                let v = self.e.compute(op, &operands, name)?;
+                if let Some(i) = index {
+                    out[i] = Some(v);
+                }
+                self.e.end_line();
+            } else if let Some(lane) = mv.strip_prefix("sbox") {
+                let Some(round) = round else {
+                    bail!("sbox needs a round");
+                };
+                let (i, prime_under) = match lane.strip_suffix('n') {
+                    Some(i) => (i, false),
+                    None => (lane, true),
+                };
+                let i: usize = i.parse().expect("lane");
+                self.template_lane(inputs, i, round, prime_under)?;
+                self.e.end_line();
+            } else {
+                bail!("unknown template move {mv}");
+            }
+        }
+        self.e.end_line();
+        let mut res = Vec::with_capacity(names.len());
+        for (i, v) in out.into_iter().enumerate() {
+            match v {
+                Some(v) => res.push(v),
+                None => bail!("template leaves s{i}' unnamed"),
+            }
+        }
+        Ok(res)
+    }
+
+    /// An external round of t <= 4 from its template. Unmatched t = 4
+    /// layouts use separate S-boxes and a linear template or generic M4.
+    fn external_template(&mut self, kind: TemplateKind, round: Option<usize>) -> Result<()> {
+        let names: Vec<String> = (0..self.t).map(|i| format!("s{i}'")).collect();
+        if self.t == 4 {
+            let full = templates(4, kind);
+            let inputs = self.state.clone();
+            if self.template(full, &inputs).is_some() {
+                self.state = self.run_template(full, &inputs, &names, round)?;
+                return Ok(());
+            }
+            if let Some(round) = round {
+                self.add_constants_and_sbox(round)?;
+            }
+            let linear = match kind {
+                TemplateKind::Final => linear_final4(),
+                TemplateKind::Exit => blocks(BlockKind::Exit),
+                _ => blocks(BlockKind::Block),
+            };
+            let inputs = self.state.clone();
+            if self.template(linear, &inputs).is_some() {
+                self.state = self.run_template(linear, &inputs, &names, None)?;
+            } else {
+                self.external_matrix(
+                    kind == TemplateKind::Final,
+                    kind == TemplateKind::Exit,
+                    kind != TemplateKind::Exit,
+                )?;
+            }
+            return Ok(());
+        }
+        let inputs = self.state.clone();
+        self.state = self.run_template(templates(self.t, kind), &inputs, &names, round)?;
+        Ok(())
+    }
+
+    /// How many rounds the program of templates::chains that fits the layout
+    /// runs, if one does.
+    fn chain_rounds(&self, kind: TemplateKind) -> Option<usize> {
+        if self.t > 3 || !self.opts.external_template || self.lane_constants.is_some() {
+            return None;
+        }
+        let tpl = self.template(chains(self.t, kind), &self.state)?;
+        Some(1 + tpl.ops.split(' ').filter(|&mv| mv == "|").count())
+    }
+
+    /// External rounds from `round` on of t <= 3 from one program of
+    /// templates::chains, when one fits the layout and all its rounds belong
+    /// to this range; each later round's comment and step start at its first
+    /// S-box. Returns how many rounds it ran, 0 (emitting nothing) when no
+    /// program fits.
+    fn external_chain(&mut self, kind: TemplateKind, round: usize) -> Result<usize> {
+        let inputs = self.state.clone();
+        if self.t > 3 || !self.opts.external_template || self.lane_constants.is_some() {
+            return Ok(0);
+        }
+        let Some(tpl) = self.template(chains(self.t, kind), &inputs) else {
+            return Ok(0);
+        };
+        let n = 1 + tpl.ops.split(' ').filter(|&mv| mv == "|").count();
+        if round + n >= self.range.to {
+            return Ok(0);
+        }
+        // the outputs of every round of the program
+        let mut outs: Vec<Vec<Option<Id>>> = vec![vec![None; self.t]; n];
+        let p = self.p();
+        let mut stores = 0;
+        let mut k = 0;
+        for mv in tpl.ops.split(' ') {
+            if mv == "|" {
+                k += 1;
+                self.e.end_line();
+                self.e.comment("");
+                self.step_bytes.push(self.e.bytes);
+                self.e.next_round();
+                self.e.comment(&format!("Round {} (external)", round + k));
+            } else if let Some(n) = mv.strip_prefix("dup") {
+                let n: usize = n.parse().expect("dup slot");
+                let v = self.e.top(n - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(n) = mv.strip_prefix("swap") {
+                self.e.swap(n.parse().expect("swap slot"))?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Some(lane) = mv.strip_prefix("sbox") {
+                // sboxI: lane I of `round` on the inputs; sboxI@J: of round
+                // + J on the outputs of the program's round J - 1
+                match lane.split_once('@') {
+                    Some((i, j)) => {
+                        let i: usize = i.parse().expect("lane");
+                        let j: usize = j.parse().expect("round of the program");
+                        let Some(s) = outs[j - 1][i] else {
+                            bail!("chain S-box before its input");
+                        };
+                        self.template_lane(&vec![s; self.t], i, round + j, true)?;
+                    }
+                    None => {
+                        self.template_lane(&inputs, lane.parse().expect("lane"), round, true)?;
+                    }
+                }
+                self.e.end_line();
+            } else if mv == "store" {
+                let s = stores;
+                stores += 1;
+                if self.e.mstore_next(32 * s)? != outs[n - 1][s].unwrap_or(p) {
+                    bail!("chain stores s{s}' out of order");
+                }
+                self.e.end_line();
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => {
+                        operands.push(inplace(p));
+                        Op::Addmod
+                    }
+                    _ => bail!("unknown chain move {mv}"),
+                };
+                // oJ.I: output I of the program's round J
+                let slot = name
+                    .strip_prefix('o')
+                    .and_then(|r| r.split_once('.'))
+                    .and_then(|(j, i)| Some((j.parse::<usize>().ok()?, i.parse::<usize>().ok()?)));
+                let label = match slot {
+                    Some((_, i)) => format!("s{i}'"),
+                    None => name.to_string(),
+                };
+                let v = self.e.compute(op, &operands, &label)?;
+                if let Some((j, i)) = slot {
+                    outs[j][i] = Some(v);
+                }
+                self.e.end_line();
+            } else {
+                bail!("unknown chain move {mv}");
+            }
+        }
+        self.e.end_line();
+        // a program that ends with its last round's S-boxes leaves the state
+        // to its caller
+        let last = outs.pop().expect("one round at least");
+        if last.iter().any(Option::is_some) {
+            self.state = last
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| v.ok_or_else(|| Error(format!("chain leaves s{i}' unnamed"))))
+                .collect::<Result<Vec<_>>>()?;
+        }
+        Ok(n)
+    }
+
+    /// s_i + c then x^5 for lane i on top, consumed in place; with
+    /// prime_under the PRIME copy under it is consumed as well. A lazy input
+    /// that does not fit the ADD takes an ADDMOD with that copy (or a
+    /// swapped-in one) and the S-box without it, leaving the same stack.
+    fn template_lane(
+        &mut self,
+        inputs: &[Id],
+        i: usize,
+        round: usize,
+        prime_under: bool,
+    ) -> Result<Id> {
+        let p = self.p();
+        let s = inputs[i];
+        if self.e.top(0)? != s {
+            bail!("template expects s{i} on top");
+        }
+        if prime_under && self.e.top(1)? != p {
+            bail!("template expects PRIME under s{i}");
+        }
+        let c = match &self.lane_constants {
+            Some(k) => k[i],
+            None => self.params.round_constants[round][i],
+        };
+        let name = format!("s{i}+c");
+        let mut prime_under = prime_under;
+        let y = if self.e.fits_add(self.bound(s), c) {
+            self.e
+                .compute(Op::Add, &[constant(c, "c"), inplace(s)], &name)?
+        } else {
+            if !prime_under {
+                self.e.push_prime()?;
+                self.e.swap(1)?;
+            }
+            prime_under = false;
+            self.e.compute(
+                Op::Addmod,
+                &[constant(c, "c"), inplace(s), inplace(p)],
+                &name,
+            )?
+        };
+        let xname = format!("x{i}");
+        if prime_under {
+            self.sbox(y, &xname)
+        } else {
+            self.sbox_no_prime(y, &xname)
+        }
+    }
+
+    // ---- external rounds ---------------------------------------------------
+
+    /// s_i + c_i then x^5 for every element, last element first so the
+    /// results end up in state order.
+    fn add_constants_and_sbox(&mut self, round: usize) -> Result<()> {
+        let t = self.t;
+        if self.opts.gc_external {
+            for v in std::mem::take(&mut self.dead) {
+                let pos = self.e.find(v);
+                if pos >= 2 && pos <= self.e.max_reach + 1 {
+                    self.gc(v)?;
+                }
+            }
+        }
+        self.float_prime()?;
+        self.e.end_line();
+        let mut out = vec![0; t];
+        // with shadow the results replace the old slots in place, so the
+        // shallow elements go first and every slot stays within the reach of
+        // the swap
+        let mut order = self.by_depth(&self.state);
+        if self.opts.shadow && self.opts.gc_external {
+            order.reverse();
+        }
+        let mut memory: Vec<usize> = order
+            .iter()
+            .copied()
+            .filter(|&i| self.e.find(self.state[i]) == 0)
+            .collect();
+        if !memory.is_empty() {
+            // elements the consuming rounds keep in memory (the first
+            // indices): loaded last, highest index first, so that the blocks
+            // come out in order with block 0 on top
+            let mut next: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&i| i != 0 && !memory.contains(&i))
+                .collect();
+            memory.sort_by(|a, b| b.cmp(a));
+            next.extend(memory);
+            next.push(0);
+            order = next;
+        }
+        let p = self.p();
+        for i in order {
+            let s = self.state[i];
+            let c = self.params.round_constants[round][i];
+            self.e.push_prime()?;
+            let name = format!("s{i}+c");
+            let y = if self.e.fits_add(self.bound(s), c) {
+                self.e
+                    .compute(Op::Add, &[constant(c, "c"), val(s)], &name)?
+            } else {
+                self.e
+                    .compute(Op::Addmod, &[constant(c, "c"), val(s), val(p)], &name)?
+            };
+            out[i] = self.sbox(y, &format!("s{i}'"))?;
+            if self.opts.gc_external {
+                self.gc(s)?;
+            }
+            self.e.end_line();
+        }
+        if self.opts.gc_external {
+            // PRIME copies would otherwise sit above the state and cost reach
+            // in the linear layer
+            while self.e.top(0)? == p {
+                self.e.pop()?;
+            }
+            self.e.end_line();
+        }
+        self.state = out;
+        Ok(())
+    }
+
+    /// Poseidon2 M4 on four values.
+    ///   t0 = v0 + v1, t1 = v2 + v3, t2 = 2 v1 + t1, t3 = 2 v3 + t0
+    ///   t4 = 4 t1 + t3, t5 = 4 t0 + t2, t6 = t3 + t5, t7 = t2 + t4
+    ///   out = [t6, t5, t7, t4]
+    fn m4(&mut self, v: [Id; 4], names: &[String], clean: bool, hooks: M4Hooks) -> Result<[Id; 4]> {
+        let four = constant_hex(u256(4));
+        let p = self.p();
+        // the standard order DUPs v3 again under four temporaries
+        let deepest = v.iter().map(|&x| self.e.find(x)).max().unwrap_or(0);
+        let deep = deepest + 4 > self.e.max_reach;
+        let (t0, t1, t2, t3);
+        let mut temps: Vec<Id> = Vec::new();
+        if deep {
+            let d3 = self.e.compute(Op::Add, &[val(v[3]), val(v[3])], "2s3")?;
+            self.e.end_line();
+            let d1 = self.e.compute(Op::Add, &[val(v[1]), val(v[1])], "2s1")?;
+            self.e.end_line();
+            t1 = self.e.compute(Op::Add, &[val(v[2]), val(v[3])], "t1")?;
+            self.e.end_line();
+            t0 = self.e.compute(Op::Add, &[val(v[0]), val(v[1])], "t0")?;
+            self.e.end_line();
+            t3 = self
+                .e
+                .compute(Op::Addmod, &[val(d3), val(t0), val(p)], "t3")?;
+            self.e.end_line();
+            t2 = self
+                .e
+                .compute(Op::Addmod, &[val(d1), val(t1), val(p)], "t2")?;
+            self.e.end_line();
+            temps.push(d3);
+            temps.push(d1);
+        } else {
+            t1 = self.e.compute(Op::Add, &[val(v[2]), val(v[3])], "t1")?;
+            self.e.end_line();
+            t0 = self.e.compute(Op::Add, &[val(v[0]), val(v[1])], "t0")?;
+            self.e.end_line();
+            t3 = self.add_to(
+                |b| b.e.compute(Op::Add, &[val(v[3]), val(v[3])], "2s3"),
+                t0,
+                "t3",
+                true,
+            )?;
+            self.e.end_line();
+            t2 = self.add_to(
+                |b| b.e.compute(Op::Add, &[val(v[1]), val(v[1])], "2s1"),
+                t1,
+                "t2",
+                true,
+            )?;
+            self.e.end_line();
+        }
+        if hooks.before_outputs {
+            self.e.push_prime()?;
+        }
+        let reduce4 = clean || !self.fits(t3, p);
+        let f4 = four.clone();
+        let t4 = self.add_to(
+            |b| b.e.compute(Op::Mulmod, &[val(t1), f4, val(p)], "4t1"),
+            t3,
+            &names[3],
+            reduce4,
+        )?;
+        self.e.end_line();
+        let t7 = self.pair_add(t2, t4, &names[2], clean)?;
+        self.e.end_line();
+        let reduce5 = clean || !self.fits(t2, p);
+        let t5 = self.add_to(
+            |b| b.e.compute(Op::Mulmod, &[val(t0), four, val(p)], "4t0"),
+            t2,
+            &names[1],
+            reduce5,
+        )?;
+        self.e.end_line();
+        let gc_m4 = self.opts.gc_m4 && self.layers > self.opts.gc_m4_from;
+        let gc = (gc_m4 || hooks.force_gc) && !hooks.before_outputs;
+        let mut extra = temps;
+        extra.extend_from_slice(&hooks.extra_garbage);
+        if gc && !hooks.keep_order {
+            // three live outputs on top, order does not matter here
+            for g in [t2, t0, t1].into_iter().chain(extra.iter().copied()) {
+                self.gc(g)?;
+            }
+            self.e.end_line();
+        }
+        if hooks.before_last {
+            self.e.push_prime()?;
+        }
+        let t6 = self.pair_add(t3, t5, &names[0], clean)?;
+        self.e.end_line();
+        if gc && hooks.keep_order {
+            // always take the slot right under the four outputs: a uniform
+            // rotation, applied a multiple of four times, restores their order
+            let mut dead: HashSet<Id> = [t2, t3, t0, t1].into_iter().collect();
+            dead.extend(extra.iter().copied());
+            let mut run = 0;
+            while run + 4 < self.e.depth() && dead.contains(&self.e.top(4 + run)?) {
+                run += 1;
+            }
+            let count = run - run % 4;
+            for _ in 0..count {
+                self.gc_at(5)?;
+            }
+            self.e.end_line();
+        } else if gc && !hooks.before_last {
+            self.gc(t3)?;
+            self.e.end_line();
+        } else if gc {
+            self.dead.push(t3);
+        }
+        Ok([t6, t5, t7, t4])
+    }
+
+    /// prime_under leaves a PRIME copy right under the outputs: required for
+    /// the returned layout [s0', ..., s(t-1)', PRIME] at t <= 4, and used
+    /// before another external round so its elements find PRIME within
+    /// reach.
+    fn external_matrix(&mut self, clean: bool, before_last: bool, prime_under: bool) -> Result<()> {
+        let t = self.t;
+        self.layers += 1;
+        let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+        let before_outputs =
+            (clean && t <= 4) || (prime_under && !clean && self.opts.prime_under_external);
+        if t == 2 || t == 3 {
+            // circ(2, 1[, 1]): out_i = s_i + sum
+            let state = self.state.clone();
+            let sum = self.chain_sum(&state, "sum", UINT256_MAX)?;
+            self.e.end_line();
+            let mut out = vec![0; t];
+            if before_outputs {
+                self.e.push_prime()?;
+            }
+            for i in (0..t).rev() {
+                if i == 0 && before_last {
+                    self.e.push_prime()?;
+                }
+                out[i] = self.pair_add(state[i], sum, &names[i], clean)?;
+                self.e.end_line();
+            }
+            self.state = out;
+            return Ok(());
+        }
+        if t == 4 {
+            let v = [self.state[0], self.state[1], self.state[2], self.state[3]];
+            let res = self.m4(
+                v,
+                &names,
+                clean,
+                M4Hooks {
+                    before_outputs,
+                    before_last,
+                    ..Default::default()
+                },
+            )?;
+            self.state = res.to_vec();
+            return Ok(());
+        }
+        let k = t / 4;
+        if self.opts.external_d {
+            // out_b = M4(s_b + S) with S_i = sum over blocks of s_{b,i}; S is
+            // reduced so that the block inputs stay within 2p
+            let mut sums = [0; 4];
+            for i in (0..4).rev() {
+                let column: Vec<Id> = (0..k).map(|b| self.state[4 * b + i]).collect();
+                let name = format!("S{i}");
+                // a tree pairs the seven t = 28 columns in one reduction
+                sums[i] = if self.opts.tree_sums {
+                    self.chain_sum_in_place(&column, &name, column_cap(k, i))?
+                } else {
+                    self.chain_sum(&column, &name, column_cap(k, i))?
+                };
+                self.e.end_line();
+            }
+            if before_last {
+                self.exit_sums = Some(sums);
+            }
+            let mut out = vec![0; t];
+            for b in (0..k).rev() {
+                let mut u = [0; 4];
+                if b == 0 && before_outputs {
+                    self.e.push_prime()?;
+                }
+                let block: Vec<Id> = self.state[4 * b..4 * b + 4].to_vec();
+                if self.opts.external_template {
+                    // the block's outputs on top in order (ordered_block)
+                    let kind = if clean {
+                        BlockKind::Final
+                    } else if b == 0 && before_last {
+                        BlockKind::Exit
+                    } else {
+                        BlockKind::Block
+                    };
+                    let x = self.state.clone();
+                    let res = self.ordered_block(kind, b, &x, &sums)?;
+                    out[4 * b..4 * b + 4].copy_from_slice(&res);
+                    continue;
+                }
+                for i in self.by_depth(&block) {
+                    u[i] = self.pair_add(block[i], sums[i], &format!("u{}", 4 * b + i), false)?;
+                    self.e.end_line();
+                }
+                let res = self.m4(
+                    u,
+                    &names[4 * b..4 * b + 4],
+                    clean,
+                    M4Hooks {
+                        keep_order: clean,
+                        extra_garbage: u.to_vec(),
+                        force_gc: true,
+                        before_last: b == 0 && before_last,
+                        before_outputs: false,
+                    },
+                )?;
+                out[4 * b..4 * b + 4].copy_from_slice(&res);
+            }
+            self.state = out;
+            return Ok(());
+        }
+        // y = M4 per block, z_i = sum over blocks of y_{b,i},
+        // out_{b,i} = y_{b,i} + z_i
+        let mut y = vec![0; t];
+        for b in (0..k).rev() {
+            let block = [
+                self.state[4 * b],
+                self.state[4 * b + 1],
+                self.state[4 * b + 2],
+                self.state[4 * b + 3],
+            ];
+            let y_names: Vec<String> = (0..4).map(|i| format!("y{}", 4 * b + i)).collect();
+            let res = self.m4(
+                block,
+                &y_names,
+                false,
+                M4Hooks {
+                    keep_order: clean,
+                    force_gc: clean,
+                    ..Default::default()
+                },
+            )?;
+            y[4 * b..4 * b + 4].copy_from_slice(&res);
+        }
+        let mut z = [0; 4];
+        let three_p = U256::from(3u64) * PRIME;
+        for i in (0..4).rev() {
+            let column: Vec<Id> = (0..k).map(|b| y[4 * b + i]).collect();
+            // leave room so that y + z stays lazy
+            z[i] = self.chain_sum(&column, &format!("z{i}"), UINT256_MAX - three_p)?;
+            self.e.end_line();
+        }
+        let mut out = vec![0; t];
+        if before_outputs {
+            self.e.push_prime()?;
+        }
+        if clean && !self.state_in_memory {
+            // final round: outputs replace their y in ascending order so they
+            // end up on top in state order once the z values are popped
+            for j in 0..t {
+                out[j] = self.pair_add(y[j], z[j % 4], &names[j], true)?;
+                self.gc(y[j])?;
+                self.e.end_line();
+            }
+            for _ in 0..4 {
+                self.e.pop()?;
+            }
+            self.e.end_line();
+        } else {
+            for j in (0..t).rev() {
+                if j == 0 && before_last {
+                    self.e.push_prime()?;
+                }
+                out[j] = self.pair_add(y[j], z[j % 4], &names[j], clean)?;
+                if self.opts.gc_external && j > 0 {
+                    self.gc(y[j])?;
+                }
+                self.e.end_line();
+            }
+        }
+        self.state = out;
+        Ok(())
+    }
+
+    // ---- streamed external rounds (external_stream) -------------------------
+
+    fn stream(&self) -> bool {
+        self.opts.external_stream && self.opts.external_d && self.t >= 8
+    }
+
+    /// The blocks a streamed layer leaves on the stack: all of them
+    /// without shadow.
+    fn stream_keep(&self) -> usize {
+        if !self.opts.shadow {
+            return self.t / 4;
+        }
+        STREAM_KEEP.min(self.t / 4)
+    }
+
+    /// The PRIME copy a streamed layer's sums and blocks DUP from: within
+    /// the legacy reach it keeps their copies one-byte DUPs (or saves a
+    /// PUSH32 where none is near); beyond it every copy reaches the one
+    /// there is, so the floor would be a dead 3 gas.
+    fn stream_floor(&mut self) -> Result<()> {
+        if self.e.max_reach <= 16 || self.e.find_prime() == 0 {
+            self.e.push_prime()?;
+            self.e.end_line();
+        }
+        Ok(())
+    }
+
+    /// s + c and the S-box of a lane over a PRIME copy: an input on top
+    /// gets the copy swapped under it, any other is DUPed over one (its
+    /// slot is left dead); a lazy input that does not fit the ADD takes an
+    /// ADDMOD with a second copy.
+    fn stream_lane(&mut self, s: Id, c: U256, name: &str) -> Result<Id> {
+        let p = self.p();
+        let fits = self.e.fits_add(self.bound(s), c);
+        let on_top = self.e.top(0)? == s;
+        self.e.push_prime()?;
+        if !fits {
+            self.e.push_prime()?;
+        }
+        if on_top {
+            self.e.swap(if fits { 1 } else { 2 })?;
+        } else {
+            self.e.dup(s)?;
+        }
+        let y = if fits {
+            self.e
+                .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?
+        } else {
+            self.e
+                .compute(Op::Addmod, &[constant(c, "c"), inplace(s), inplace(p)], "y")?
+        };
+        self.sbox(y, name)
+    }
+
+    /// The S-boxes of a round from the state wherever it is (after an
+    /// internal round or at the entry of a part): every output goes to a
+    /// memory slot but those of the kept blocks, the last ones.
+    fn stream_sbox(&mut self, round: usize) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        let keep = self.stream_keep();
+        self.stream_floor()?;
+        let state = self.state.clone();
+        let mut out = Vec::with_capacity(t);
+        for (i, &s) in state.iter().enumerate() {
+            let c = self.params.round_constants[round][i];
+            let x = self.stream_lane(s, c, &format!("x{i}"))?;
+            if i / 4 < k - keep {
+                self.e.spill(x)?;
+            }
+            self.e.end_line();
+            out.push(x);
+        }
+        self.state = out;
+        self.sboxed = true;
+        Ok(())
+    }
+
+    /// The linear layer of a round from its S-box outputs (or the inputs,
+    /// before round 0): the column sums S (reduced), then block by block,
+    /// those whose inputs sit on the stack first, u = x + S and the M4 of
+    /// the block (templates.rs). With `next` the M4 runs straight into the
+    /// S-boxes of that round, stored to memory slots but those of the last
+    /// blocks; without, it is the last round's, reduced, and its outputs go
+    /// straight to their words of [0, 32t) for the caller.
+    fn stream_linear(&mut self, next: Option<usize>) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        let keep = self.stream_keep();
+        self.layers += 1;
+        let x = self.state.clone();
+        self.stream_floor()?;
+        let mut sums = [0; 4];
+        for i in (0..4).rev() {
+            let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();
+            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), column_cap(k, i))?;
+            self.e.end_line();
+        }
+        let on_stack = |b: usize, e: &Emitter| (0..4).all(|i| e.find(x[4 * b + i]) > 0);
+        let mut order: Vec<usize> = (0..k).rev().filter(|&b| on_stack(b, &self.e)).collect();
+        order.extend((0..k).rev().filter(|&b| !on_stack(b, &self.e)));
+        let kind = if next.is_some() {
+            BlockKind::Block
+        } else {
+            BlockKind::Final
+        };
+        let mut out = vec![0; t];
+        for (n, &b) in order.iter().enumerate() {
+            if let Some(r) = next {
+                let kept = n + keep >= k;
+                // a kept block takes one operand in place: the last S0, any
+                // other its x_{4b} (Amsterdam)
+                let take_input = kept
+                    && n + 1 < k
+                    && keep == k
+                    && !self.opts.shadow
+                    && self.e.max_reach > 16
+                    && on_stack(b, &self.e)
+                    && x.iter().all(|&v| self.e.find(v) + 9 <= self.e.max_reach);
+                let sum_depth = self.e.find(sums[0]);
+                let take_sum = kept
+                    && n + 1 == k
+                    && on_stack(b, &self.e)
+                    && sums
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &s)| self.e.find(s) == i + sum_depth);
+                let first = take_input
+                    .then(|| take_stream_block("takex0", self.e.find(x[4 * b])))
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let last = take_sum
+                    .then(|| take_stream_block("take0", sum_depth))
+                    .filter(|p| self.stream_block_fits(p, b, &x, &sums, kept));
+                let program = first.as_deref().or(last.as_deref()).or_else(|| {
+                    stream_blocks(kept, on_stack(b, &self.e))
+                        .iter()
+                        .copied()
+                        .find(|p| self.stream_block_fits(p, b, &x, &sums, kept))
+                });
+                if let Some(program) = program {
+                    self.stream_block(program, b, &x, &sums, Some(r), kept, &mut out)?;
+                    continue;
+                }
+            }
+            let o = self.ordered_block(kind, b, &x, &sums)?;
+            for (i, &oi) in o.iter().enumerate() {
+                let j = 4 * b + i;
+                if self.e.top(0)? != oi {
+                    self.swap_up(oi)?;
+                }
+                match next {
+                    Some(r) => {
+                        let c = self.params.round_constants[r][j];
+                        out[j] = self.stream_lane(oi, c, &format!("x{j}"))?;
+                        if n + keep < k {
+                            self.e.spill(out[j])?;
+                        }
+                    }
+                    None => {
+                        out[j] = oi;
+                        self.e.mstore(32 * j)?;
+                    }
+                }
+                self.e.end_line();
+            }
+        }
+        self.state = out;
+        self.sboxed = next.is_some();
+        self.stored = next.is_none();
+        Ok(())
+    }
+
+    /// The last round of a private t >= 8 entry (Terminal::Stream): its
+    /// S-boxes if the layer before did not run them, the column sums, then
+    /// block by block from block 0 the reduced outputs stored to [0, 32t) in
+    /// word order by MSIZE as the block makes them (the first program of
+    /// final_store_blocks that fits, else the Final program and four stores).
+    pub(super) fn terminal_stream(&mut self, r: usize) -> Result<()> {
+        let t = self.t;
+        let k = t / 4;
+        if !t2_entry::eligible_stream(
+            self.params,
+            self.opts,
+            self.range,
+            &Boundary::default(),
+            self.e.fork,
+        ) || r + 2 != self.range.to
+            || self.live.is_some()
+            || self.state_in_memory
+            || self.stored
+            || self.e.memory != 0
+            || self.e.stores != 0
+            || self.e.loads != 0
+            || !self.e.tables.is_empty()
+        {
+            bail!("stream terminal entry needs a whole stack-only permutation");
+        }
+        if !self.sboxed {
+            self.stream_sbox(r)?;
+        }
+        self.e.end_line();
+        if !t2_entry::stack_only(&self.e.lines, self.e.fork) {
+            bail!("stream terminal entry needs an untouched-memory prefix");
+        }
+        self.layers += 1;
+        let x = self.state.clone();
+        self.stream_floor()?;
+        let mut sums = [0; 4];
+        for i in (0..4).rev() {
+            let column: Vec<Id> = (0..k).map(|b| x[4 * b + i]).collect();
+            sums[i] = self.chain_sum_in_place(&column, &format!("S{i}"), column_cap(k, i))?;
+            self.e.end_line();
+        }
+        let mut out = vec![0; t];
+        for b in 0..k {
+            let program = final_store_blocks()
+                .iter()
+                .copied()
+                .find(|p| self.stream_block_fits(p, b, &x, &sums, true));
+            let o = match program {
+                Some(program) => self.stream_block(program, b, &x, &sums, None, true, &mut [])?,
+                None => {
+                    let o = self.ordered_block(BlockKind::Final, b, &x, &sums)?;
+                    for (i, &oi) in o.iter().enumerate() {
+                        if self.e.mstore_next(32 * (4 * b + i))? != oi {
+                            bail!("stream terminal stores s{}' out of order", 4 * b + i);
+                        }
+                        self.e.end_line();
+                    }
+                    [o[0], o[1], o[2], o[3]]
+                }
+            };
+            out[4 * b..4 * b + 4].copy_from_slice(&o);
+        }
+        if self.e.memory != 32 * t {
+            bail!("stream terminal left memory at {} bytes", self.e.memory);
+        }
+        self.state = out;
+        self.sboxed = false;
+        self.state_in_memory = true;
+        self.stored = true;
+        Ok(())
+    }
+
+    /// The M4 of block b on u = x + S (the column sums), its outputs on top
+    /// in order: with streamed rounds the first program of ordered_blocks
+    /// whose DUPs reach the layout, else the u values and the block template
+    /// (Osaka t = 8 costs 323 gas more with the programs).
+    fn ordered_block(
+        &mut self,
+        kind: BlockKind,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+    ) -> Result<Vec<Id>> {
+        let programs = if self.stream() {
+            ordered_blocks(kind)
+        } else {
+            &[]
+        };
+        // block 0 runs last, under the outputs of the k - 1 blocks before it
+        let above = 4 * (self.t / 4 - 1);
+        let park_prime = self.stream()
+            && b == 0
+            && !self.opts.first_sum
+            && kind == BlockKind::Exit
+            && self.opts.internal_consume
+            && !self.opts.shadow
+            && !self.opts.prime_in_memory
+            && !self.state_in_memory
+            && self.range.from == 0
+            && self.range.to == step_count(self.params)
+            && self.e.max_reach > 16
+            && held_slots(self.t, self.e.max_reach, self.opts.consume_slots) == self.t - 1
+            && self.input_slots.iter().all(Option::is_none)
+            && self.dead.is_empty()
+            && self.e.find_prime() > 0
+            && x.iter().all(|&v| self.e.find(v) > 0)
+            && sums
+                .iter()
+                .enumerate()
+                .all(|(i, &s)| self.e.find(s) == i + above + 1);
+        let program = park_prime
+            .then_some(super::templates::exit_prime_block8())
+            .filter(|p| self.stream_block_fits(p, b, x, sums, true))
+            .or_else(|| {
+                programs
+                    .iter()
+                    .copied()
+                    .find(|p| self.stream_block_fits(p, b, x, sums, true))
+            });
+        if let Some(program) = program {
+            let o = self.stream_block(program, b, x, sums, None, true, &mut [])?;
+            return Ok(o.to_vec());
+        }
+        let mut u = [0; 4];
+        for i in (0..4).rev() {
+            u[i] = self.pair_add(x[4 * b + i], sums[i], &format!("u{}", 4 * b + i), false)?;
+            self.e.end_line();
+        }
+        let names: Vec<String> = (0..4).map(|i| format!("s{}'", 4 * b + i)).collect();
+        self.run_template(blocks(kind), &u, &names, None)
+    }
+
+    /// Whether a program of stream_blocks reaches every value it DUPs from
+    /// the stack as it is: the inputs of block b and the column sums for
+    /// the u<i>, the moves' slots within reach. Kept lanes leave their
+    /// S-box output on top; spilled lanes consume it.
+    fn stream_block_fits(
+        &self,
+        program: &str,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+        kept: bool,
+    ) -> bool {
+        let reach = self.e.max_reach;
+        let mut s: Vec<Option<Id>> = self.e.from_top().into_iter().map(Some).collect();
+        let find = |s: &[Option<Id>], v: Id| s.iter().position(|&y| y == Some(v)).map(|k| k + 1);
+        for mv in program.split(' ') {
+            if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
+                // pair_add DUPs the deeper operand first
+                let Some(ks) = find(&s, sums[i]) else {
+                    return false;
+                };
+                let xv = x[4 * b + i];
+                match find(&s, xv) {
+                    Some(kx) if kx <= reach => {
+                        if kx.max(ks) > reach || kx.min(ks) + 1 > reach {
+                            return false;
+                        }
+                    }
+                    // a load from its shadow slot
+                    _ if ks + 1 > reach || !self.e.reachable(xv) => return false,
+                    _ => {}
+                }
+                s.insert(0, None);
+            } else if let Some((input, i)) = take_move(mv) {
+                let (taken, copied) = if input {
+                    (x[4 * b + i], sums[i])
+                } else {
+                    (sums[i], x[4 * b + i])
+                };
+                let Some(ks) = find(&s, taken) else {
+                    return false;
+                };
+                if ks < 2 || ks - 1 > reach {
+                    return false;
+                }
+                s.swap(0, ks - 1);
+                if !find(&s, copied).is_some_and(|k| k <= reach) {
+                    return false;
+                }
+                s[0] = None;
+            } else if mv == "P" {
+                let prime = |v: &Option<Id>| v.is_some_and(|v| self.e.value(v).is_prime());
+                let Some(k) = s.iter().position(prime) else {
+                    return false;
+                };
+                if k >= reach {
+                    return false;
+                }
+                s.insert(0, s[k]);
+            } else if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                if k > reach || k > s.len() {
+                    return false;
+                }
+                s.insert(0, s[k - 1]);
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                let k: usize = k.parse().expect("swap slot");
+                if k > reach || k >= s.len() {
+                    return false;
+                }
+                s.swap(0, k);
+            } else {
+                let (arity, retained) = match mv.split_once('=') {
+                    Some(("add", _)) | Some(("q", _)) => (2, true),
+                    Some(("addmod", _)) => (3, true),
+                    Some(("lane", _)) => (2, kept),
+                    Some(("store", _)) | Some(("estore", _)) => (1, false),
+                    _ if mv == "pop" => (1, false),
+                    _ => return false,
+                };
+                if s.len() < arity {
+                    return false;
+                }
+                s.drain(..arity);
+                if retained {
+                    s.insert(0, None);
+                }
+            }
+        }
+        true
+    }
+
+    /// One block of a streamed layer from a program of stream_blocks, the
+    /// column sums and a PRIME copy on top: its S-box outputs of round r go
+    /// to memory slots, or stay on the stack when kept. A program of
+    /// ordered_blocks has no lanes and no round; the M4 outputs s_{4b+i}'
+    /// are returned.
+    #[allow(clippy::too_many_arguments)]
+    fn stream_block(
+        &mut self,
+        program: &str,
+        b: usize,
+        x: &[Id],
+        sums: &[Id; 4],
+        r: Option<usize>,
+        kept: bool,
+        out: &mut [Id],
+    ) -> Result<[Id; 4]> {
+        let p = self.p();
+        let mut o = [0; 4];
+        for mv in program.split(' ') {
+            if let Some(i) = mv.strip_prefix('u').and_then(|i| i.parse::<usize>().ok()) {
+                let j = 4 * b + i;
+                self.pair_add(x[j], sums[i], &format!("u{j}"), false)?;
+            } else if let Some((input, i)) = take_move(mv) {
+                let j = 4 * b + i;
+                let (taken, copied) = if input {
+                    (x[j], sums[i])
+                } else {
+                    (sums[i], x[j])
+                };
+                self.swap_up(taken)?;
+                self.e
+                    .compute(Op::Add, &[val(copied), inplace(taken)], &format!("u{j}"))?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                let v = self.e.top(k - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                self.e.swap(k.parse().expect("swap slot"))?;
+            } else if mv == "pop" {
+                self.e.pop()?;
+            } else if let Some(i) = mv
+                .strip_prefix("store=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                // the last round's output s_{4b+i}' to its word, in order
+                let j = 4 * b + i;
+                if o[i] == 0 || self.e.mstore_next(32 * j)? != o[i] {
+                    bail!("store of s{j}' needs it on top at memory {}", 32 * j);
+                }
+                self.e.end_line();
+            } else if let Some(i) = mv
+                .strip_prefix("estore=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                // to its word by offset, after the block's MSIZE stores
+                let j = 4 * b + i;
+                if o[i] == 0 || self.e.top(0)? != o[i] || self.e.memory < 32 * (4 * b + 2) {
+                    bail!("store of s{j}' by offset needs it on top after the MSIZE stores");
+                }
+                self.e.mstore(32 * j)?;
+                self.e.end_line();
+            } else if let Some(i) = mv
+                .strip_prefix("lane=z")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                let j = 4 * b + i;
+                let s = self.e.top(0)?;
+                if self.e.top(1)? != p {
+                    bail!("lane {j} expects a PRIME copy under s{j}'");
+                }
+                let Some(r) = r else {
+                    bail!("lane {j} without a next round");
+                };
+                let c = self.params.round_constants[r][j];
+                if !self.e.fits_add(self.bound(s), c) {
+                    bail!("lane {j}: s{j}' + c overflows");
+                }
+                let y = self
+                    .e
+                    .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?;
+                out[j] = self.sbox(y, &format!("x{j}"))?;
+                if !kept {
+                    self.e.spill(out[j])?;
+                }
+                self.e.end_line();
+            } else if let Some((op, name)) = mv.split_once('=') {
+                // the outputs o<i> of the M4 are s_{4b+i}'
+                let output = name
+                    .strip_prefix('o')
+                    .map(|i| i.parse::<usize>().expect("output"));
+                let name = match output {
+                    Some(i) => format!("s{}'", 4 * b + i),
+                    None => name.to_string(),
+                };
+                if op == "q" {
+                    // 4 t over [t, P]
+                    self.e.push(u256(4), None)?;
+                }
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => {
+                        operands.push(inplace(p));
+                        Op::Addmod
+                    }
+                    "q" => {
+                        operands.push(inplace(p));
+                        Op::Mulmod
+                    }
+                    _ => bail!("unknown stream block move {mv}"),
+                };
+                let v = self.e.compute(op, &operands, &name)?;
+                if let Some(i) = output {
+                    o[i] = v;
+                }
+                self.e.end_line();
+            } else {
+                bail!("unknown stream block move {mv}");
+            }
+        }
+        Ok(o)
+    }
+
+    /// Last round when the caller reads s0' alone (t = 4): row 0 of M4 on
+    /// the S-box outputs, s0' = 5 x0 + 7 x1 + x2 + 3 x3, taken straight from
+    /// the S-boxes instead of the M4 temporaries. Both the first three terms
+    /// and the last product fit uint256 at 5(p-1); ADDMOD joins them. With
+    /// [s0, P] on top and s0 + c0 a plain ADD, lane 0 runs first on them in
+    /// place and the PRIME copy of the ADDMOD is swapped under 5 x0 at the
+    /// end; otherwise that copy goes down first and lane 0 runs last. With
+    /// external_template, every constant a plain ADD and [s0, P, s1, s2, s3]
+    /// on top, templates::row0_4 runs instead.
+    fn final_round_row0(&mut self, round: usize) -> Result<()> {
+        if self.t != 4 {
+            bail!("finalRoundRow0 is t = 4 only");
+        }
+        let row = [5u64, 7, 1, 3];
+        let p = self.p();
+        let fit = (0..4).all(|i| {
+            self.e.fits_add(
+                self.bound(self.state[i]),
+                self.params.round_constants[round][i],
+            )
+        });
+        let inputs = self.state.clone();
+        if self.opts.external_template && fit && self.template(row0_4(), &inputs).is_some() {
+            self.state = self.run_template(row0_4(), &inputs, &["s0'".to_string()], Some(round))?;
+            return Ok(());
+        }
+        let c0 = self.params.round_constants[round][0];
+        let first = self.e.top(0)? == self.state[0]
+            && self.e.top(1)? == p
+            && self.e.fits_add(self.bound(self.state[0]), c0);
+        let mut acc: Option<Id> = None;
+        let mut x0 = None;
+        if first {
+            let y = self.e.compute(
+                Op::Add,
+                &[constant(c0, "c"), inplace(self.state[0])],
+                "s0+c",
+            )?;
+            let x = self.sbox(y, "s0'")?;
+            let k = self.e.push(u256(row[0]), None)?;
+            x0 = Some(self.e.compute(Op::Mul, &[inplace(k), inplace(x)], "5s0'")?);
+            self.e.end_line();
+        } else {
+            self.e.push_prime()?;
+        }
+        let lanes: &[usize] = if first { &[3, 2, 1] } else { &[3, 2, 1, 0] };
+        for &i in lanes {
+            let s = self.state[i];
+            let k = row[i];
+            let lazy_product = matches!(k, 3 | 5);
+            let mut coeff = None;
+            if k != 1 {
+                if !lazy_product {
+                    self.e.push_prime()?;
+                }
+                coeff = Some(self.e.push(u256(k), None)?);
+            }
+            let c = self.params.round_constants[round][i];
+            self.e.push_prime()?;
+            let name = format!("s{i}+c");
+            let y = if self.e.fits_add(self.bound(s), c) {
+                self.e
+                    .compute(Op::Add, &[constant(c, "c"), val(s)], &name)?
+            } else {
+                self.e
+                    .compute(Op::Addmod, &[constant(c, "c"), val(s), val(p)], &name)?
+            };
+            let mut term = self.sbox(y, &format!("s{i}'"))?;
+            if let Some(coeff) = coeff {
+                term = if lazy_product {
+                    self.e.compute(
+                        Op::Mul,
+                        &[inplace(term), inplace(coeff)],
+                        &format!("{k}s{i}'"),
+                    )?
+                } else {
+                    self.e.compute(
+                        Op::Mulmod,
+                        &[inplace(term), inplace(coeff), inplace(p)],
+                        &format!("{k}s{i}'"),
+                    )?
+                };
+            }
+            acc = Some(match acc {
+                Some(acc) if i == 0 => self.e.compute(
+                    Op::Addmod,
+                    &[inplace(term), inplace(acc), inplace(p)],
+                    "s0'",
+                )?,
+                Some(acc) => self
+                    .e
+                    .compute(Op::Add, &[inplace(term), inplace(acc)], "row0")?,
+                None => term,
+            });
+            if let (1, Some(x0)) = (i, x0) {
+                self.e.push_prime()?;
+                self.e.swap(2)?;
+                let a = acc.expect("three lanes");
+                acc = Some(self.e.compute(
+                    Op::Addmod,
+                    &[inplace(x0), inplace(a), inplace(p)],
+                    "s0'",
+                )?);
+            }
+            self.e.end_line();
+        }
+        self.state = vec![acc.expect("four lanes")];
+        Ok(())
+    }
+
+    /// Round 0 of the hash entry for n inputs, from the PRIME copy SETUP
+    /// leaves. The other lanes are the sponge constants (zeros, then the
+    /// capacity n << 64), so the initial linear layer and the constant
+    /// addition fold into y_i = p_i + K_i, p_i = sum_j M4[i][j] in_j and
+    /// K_i = M4[i][3] (n << 64) + c_i. The forms program of
+    /// templates::hash_forms loads the inputs and leaves p_i over the
+    /// PRIME copy SETUP pushed, then ROUND4 adds K_i in the S-boxes, leaving
+    /// [s0', PRIME, s1', s2', s3', dead values, PRIME] for the rounds
+    /// after: three dead slots normalized, two for compact hash_1.
+    fn hash_round0(&mut self, n: usize, words: &[Vec<U256>], compact: bool) -> Result<()> {
+        if self.t != 4 {
+            bail!("hashRound0 is t = 4 only");
+        }
+        let Some(program) = hash_forms(n) else {
+            bail!("hash arity {n}");
+        };
+        let program = if compact {
+            if n != 1 {
+                bail!("only hash_1 has a filler");
+            }
+            program.strip_prefix("0 ").expect("hash_1 filler")
+        } else {
+            program
+        };
+        let p = self.p();
+        // the words as CALLDATALOAD leaves them, not reduced
+        let raw: Vec<Id> = (0..n)
+            .map(|i| {
+                let vals = words.iter().map(|w| w[i]).collect();
+                let v = self.e.alloc(crate::value::Value::new(
+                    format!("r{i}"),
+                    UINT256_MAX,
+                    vals,
+                    None,
+                )?);
+                self.e.declare_calldata(v, 4 + 32 * i);
+                Ok(v)
+            })
+            .collect::<Result<_>>()?;
+        self.e.set_stack(&[p]);
+        self.e.max_depth = 1;
+        // M4[i][3], the capacity's column
+        let column: [u64; 4] = [3, 1, 7, 6];
+        let iv = u256(n as u64) << 64;
+        self.lane_constants = Some(
+            (0..4)
+                .map(|i| {
+                    crate::field::reduce(u256(column[i]) * iv + self.params.round_constants[0][i])
+                })
+                .collect(),
+        );
+        let mut forms: HashMap<String, Id> = HashMap::new();
+        let mut out: Vec<Option<Id>> = vec![None; 4];
+        for mv in program.split(" ") {
+            if let Some(k) = mv.strip_prefix("dup") {
+                let k: usize = k.parse().expect("dup slot");
+                let v = self.e.top(k - 1)?;
+                self.e.dup(v)?;
+            } else if let Some(k) = mv.strip_prefix("swap") {
+                self.e.swap(k.parse().expect("swap slot"))?;
+            } else if mv == "P" {
+                self.e.push_prime()?;
+            } else if let Ok(k) = mv.parse::<u64>() {
+                self.e.push(u256(k), None)?;
+            } else if let Some(i) = mv.strip_prefix('r') {
+                let i: usize = i.parse().expect("input");
+                self.e.calldata_load(raw[i])?;
+            } else if let Some(i) = mv.strip_prefix("sbox") {
+                // lane i of round 0 on p_i (hash_1's p3 is p2)
+                let i: usize = i.parse().expect("lane");
+                let name = if i == 3 && !forms.contains_key("p3") {
+                    "p2".to_string()
+                } else {
+                    format!("p{i}")
+                };
+                let Some(&v) = forms.get(&name) else {
+                    bail!("hash_{n} round 0: sbox{i} before {name}");
+                };
+                self.template_lane(&[v; 4], i, 0, true)?;
+                self.e.end_line();
+            } else if let Some((op, name)) = mv.split_once('=') {
+                let op = match op {
+                    "add" => Op::Add,
+                    "addmod" => Op::Addmod,
+                    "mulmod" => Op::Mulmod,
+                    "mod" => Op::Mod,
+                    _ => bail!("unknown forms move {mv}"),
+                };
+                let mut operands = vec![inplace(self.e.top(0)?), inplace(self.e.top(1)?)];
+                if matches!(op, Op::Addmod | Op::Mulmod) {
+                    operands.push(inplace(p));
+                }
+                let v = self.e.compute(op, &operands, name)?;
+                let index = name
+                    .strip_prefix('s')
+                    .and_then(|r| r.strip_suffix('\''))
+                    .and_then(|i| i.parse::<usize>().ok());
+                match index {
+                    Some(i) => out[i] = Some(v),
+                    None => {
+                        forms.insert(name.to_string(), v);
+                    }
+                }
+                self.e.end_line();
+            } else {
+                bail!("unknown forms move {mv}");
+            }
+        }
+        self.e.end_line();
+        if out.iter().any(Option::is_some) {
+            // the program ran round 0 itself
+            let mut state = Vec::with_capacity(4);
+            for (i, v) in out.into_iter().enumerate() {
+                match v {
+                    Some(v) => state.push(v),
+                    None => bail!("hash_{n} round 0 leaves no s{i}'"),
+                }
+            }
+            self.state = state;
+            self.lane_constants = None;
+            return Ok(());
+        }
+        let form = |name: &str| match forms.get(name) {
+            Some(&v) => Ok(v),
+            None => bail!("hash_{n} round 0 leaves no {name}"),
+        };
+        let p2 = form("p2")?;
+        let inputs = vec![
+            form("p0")?,
+            form("p1")?,
+            p2,
+            forms.get("p3").copied().unwrap_or(p2),
+        ];
+        let names: Vec<String> = (0..4).map(|i| format!("s{i}'")).collect();
+        let round = round4();
+        self.state = self.run_template(round, &inputs, &names, Some(0))?;
+        self.lane_constants = None;
+        Ok(())
+    }
+
+    /// Writes the state to [0, 32t) for the next part or the caller.
+    /// Writes the state to [0, 32t) for the next part or the caller. DUP and
+    /// MSTORE leave the stack as it was, so every element is fetched from
+    /// the same layout (shadowed ones with MLOAD). A hand-over reduces an
+    /// element above the bound the next part takes.
+    fn store_state(&mut self, hands_over: bool) -> Result<()> {
+        self.e.comment("State to memory");
+        for i in 0..self.t {
+            self.e.dup(self.state[i])?;
+            if hands_over && self.bound(self.state[i]) > handover_bound() {
+                self.state[i] = self.mod_top(self.state[i])?;
+            }
+            self.e.mstore(32 * i)?;
+            self.e.end_line();
+        }
+        Ok(())
+    }
+
+    // ---- internal rounds ---------------------------------------------------
+
+    /// s0 + c and its S-box. In the shared body the round constant is
+    /// MLOADed from slot `rc` of the scratch, with the bound of any field
+    /// element so that the body never depends on the constant of one call.
+    fn round_start(&mut self, round: usize, rc: Option<usize>) -> Result<Id> {
+        let s0 = self.state[0];
+        let p = self.p();
+        if self.e.top(0)? != s0 || self.e.top(1)? != p {
+            bail!("internal round expects [s0, P] on top");
+        }
+        let c0 = self.params.round_constants[round][0];
+        let c = match rc {
+            None => {
+                if !self.e.fits_add(self.bound(s0), c0) {
+                    bail!("s0 + c does not fit");
+                }
+                constant(c0, "c")
+            }
+            Some(rc) => {
+                if !self.e.fits_add(self.bound(s0), p1()) {
+                    bail!("s0 + c does not fit");
+                }
+                Operand::Load {
+                    offset: self.rc_base + 32 * rc,
+                    name: "c".to_string(),
+                    bound: p1(),
+                    vals: vec![c0; self.vectors],
+                }
+            }
+        };
+        let y = self.e.compute(Op::Add, &[c, inplace(s0)], "s0+c")?;
+        let x5 = self.sbox(y, "s0^5")?;
+        self.e.end_line();
+        Ok(x5)
+    }
+
+    fn internal_external3_available(&self) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.t == 3
+            && self.opts.external_seam
+            && self.opts.external_template
+            && self.opts.internal_template
+            && !self.opts.internal_consume
+            && !self.opts.shadow
+            && !self.opts.prime_in_memory
+            && !self.opts.shared_body
+            && self.lane_constants.is_none()
+            && p_end + 2 < self.range.to
+            && p_end + 2 < self.params.rounds_f + self.params.rounds_p
+            && self.e.max_reach >= 9
+            && self.params.internal_diag_minus_one == [u256(1), u256(1), u256(2)]
+    }
+
+    /// Fuse the last internal round with external re-entry when both and
+    /// the following layout adapter belong to this range.
+    fn internal_external3(&mut self, round: usize) -> Result<bool> {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        if !self.internal_external3_available() || round + 1 != p_end {
+            return Ok(false);
+        }
+        let [start, end] = internal3_seam();
+        let state = self.state.clone();
+        // The final periodic layout, with all three constant ADDs safe.
+        let l = wide(p1());
+        let constants = &self.params.round_constants[round + 1];
+        if self.template(start, &state).is_none()
+            || !self
+                .e
+                .fits_add(self.bound(state[0]), self.params.round_constants[round][0])
+            || wide(self.bound(state[1])) > l * U512::from(3u64)
+            || wide(self.bound(state[2])) > l * U512::from(2u64)
+            || l + wide(self.bound(state[1])) + wide(constants[1]) > wmax()
+            || l + wide(self.bound(state[2])) + wide(constants[2]) > wmax()
+            || l * U512::from(2u64) + wide(constants[0]) > wmax()
+        {
+            return Ok(false);
+        }
+        let lazy_seam =
+            l + wide(self.bound(state[2])) * U512::from(2u64) + wide(constants[2]) <= wmax();
+        self.run_template(start, &state, &[], Some(round))?;
+        self.e.comment("");
+        self.step_bytes.push(self.e.bytes);
+        self.e.next_round();
+        self.e.comment(&format!(
+            "Round {} (external, streamed internal outputs)",
+            round + 1
+        ));
+        let inputs = vec![
+            self.e.top(0)?,
+            self.e.top(2)?,
+            self.e.top(3)?,
+            self.e.top(4)?,
+        ];
+        let names: Vec<String> = (0..3).map(|i| format!("s{i}'")).collect();
+        let end = if lazy_seam {
+            internal3_seam_lazy()
+        } else {
+            end
+        };
+        self.state = self.run_template(end, &inputs, &names, Some(round + 1))?;
+        self.dead.clear();
+        Ok(true)
+    }
+
+    /// Expects s0 on top with a PRIME copy under it (placed by the previous
+    /// round) so that s0 + c lands in place for the S-box.
+    fn internal_round(&mut self, round: usize, next_internal: bool) -> Result<()> {
+        let t = self.t;
+        if self.opts.internal_template && t == 4 {
+            let list = internal4();
+            let state = self.state.clone();
+            // x + s1 + s3 is a lazy ADD in the program
+            let lazy = wide(self.bound(state[1])) + wide(self.bound(state[3])) + wide(p1());
+            if lazy <= wmax() && self.template(list, &state).is_some() {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(list, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
+        }
+        if self.opts.internal_template && t == 3 {
+            let list = internal3();
+            let state = self.state.clone();
+            let b1 = wide(self.bound(state[1]));
+            let b2 = wide(self.bound(state[2]));
+            let end = self.params.rounds_f / 2 + self.params.rounds_p - 1;
+            if next_internal
+                && self.internal_external3_available()
+                && round < end
+                && self
+                    .e
+                    .fits_add(self.bound(state[0]), self.params.round_constants[round][0])
+                && let Some(policy) =
+                    t3_policy::choose(self.bound(state[1]), self.bound(state[2]), end - round)
+                && let planned = internal3_planned(policy)
+                && self.template(planned, &state).is_some()
+            {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(planned, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
+            if b1 <= wide(p1()) * U512::from(4u64) && b2 <= wide(p1()) * U512::from(5u64) {
+                let final_round =
+                    !next_internal || round == self.params.rounds_f / 2 + self.params.rounds_p - 1;
+                let kind = if b1 > wide(p1()) * U512::from(3u64) {
+                    Internal3Kind::Reset
+                } else if b2 > wide(p1()) * U512::from(2u64) {
+                    Internal3Kind::High
+                } else if final_round {
+                    Internal3Kind::Final
+                } else {
+                    Internal3Kind::Low
+                };
+                let periodic = internal3_periodic(kind);
+                if self.template(periodic, &state).is_some() {
+                    let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                    self.state = self.run_template(periodic, &state, &names, Some(round))?;
+                    self.dead.clear();
+                    return Ok(());
+                }
+            }
+            // the lazy ADDs: x + s1 + 2 s2 and 2 x + s1 + s2 (+ c in the next
+            // round) from reduced inputs, x + s2 and s2 + sum from lazy ones
+            let steady = wide(p1()) + b1 + b2 + b2 <= wmax()
+                && wide(p1()) * U512::from(3u64) + b1 + b2 <= wmax();
+            let lazy = wide(p1()) + b2 <= wmax();
+            let pick = if steady {
+                Some(&list[..1])
+            } else if lazy {
+                Some(&list[1..])
+            } else {
+                None
+            };
+            if let Some(list) = pick
+                && self.template(list, &state).is_some()
+            {
+                let names: Vec<String> = (0..t).map(|i| format!("s{i}'")).collect();
+                self.state = self.run_template(list, &state, &names, Some(round))?;
+                self.dead.clear();
+                return Ok(());
+            }
+        }
+        let x5 = self.round_start(round, None)?;
+        let collect =
+            self.opts.gc_internal && round - self.params.rounds_f / 2 >= self.opts.gc_internal_from;
+        if collect {
+            // the previous round's garbage sits above the state; x5 may move
+            for v in self.dead.clone() {
+                let pos = self.e.find(v);
+                if pos >= 2 && pos <= self.e.max_reach + 1 {
+                    self.gc(v)?;
+                }
+            }
+            self.e.end_line();
+        }
+        self.dead.clear();
+
+        let p = self.p();
+        let s1 = self.state[1];
+        if self.opts.internal_mul3 && t == 2 && !collect {
+            // s1' = (3 s1 mod P) + s0^5 lazy on the PRIME copy for the next
+            // round, s0' = 2 s0^5 + s1 lazy on its own copy: no sum to share.
+            // Where s1 is too lazy for the next round's s0' + c to fit (the
+            // first round, after the external ones), s0' takes an ADDMOD on
+            // a second copy instead
+            let lazy = wide(p1()) * U512::from(3u64) + wide(self.bound(s1)) <= wmax();
+            if self.opts.float_prime_internal {
+                self.float_prime()?;
+            }
+            self.e.push_prime()?;
+            let m = self.e.compute(
+                Op::Mulmod,
+                &[constant_hex(u256(3)), val(s1), inplace(p)],
+                "3s1",
+            )?;
+            let out1 = self.e.compute(Op::Add, &[val(x5), inplace(m)], "s1'")?;
+            self.e.end_line();
+            if next_internal {
+                self.e.push_prime()?;
+            }
+            if !lazy {
+                self.e.push_prime()?;
+            }
+            let d = self.e.compute(Op::Add, &[val(x5), val(x5)], "2s0^5")?;
+            let out0 = if lazy {
+                self.e.compute(Op::Add, &[val(s1), inplace(d)], "s0'")?
+            } else {
+                self.e
+                    .compute(Op::Addmod, &[val(s1), inplace(d), inplace(p)], "s0'")?
+            };
+            self.e.end_line();
+            self.dead.push(x5);
+            self.state = vec![out0, out1];
+            return Ok(());
+        }
+
+        let mut old = vec![x5];
+        old.extend_from_slice(&self.state[1..]);
+        // the sum is reduced, or with internalReduceOutputs lazy as far as the
+        // next round's s0 + c still fits
+        let lazy = self.opts.internal_reduce_outputs;
+        let cap = if lazy {
+            UINT256_MAX - self.bound(x5) - p1()
+        } else {
+            p1()
+        };
+        let sum = self.chain_sum(&old, "sum", cap)?;
+        self.e.end_line();
+
+        // the round program after the last internal round adds its round
+        // constants with an ADD only to an output that fits, otherwise an
+        // ADDMOD and an S-box without its PRIME copy (14 gas) instead of
+        // reducing here (8)
+        let rf_half = self.params.rounds_f / 2;
+        let next_c = (self.opts.external_template
+            && t <= 3
+            && next_internal
+            && round == rf_half + self.params.rounds_p - 1)
+            .then(|| self.params.round_constants[round + 1].clone());
+        let tight = |bound: U512, i: usize| {
+            next_c
+                .as_ref()
+                .is_some_and(|c| i > 0 && bound + wide(c[i]) > wmax())
+        };
+
+        let mut out = vec![0; t];
+        // deepest element first, s0 last so it lands on the pre-placed PRIME;
+        // shallowest first when the results replace the old slots in place
+        // with shadow, so the swap of every slot stays within reach
+        let mut others: Vec<usize> = self
+            .by_depth(&old)
+            .into_iter()
+            .filter(|&i| i != 0)
+            .collect();
+        if self.opts.shadow && collect {
+            others.reverse();
+        }
+        others.push(0);
+        for (n, &i) in others.iter().enumerate() {
+            let s = old[i];
+            let d = self.params.internal_diag_minus_one[i];
+            if n == 1.min(t - 2) {
+                // PRIME copy that ends up under the new state, within reach
+                // of the next round; placed one element late so the deepest
+                // DUP fits
+                if !collect || self.e.find_prime() == 0 {
+                    if self.opts.float_prime_internal {
+                        self.float_prime()?;
+                    } else if !(t == 2 && self.opts.internal_mul3 && !collect) {
+                        self.e.push_prime()?;
+                    }
+                }
+            }
+            if i == 0 && next_internal {
+                // PRIME copy under the next round's s0 + c
+                self.e.push_prime()?;
+            }
+            let reduce = lazy && i > 0;
+            let name = format!("s{i}'");
+            out[i] = if d == u256(1) {
+                let r = reduce || tight(wide(self.bound(s)) + wide(self.bound(sum)), i);
+                self.pair_add(s, sum, &name, r)?
+            } else if d == u256(2) {
+                if self.fits(s, s) {
+                    let wide_sum = wide(self.bound(sum)) + wide(self.bound(s)) * U512::from(2u64);
+                    let r = reduce || wide_sum > wmax() || tight(wide_sum, i);
+                    let dname = format!("2s{i}");
+                    self.add_to(
+                        |b| b.e.compute(Op::Add, &[val(s), val(s)], &dname),
+                        sum,
+                        &name,
+                        r,
+                    )?
+                } else {
+                    let lazy_bound = wide(self.bound(sum)) + wide(p1());
+                    let r = reduce || !self.fits(sum, p) || tight(lazy_bound, i);
+                    let dname = format!("2s{i}");
+                    self.add_to(
+                        |b| {
+                            b.e.compute(
+                                Op::Mulmod,
+                                &[val(s), constant_hex(u256(2)), val(p)],
+                                &dname,
+                            )
+                        },
+                        sum,
+                        &name,
+                        r,
+                    )?
+                }
+            } else {
+                let lazy_bound = wide(self.bound(sum)) + wide(p1());
+                let r = reduce || !self.fits(sum, p) || tight(lazy_bound, i);
+                let mname = format!("m{i}");
+                let diag = self.diag(i);
+                self.add_to(
+                    |b| b.e.compute(Op::Mulmod, &[val(s), diag, val(p)], &mname),
+                    sum,
+                    &name,
+                    r,
+                )?
+            };
+            if collect && i > 0 {
+                self.gc(s)?;
+            }
+            self.e.end_line();
+        }
+        self.dead.push(sum);
+        self.dead.push(x5);
+        self.state = out;
+        Ok(())
+    }
+
+    /// The chains in which the consuming round takes the elements of `old`
+    /// the stack holds but s0, as index lists (huff/schedule.ts
+    /// consumeChains): slot order from the slot under the sum for the
+    /// rounds in between, as one chain or in sub-chains of consume_group
+    /// slots, and for the last internal round Eulerian circuits of the
+    /// blocks (Hierholzer's algorithm), one per connected component from
+    /// the lowest slot left, that leave every element in the slots of its
+    /// block of the external layer. `top` values sit over the region
+    /// ([m0, sum], or s0^5 alone before the sum).
+    fn consume_chains(
+        &self,
+        old: &[Id],
+        mem: usize,
+        next_internal: bool,
+        top: usize,
+    ) -> Result<Vec<Vec<usize>>> {
+        let t = self.t;
+        let slots = t - 1 - mem;
+        // slot s holds index s - top + mem in the block order
+        let mut at: BTreeMap<usize, usize> = BTreeMap::new();
+        for (i, &v) in old.iter().enumerate().skip(1) {
+            let s = self.e.find(v);
+            if s > top && s <= slots + top {
+                at.insert(s, i);
+            }
+        }
+        if !at.contains_key(&(top + 1)) {
+            bail!("no element under the sum");
+        }
+        let order: Vec<usize> = at.keys().copied().collect();
+        if next_internal {
+            let group = if self.opts.consume_group > 0 {
+                self.opts.consume_group
+            } else {
+                order.len()
+            };
+            return Ok(order
+                .chunks(group)
+                .map(|chunk| chunk.iter().map(|s| at[s]).collect())
+                .collect());
+        }
+        let block = |i: usize| i >> 2;
+        let mut out: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &s in &order {
+            out.entry(block(s - top + mem)).or_default().push(s);
+        }
+        let mut chains: Vec<Vec<usize>> = Vec::new();
+        let mut used: HashSet<usize> = HashSet::new();
+        for &first in &order {
+            if used.contains(&first) {
+                continue;
+            }
+            let mut circuit: Vec<usize> = Vec::new();
+            // (node, via)
+            let mut stack: Vec<(usize, usize)> = vec![(block(first - top + mem), 0)];
+            while let Some(&(node, _)) = stack.last() {
+                match out.get_mut(&node).and_then(Vec::pop) {
+                    Some(s) => stack.push((block(at[&s]), s)),
+                    None => {
+                        let (_, via) = stack.pop().expect("non-empty stack");
+                        circuit.push(via);
+                    }
+                }
+            }
+            circuit.pop();
+            circuit.reverse();
+            let start = circuit.iter().position(|&s| s == first).unwrap_or(0);
+            let chain: Vec<usize> = circuit[start..]
+                .iter()
+                .chain(&circuit[..start])
+                .copied()
+                .collect();
+            used.extend(&chain);
+            chains.push(chain.iter().map(|s| at[s]).collect());
+        }
+        if used.len() != slots {
+            bail!("the blocks have no circuit");
+        }
+        Ok(chains)
+    }
+
+    /// Internal round that consumes the old state in place. Expects [s0, P]
+    /// on top, the other elements right under them and a PRIME copy under
+    /// the state. Beyond reach - 4 elements (or consume_slots) the first
+    /// indices live in memory, loaded for the chain and their MULMOD and
+    /// stored again. Each element
+    /// swapped to the top gets a PRIME copy swapped under it, or with
+    /// prime_stack lands on one of the copies stacked under m0 beforehand.
+    fn internal_round_consume(
+        &mut self,
+        round: usize,
+        next_internal: bool,
+        rc: Option<usize>,
+    ) -> Result<()> {
+        let t = self.t;
+        let p = self.p();
+        let slots = held_slots(t, self.e.max_reach, self.opts.consume_slots);
+        let mem = t - 1 - slots;
+        let lane_copy = if next_internal {
+            self.lane_copy(round)
+        } else {
+            self.lane_copy_seam(round)
+        };
+        // first_sum: the exit layer's column sums for the first round's sum,
+        // and K - s0 under [s0, P]
+        let first = match self.exit_sums.take() {
+            Some(sums)
+                if self.opts.first_sum
+                    && lane_copy
+                    && rc.is_none()
+                    && sums.iter().all(|&v| self.e.find(v) > 0) =>
+            {
+                Some((self.neg_s0()?, sums))
+            }
+            _ => None,
+        };
+        let x5 = self.round_start(round, rc)?;
+        // the external round before leaves an M4 temporary among the state;
+        // its slot takes s0^5, which is swapped back on top
+        for v in std::mem::take(&mut self.dead) {
+            self.gc(v)?;
+        }
+        if self.e.top(0)? != x5 {
+            self.swap_up(x5)?;
+        }
+        if mem == 0 && self.e.at(t) != Some(p) && !(lane_copy && self.e.find_prime() > 0) {
+            // the PRIME copy the rounds DUP from, in place of the slot under
+            // the state
+            self.e.push_prime()?;
+            self.e.swap(t + 1)?;
+            self.e.pop()?;
+        }
+        self.e.end_line();
+
+        let mut old = vec![x5];
+        old.extend_from_slice(&self.state[1..]);
+        if lane_copy && rc.is_none() && self.defer_rounds() {
+            return self.internal_round_defer(round, &old, first);
+        }
+        if self.defer.is_some() {
+            bail!("a deferred sum outside the deferred rounds");
+        }
+        if lane_copy {
+            // a round after it that is not one either takes its PRIME copy
+            // from under the state (a body round runs for every call); the
+            // streamed external round after the seam DUPs its copies
+            let carrier = rc.is_none()
+                && !self.lane_copy(round + 1)
+                && (!self.lane_copy_seam(round) || self.opts.first_sum);
+            return self.internal_round_lane_copy(round, &old, carrier, rc.is_some(), first);
+        }
+        if mem > 0 {
+            // [0, 32t) holds the state only from the last round on
+            if self.state_in_memory {
+                self.e.spill_zero(x5)?;
+            } else {
+                self.e.spill(x5)?;
+            }
+        }
+        // with prime_early the copies of the stacked elements go under the
+        // sum's own now, and the MULMOD of s0^5 lands m0 on them
+        let early = self.opts.prime_early && self.opts.prime_stack && mem == 0;
+        // the last round of a streamed schedule runs the next round's S-box
+        // on each output as it lands over the copies (external_seam): a
+        // second copy per element, which the S-box consumes
+        let seam = early
+            && self.opts.external_seam
+            && !next_internal
+            && round + 2 < self.range.to
+            && self.stream();
+        let per = if seam { 2 } else { 1 };
+        let early_stacked = if early {
+            let chains = self.consume_chains(&old, mem, next_internal, 1)?;
+            let order: Vec<usize> = chains.iter().flatten().copied().collect();
+            // the depths at the chain, under [m0, sum]
+            let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i]) + 1).collect();
+            let stacked = stacked_copies(&depths, per, self.e.max_reach);
+            if seam && stacked < order.len() {
+                bail!("the seam's copies leave the reach");
+            }
+            for _ in 0..stacked * per {
+                self.e.push_prime()?;
+            }
+            stacked
+        } else {
+            0
+        };
+        self.e.push_prime()?;
+        // the elements the previous round stored enter the sum as theirs
+        let fused_slot = self.fused.and_then(|f| self.e.slot_of(f));
+        let terms: Vec<Id> = match self.fused.take() {
+            Some(f) => [x5, f]
+                .into_iter()
+                .chain(old[mem + 1..].iter().copied())
+                .collect(),
+            None => old.clone(),
+        };
+        let sum = self.chain_sum_in_place(&terms, "sum", p1())?;
+        self.e.end_line();
+
+        // with the next round internal, the elements kept in memory go
+        // first, over the PRIME copy under the sum, and their outputs are
+        // summed for the next round as they are stored
+        let fusing = mem >= FUSE_MIN && next_internal && self.opts.prime_stack;
+        // [sum, P, ...] holds the region where [m0, sum, ...] will
+        let fuse = fusing && {
+            let loads = self.region_loads(&old, slots, 2);
+            (1..=mem).all(|j| loads.contains(&j)) && loads.iter().all(|&j| j <= mem)
+        };
+        let mut out = vec![0; t];
+        let mut xs = vec![0; t];
+        if fuse {
+            let mut acc: Option<Id> = None;
+            if self.opts.fused_tree != FusedTree::Serial {
+                let bounds = vec![p1() * u256(2); mem];
+                let cap = if matches!(
+                    self.opts.fused_tree,
+                    FusedTree::PreplacedBounded | FusedTree::LateBounded
+                ) {
+                    bounds
+                        .iter()
+                        .copied()
+                        .reduce(|a, b| a.checked_add(b).unwrap_or(p1()))
+                        .expect("mem > 0")
+                } else {
+                    UINT256_MAX
+                };
+                let plan = if matches!(
+                    self.opts.fused_tree,
+                    FusedTree::Late | FusedTree::LateBounded
+                ) {
+                    super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+                } else if self.opts.tree_peak {
+                    super::sum_tree::plan_peak(&bounds, cap)
+                } else {
+                    super::sum_tree::plan(&bounds, cap)
+                };
+                let Some(plan) = plan else {
+                    bail!("no fused sum tree")
+                };
+                let value = self.emit_fused_tree(&plan, &old, sum, &mut out)?;
+                if self.bound(value) != plan.bound {
+                    bail!("fused tree bound differs from the plan");
+                }
+                acc = Some(value);
+            }
+            if acc.is_none() {
+                for (j, &s) in old.iter().enumerate().take(mem + 1).skip(1) {
+                    let slot = self.e.slot_of(s);
+                    self.e.push_prime()?;
+                    self.e.dup(s)?;
+                    let o = self.consume_out(j, s, sum, &mut out)?;
+                    self.e.store_at(o, slot)?;
+                    acc = Some(match acc {
+                        None => o,
+                        Some(a) if self.fits(a, o) => {
+                            self.e
+                                .compute(Op::Add, &[inplace(o), inplace(a)], "fused")?
+                        }
+                        Some(a) => {
+                            self.e.push_prime()?;
+                            self.e.swap(2)?;
+                            self.e.compute(
+                                Op::Addmod,
+                                &[inplace(a), inplace(o), inplace(p)],
+                                "fused",
+                            )?
+                        }
+                    });
+                    self.e.end_line();
+                }
+            }
+            let acc = acc.expect("mem > 0");
+            self.e.spill_at(acc, fused_slot)?;
+            self.e.end_line();
+            self.fused = Some(acc);
+        }
+        // [sum, P, s0^5, ...]: s0^5 on top of the PRIME copy, m0 lands on the
+        // sum
+        if mem > 0 {
+            self.e.swap(1)?;
+            self.e.dup(x5)?;
+        } else {
+            self.e.swap(2 + early_stacked * per)?;
+        }
+        let d0 = self.diag(0);
+        let m0 = self
+            .e
+            .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+        self.e.end_line();
+
+        // [m0, sum, ...], or [m0, P, ..., P, sum, ...] with the early copies
+        let top = 2 + early_stacked * per;
+        let loads = if fuse {
+            Vec::new()
+        } else {
+            self.region_loads(&old, slots, top)
+        };
+        let mut to_stack: VecDeque<usize> = loads.iter().copied().filter(|&i| i > mem).collect();
+        let chains = self.consume_chains(&old, mem, next_internal, top)?;
+        let order: Vec<usize> = chains.iter().flatten().copied().collect();
+        // a chain closes with m0 back on top, its last output into the slot
+        // of its first element (the sum is then right under m0 after the
+        // last chain)
+        if self.opts.prime_stack {
+            // the elements in memory first, then the PRIME copies of the
+            // first `stacked` swapped elements under m0: [m0, P, ..., P,
+            // sum, ...]. The k-th element sits under the copies left over
+            // its turn, so its swap must still reach it; the elements
+            // after the stacked ones get their copy swapped under them.
+            for &j in &loads {
+                if j <= mem {
+                    self.consume_load(j, &old, sum, mem, &mut out)?;
+                }
+            }
+            let stacked = if early {
+                early_stacked
+            } else {
+                let depths: Vec<usize> = order.iter().map(|&i| self.e.find(old[i])).collect();
+                let stacked = stacked_copies(&depths, 1, self.e.max_reach);
+                if stacked > 0 {
+                    for _ in 0..stacked {
+                        self.e.push_prime()?;
+                    }
+                    self.e.swap(stacked)?;
+                    self.e.end_line();
+                }
+                stacked
+            };
+            let mut k = 0;
+            for chain in &chains {
+                for &i in chain {
+                    let s = old[i];
+                    self.swap_up(s)?;
+                    if k >= stacked {
+                        self.e.push_prime()?;
+                        self.e.swap(1)?;
+                    }
+                    if seam {
+                        // the output lands over its second copy: the next
+                        // round's constant and S-box take its place
+                        self.consume_out(i, s, sum, &mut out)?;
+                        xs[i] = self.seam_lane(round + 1, i, out[i])?;
+                        self.e.end_line();
+                    } else {
+                        self.consume_finish(i, s, sum, mem, &mut out)?;
+                    }
+                    if i <= mem {
+                        // the output went to memory: one that comes back to
+                        // the stack takes its place on top, with its own
+                        // PRIME copy
+                        let Some(j) = to_stack.pop_front() else {
+                            bail!("no element to load on top");
+                        };
+                        self.consume_load(j, &old, sum, mem, &mut out)?;
+                    }
+                    k += 1;
+                }
+                self.swap_up(m0)?;
+            }
+        } else {
+            let mut k = 0;
+            for chain in &chains {
+                for &i in chain {
+                    let s = old[i];
+                    self.swap_up(s)?;
+                    self.e.push_prime()?;
+                    self.e.swap(1)?;
+                    self.consume_finish(i, s, sum, mem, &mut out)?;
+                    if i <= mem {
+                        // the output went to memory: one that comes back to
+                        // the stack takes its place on top
+                        let Some(j) = to_stack.pop_front() else {
+                            bail!("no element to load on top");
+                        };
+                        self.consume_load(j, &old, sum, mem, &mut out)?;
+                    }
+                    if k == 0 {
+                        for &j in &loads {
+                            if j <= mem {
+                                self.consume_load(j, &old, sum, mem, &mut out)?;
+                            }
+                        }
+                    }
+                    k += 1;
+                }
+                self.swap_up(m0)?;
+            }
+        }
+        if !to_stack.is_empty() {
+            bail!("elements left to load on top");
+        }
+        let (a, b) = (self.e.top(0)?, self.e.top(1)?);
+        out[0] = self.e.compute(Op::Add, &[inplace(a), inplace(b)], "s0'")?;
+        if seam {
+            // s0' over no copy: the lane of the streamed S-boxes
+            let c = self.params.round_constants[round + 1][0];
+            xs[0] = self.stream_lane(out[0], c, "x0")?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
+        if mem > 0 && self.e.at(slots + 1) != Some(p) {
+            // the PRIME copy the rounds DUP from, in place of the slot under
+            // the region
+            self.e.push_prime()?;
+            self.e.swap(slots + 2)?;
+            self.e.pop()?;
+        }
+        if next_internal {
+            // PRIME copy under the next round's s0 + c
+            self.e.push_prime()?;
+            self.e.swap(1)?;
+        }
+        self.e.end_line();
+        if fusing && !fuse {
+            // the elements went to memory out of order: their sum for the
+            // next round from their slots
+            let acc = if self.opts.fused_tree == FusedTree::PreplacedSeeded {
+                self.seed_fused_tree(&out[1..=mem])?
+            } else {
+                self.chain_sum(&out[1..=mem], "fused", UINT256_MAX)?
+            };
+            self.e.spill(acc)?;
+            self.e.end_line();
+            self.fused = Some(acc);
+        }
+        self.state = out;
+        Ok(())
+    }
+
+    /// A consuming round leading to another one takes the lane-copy shape
+    /// (internal4's): the state all on the stack
+    fn lane_copy(&self, round: usize) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.lane_copy_rounds() && round + 1 < p_end && round + 2 < self.range.to
+            || self.lane_copy_seam(round)
+    }
+
+    /// the last consuming round, which runs the next round's S-boxes on its
+    /// outputs (external_seam), in the lane-copy shape
+    fn lane_copy_seam(&self, round: usize) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.lane_copy_rounds()
+            && self.opts.external_seam
+            && self.stream()
+            && round + 1 == p_end
+            && round + 2 < self.range.to
+    }
+
+    fn lane_copy_rounds(&self) -> bool {
+        let slots = held_slots(self.t, self.e.max_reach, self.opts.consume_slots);
+        self.opts.lane_copy && self.opts.prime_early && self.opts.prime_stack && slots == self.t - 1
+    }
+
+    /// The consuming round as internal4: [sum, P] under the t PRIME copies
+    /// of the MULMODs, the deepest element DUPed (its original left dead),
+    /// every output swapped into the slot of the next element, the last
+    /// into the slot of s0^5, whose m0 lands on the sum: s0' over the PRIME
+    /// copy under it, n SWAPs and one DUP for n + 3 SWAPs. Every element
+    /// keeps its slot; the dead ones pile up under the state. With carrier
+    /// the deepest element is swapped up over one more PRIME copy instead,
+    /// which takes its slot: the copy under the state the next round wants.
+    fn internal_round_lane_copy(
+        &mut self,
+        round: usize,
+        old: &[Id],
+        carrier: bool,
+        body: bool,
+        first: Option<(Id, [Id; 4])>,
+    ) -> Result<()> {
+        let t = self.t;
+        let p = self.p();
+        let x5 = old[0];
+        let seam = self.lane_copy_seam(round);
+        if body {
+            // the dead values move the copies under them a slot a round
+            self.e.push(PRIME, None)?;
+        } else {
+            self.e.push_prime()?;
+        }
+        let sum = match first {
+            Some((neg, sums)) => self.first_tree(old[0], neg, sums, p1())?,
+            None => self.chain_sum_in_place(old, "sum", p1())?,
+        };
+        self.e.end_line();
+        let mut order: Vec<usize> = (1..t).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.e.find(old[i])));
+        // with the seam each output lands on a second copy, which the next
+        // round's S-box of its lane takes
+        let copies = t + if seam { t - 1 } else { 0 } + usize::from(carrier);
+        for _ in 0..copies {
+            self.e.push_prime()?;
+        }
+        let mut out = vec![0; t];
+        let mut xs = vec![0; t];
+        for (k, &i) in order.iter().enumerate() {
+            if k == 0 && !carrier {
+                self.e.dup(old[i])?;
+            } else {
+                self.swap_up(old[i])?;
+            }
+            self.consume_out(i, old[i], sum, &mut out)?;
+            if seam {
+                xs[i] = self.seam_lane(round + 1, i, out[i])?;
+            }
+            self.e.end_line();
+        }
+        self.swap_up(x5)?;
+        let d0 = self.diag(0);
+        let m0 = self
+            .e
+            .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+        out[0] = self
+            .e
+            .compute(Op::Add, &[inplace(m0), inplace(sum)], "s0'")?;
+        if self.e.top(1)? != p {
+            bail!("lane copy: s0' over no PRIME copy");
+        }
+        if seam {
+            xs[0] = self.seam_lane(round + 1, 0, out[0])?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
+        self.e.end_line();
+        self.state = out;
+        Ok(())
+    }
+
+    /// K - s0 for [s0, P] on top, K the least multiple of PRIME over the
+    /// bound of s0, left under them: [s0, P, K - s0]
+    fn neg_s0(&mut self) -> Result<Id> {
+        let s0 = self.state[0];
+        let p = self.p();
+        if self.e.top(0)? != s0 || self.e.top(1)? != p {
+            bail!("first sum expects [s0, P] on top");
+        }
+        let m = self.bound(s0) / PRIME + U256::from(1u64);
+        let Some(k) = m.checked_mul(PRIME) else {
+            bail!("no multiple of PRIME over s0");
+        };
+        let neg = self
+            .e
+            .compute(Op::Sub, &[constant(k, "K"), val(s0)], "-s0")?;
+        self.e.swap(2)?;
+        self.e.swap(1)?;
+        Ok(neg)
+    }
+
+    /// The first consuming round's sum s0^5 + sum_(i > 0) s_i from the exit
+    /// layer's column sums: the outputs of block b are M4 (x_b + S), so all
+    /// of them sum to (1 + t / 4) (11 (S0 + S2) + 17 (S1 + S3)) (the column
+    /// sums of M4), less s0 (neg = K - s0)
+    fn first_tree(&mut self, x5: Id, neg: Id, sums: [Id; 4], cap: U256) -> Result<Id> {
+        let p = self.p();
+        let q = 1 + self.t as u64 / 4;
+        let lazy = wide(self.bound(x5)) + wide(self.bound(neg)) + wide(p1()) * U512::from(2u64);
+        let reduce = lazy > wide(cap);
+        if reduce {
+            self.e.push_prime()?;
+        }
+        let e1 = self.e.compute(Op::Add, &[val(x5), val(neg)], "x-s0")?;
+        let pair = |this: &mut Self, a: Id, b: Id, c: u64| -> Result<Id> {
+            this.e.push_prime()?;
+            let s = this.e.compute(Op::Add, &[val(a), val(b)], "S")?;
+            this.e.compute(
+                Op::Mulmod,
+                &[constant(u256(c), "c"), inplace(s), inplace(p)],
+                "cS",
+            )
+        };
+        let a = pair(self, sums[0], sums[2], 11 * q)?;
+        let b = pair(self, sums[1], sums[3], 17 * q)?;
+        let ab = self.e.compute(Op::Add, &[inplace(b), inplace(a)], "cS")?;
+        if reduce {
+            self.e
+                .compute(Op::Addmod, &[inplace(ab), inplace(e1), inplace(p)], "sum")
+        } else {
+            self.e.compute(Op::Add, &[inplace(ab), inplace(e1)], "sum")
+        }
+    }
+
+    /// defer_sum applies to every consuming round of the range: each one
+    /// is a lane-copy round and the last one the seam
+    fn defer_rounds(&self) -> bool {
+        let p_end = self.params.rounds_f / 2 + self.params.rounds_p;
+        self.opts.defer_sum
+            && self.opts.tree_sums
+            && !self.opts.shared_body
+            && self.lane_copy_rounds()
+            && self.lane_copy_seam(p_end - 1)
+    }
+
+    /// The sum of a defer_sum round: s0^5, the elements (the products a_i
+    /// after the first round) and (t - 1) T by a MULMOD of a copy, lazy up
+    /// to 3 (P - 1), so s0' = m0 + T plus the next round constant stays
+    /// under 2^256
+    fn defer_tree(&mut self, old: &[Id], tp: Option<Id>) -> Result<Id> {
+        let mut ordered: Vec<Id> = self.by_depth(old).into_iter().map(|i| old[i]).collect();
+        let mut bounds: Vec<U256> = ordered.iter().map(|&v| self.bound(v)).collect();
+        if let Some(tp) = tp {
+            ordered.insert(0, tp);
+            bounds.insert(0, p1());
+        }
+        let cap = p1() * u256(3);
+        let planned = if self.opts.tree_late_prime {
+            super::sum_tree::plan_late(&bounds, cap, self.opts.tree_peak)
+        } else if self.opts.tree_peak {
+            super::sum_tree::plan_peak(&bounds, cap)
+        } else {
+            super::sum_tree::plan(&bounds, cap)
+        };
+        let Some(plan) = planned else {
+            bail!("no deferred sum tree meets the bound");
+        };
+        let scaled = tp.map(|_| (0, u256(self.t as u64 - 1)));
+        self.emit_sum_tree(&plan, &ordered, "sum", scaled)
+    }
+
+    /// The lane-copy round with defer_sum. The state holds s0 and a_i, with
+    /// s_i = a_i + T for the T of the round before (none in the first
+    /// round): the sum is s0^5 + sum a_i + (t - 1) T, every lane a_i' =
+    /// d_i (a_i + T) and s0' = d_0 s0^5 + T' over the PRIME copy pushed
+    /// first. T' is made over the t copies and swapped into the slot of the
+    /// deepest element, which comes up for the first lane, so the elements
+    /// keep their slots and the old T stays dead under them. The last
+    /// round (the seam) adds T' to its lanes as lane copy does.
+    fn internal_round_defer(
+        &mut self,
+        round: usize,
+        old: &[Id],
+        first: Option<(Id, [Id; 4])>,
+    ) -> Result<()> {
+        let t = self.t;
+        let p = self.p();
+        let x5 = old[0];
+        let seam = self.lane_copy_seam(round);
+        let tp = self.defer.take();
+        let mut order: Vec<usize> = (1..t).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.e.find(old[i])));
+        let mut out = vec![0; t];
+        let d0 = self.diag(0);
+        if seam {
+            self.e.push_prime()?;
+            let sum = self.defer_tree(old, tp)?;
+            self.e.end_line();
+            // with first_sum no PRIME copy is parked under the state: the
+            // seam swaps its deepest element up over one (carrier)
+            let carrier = self.opts.first_sum;
+            for _ in 0..2 * t - 1 + usize::from(carrier) {
+                self.e.push_prime()?;
+            }
+            let mut xs = vec![0; t];
+            for (k, &i) in order.iter().enumerate() {
+                if k == 0 && !carrier {
+                    self.e.dup(old[i])?;
+                } else {
+                    self.swap_up(old[i])?;
+                }
+                out[i] = self.defer_lane(i, old[i], tp, Some(sum))?;
+                xs[i] = self.seam_lane(round + 1, i, out[i])?;
+                self.e.end_line();
+            }
+            self.swap_up(x5)?;
+            let m0 = self
+                .e
+                .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+            out[0] = self
+                .e
+                .compute(Op::Add, &[inplace(m0), inplace(sum)], "s0'")?;
+            if self.e.top(1)? != p {
+                bail!("defer sum: s0' over no PRIME copy");
+            }
+            xs[0] = self.seam_lane(round + 1, 0, out[0])?;
+            self.e.end_line();
+            self.state = xs;
+            self.sboxed = true;
+            return Ok(());
+        }
+        for _ in 0..=t {
+            self.e.push_prime()?;
+        }
+        let sum = match first {
+            Some((neg, sums)) => self.first_tree(old[0], neg, sums, p1() * u256(3))?,
+            None => self.defer_tree(old, tp)?,
+        };
+        self.e.end_line();
+        for &i in &order {
+            self.swap_up(old[i])?;
+            out[i] = self.defer_lane(i, old[i], tp, None)?;
+            self.e.end_line();
+        }
+        self.swap_up(x5)?;
+        let m0 = self
+            .e
+            .compute(Op::Mulmod, &[d0, inplace(x5), inplace(p)], "m0")?;
+        out[0] = self.e.compute(Op::Add, &[val(sum), inplace(m0)], "s0'")?;
+        if self.e.top(1)? != p {
+            bail!("defer sum: s0' over no PRIME copy");
+        }
+        self.e.end_line();
+        self.state = out;
+        self.defer = Some(sum);
+        Ok(())
+    }
+
+    /// d_i (s + T) on top for s on top over a PRIME copy (d_i s without a
+    /// T), plus sum when given
+    fn defer_lane(&mut self, i: usize, s: Id, tp: Option<Id>, sum: Option<Id>) -> Result<Id> {
+        let p = self.p();
+        let u = match tp {
+            Some(tp) => self
+                .e
+                .compute(Op::Add, &[val(tp), inplace(s)], &format!("u{i}"))?,
+            None => s,
+        };
+        let di = self.diag(i);
+        let m = self
+            .e
+            .compute(Op::Mulmod, &[di, inplace(u), inplace(p)], &format!("a{i}"))?;
+        match sum {
+            Some(sum) => self
+                .e
+                .compute(Op::Add, &[val(sum), inplace(m)], &format!("s{i}'")),
+            None => Ok(m),
+        }
+    }
+
+    /// s + c and the S-box of lane i of `round` for s on top over a PRIME
+    /// copy (the seam of the last consuming round)
+    fn seam_lane(&mut self, round: usize, i: usize, s: Id) -> Result<Id> {
+        let c = self.params.round_constants[round][i];
+        let y = self
+            .e
+            .compute(Op::Add, &[constant(c, "c"), inplace(s)], "y")?;
+        self.sbox(y, &format!("x{i}"))
+    }
+
+    /// m_i + sum on top; the output of an index in memory goes there
+    fn consume_finish(
+        &mut self,
+        i: usize,
+        s: Id,
+        sum: Id,
+        mem: usize,
+        out: &mut [Id],
+    ) -> Result<()> {
+        self.consume_out(i, s, sum, out)?;
+        if i <= mem {
+            self.e.spill(out[i])?;
+        }
+        self.e.end_line();
+        Ok(())
+    }
+
+    /// The indices of `old` but s0 the region under the `top` values on the
+    /// stack ([m0, sum]) does not hold
+    fn region_loads(&self, old: &[Id], slots: usize, top: usize) -> Vec<usize> {
+        (1..old.len())
+            .filter(|&i| {
+                let s = self.e.find(old[i]);
+                s <= top || s > slots + top
+            })
+            .collect()
+    }
+
+    /// m_i + sum on top, for s on top with a PRIME copy under it
+    fn consume_out(&mut self, i: usize, s: Id, sum: Id, out: &mut [Id]) -> Result<Id> {
+        let p = self.p();
+        let di = self.diag(i);
+        let m = self
+            .e
+            .compute(Op::Mulmod, &[di, inplace(s), inplace(p)], &format!("m{i}"))?;
+        out[i] = self
+            .e
+            .compute(Op::Add, &[val(sum), inplace(m)], &format!("s{i}'"))?;
+        Ok(out[i])
+    }
+
+    /// an element not held by the region: loaded under a PRIME copy
+    fn consume_load(
+        &mut self,
+        i: usize,
+        old: &[Id],
+        sum: Id,
+        mem: usize,
+        out: &mut [Id],
+    ) -> Result<()> {
+        self.e.push_prime()?;
+        self.e.dup(old[i])?;
+        self.consume_finish(i, old[i], sum, mem, out)
+    }
+
+    /// The steady internal rounds of the range that run through the shared
+    /// body, as the rounds of each call: full calls of a period, then the
+    /// remainder as a last call that leaves at the mid exit. None when the
+    /// body would run once at most.
+    fn body_calls(&self) -> Result<Option<Vec<Vec<usize>>>> {
+        let (first, steady) = steady_rounds(self.params, self.range);
+        if self.opts.body_inline > steady {
+            bail!("bodyInline exceeds the steady rounds");
+        }
+        let start = first + self.opts.body_inline;
+        let rest = steady - self.opts.body_inline;
+        let full = rest / self.period;
+        if full == 0 {
+            return Ok(None);
+        }
+        let mut calls: Vec<Vec<usize>> = (0..full)
+            .map(|c| {
+                let r = start + c * self.period;
+                (r..r + self.period).collect()
+            })
+            .collect();
+        let rem = rest % self.period;
+        if rem > 0 {
+            let r = start + full * self.period;
+            calls.push((r..r + rem).collect());
+        }
+        Ok(Some(calls))
+    }
+
+    /// SWAPs a remainder call needs to enter the body `from` rounds on:
+    /// each sub-chain of the consuming rounds rotates its slots one place a
+    /// round (consume_chains), under [s0, P].
+    fn entry_swaps(&self, from: usize) -> Option<usize> {
+        if self.lane_copy_rounds() {
+            // every element keeps its slot
+            return Some(0);
+        }
+        let slots = held_slots(self.t, self.e.max_reach, self.opts.consume_slots);
+        let group = match self.opts.consume_group {
+            0 => slots,
+            g => g.min(slots),
+        };
+        let cur: Vec<usize> = (0..slots + 2).collect();
+        let mut want = cur.clone();
+        let order: Vec<usize> = (0..slots).collect();
+        for chunk in order.chunks(group) {
+            let n = chunk.len();
+            for (k, &s) in chunk.iter().enumerate() {
+                want[2 + chunk[(k + from) % n]] = 2 + s;
+            }
+        }
+        swap_plan(&cur, &want).map(|plan| plan.len())
+    }
+
+    /// A stack entry by what it holds now.
+    fn tag(&self, v: Id) -> Tag {
+        if v == self.p() {
+            Tag::Prime
+        } else if let Some(i) = self.state.iter().position(|&s| s == v) {
+            Tag::Lane(i)
+        } else {
+            Tag::Other(v)
+        }
+    }
+
+    /// Emits the calls of the shared body. A call CODECOPYs its round
+    /// constants from its code table to the scratch, stores its return
+    /// label and JUMPs to the body, which the last call falls into instead;
+    /// the body's text goes out there. The emitter simulates the body at
+    /// every call, recording it at the first (emitter.rs). A remainder call
+    /// either stores its return label at the mid exit's slot, which the
+    /// full calls had set to the label right after the exit, or, where the
+    /// SWAPs into the layout of the body's later rounds cost less than the
+    /// exits, enters there (the mid entry) before the last full call.
+    fn emit_body_calls(&mut self, calls: &[Vec<usize>]) -> Result<()> {
+        let period = self.period;
+        let ret_mid = self.rc_base + 32 * period;
+        let ret_end = ret_mid + 32;
+        let rem = calls[calls.len() - 1].len() % period;
+        let full = calls.len() - usize::from(rem > 0);
+        let from = period - rem;
+        let entry = self.mid_entry
+            && rem > 0
+            && full >= 2
+            && self
+                .entry_swaps(from)
+                .is_some_and(|n| 3 * n < 14 * full + 9);
+        self.entered |= entry;
+        let calls: Vec<Vec<usize>> = if entry {
+            // the remainder before the last full call, which falls in
+            let first = calls[0][0];
+            let mut out: Vec<Vec<usize>> = calls[..full - 1].to_vec();
+            let r = first + (full - 1) * period;
+            out.push((r..r + rem).collect());
+            out.push((r + rem..r + rem + period).collect());
+            out
+        } else {
+            calls.to_vec()
+        };
+        self.e
+            .comment("Shared body of the steady internal rounds (see the calls)");
+        if rem > 0 && !entry {
+            self.e.push_label("body_mid");
+            self.e.mstore(ret_mid)?;
+            self.e.end_line();
+        }
+        for (c, rounds) in calls.iter().enumerate() {
+            let n = rounds.len();
+            let last_call = c == calls.len() - 1;
+            // the first round of the body this call runs
+            let skip = if entry && n < period { from } else { 0 };
+            if skip > 0 {
+                let Some(layout) = self.entry_layout.clone() else {
+                    bail!("no layout recorded for the mid entry");
+                };
+                let p = self.p();
+                let want: Vec<Id> = layout
+                    .iter()
+                    .map(|tag| match *tag {
+                        Tag::Lane(i) => self.state[i],
+                        Tag::Prime => p,
+                        Tag::Other(v) => v,
+                    })
+                    .collect();
+                let mut cur = self.e.from_top();
+                let mut want = want;
+                if self.lane_copy_rounds() {
+                    // the dead values under the state grow a slot a round
+                    cur.truncate(self.t + 1);
+                    want.truncate(self.t + 1);
+                }
+                if cur.len() != want.len() {
+                    bail!("the mid entry's stack differs in depth");
+                }
+                let reach = (self.e.max_reach + 1).min(cur.len());
+                if cur[reach..] != want[reach..] {
+                    bail!("the mid entry's layout is out of reach");
+                }
+                let Some(plan) = swap_plan(&cur[..reach], &want[..reach]) else {
+                    bail!("no SWAPs into the mid entry's layout");
+                };
+                if Some(plan.len()) != self.entry_swaps(from) {
+                    bail!("the mid entry's SWAPs differ from the chains' rotation");
+                }
+                for &j in &plan {
+                    self.e.swap(j)?;
+                }
+                self.e.end_line();
+            }
+            self.e.comment(&format!(
+                "Rounds {} to {} (internal): body call {c}",
+                rounds[0],
+                rounds[n - 1]
+            ));
+            let name = format!("RC{c}");
+            let words = rounds
+                .iter()
+                .map(|&r| self.params.round_constants[r][0])
+                .collect();
+            self.e.table(&name, words);
+            self.e.codecopy(&name, n, self.rc_base + 32 * skip)?;
+            self.e.push_label(&format!("ret{c}"));
+            self.e.mstore(if n < period && !entry {
+                ret_mid
+            } else {
+                ret_end
+            })?;
+            if !last_call {
+                self.e
+                    .push_label(if skip > 0 { "body_mid" } else { "body" });
+                self.e.jump();
+            }
+            self.e.end_line();
+
+            self.e.begin_body_at(c == 0, skip)?;
+            if skip == 0 {
+                self.e.label("body");
+                self.e.end_line();
+            }
+            for (k, &r) in (skip..).zip(rounds) {
+                if k > skip {
+                    self.e.segment();
+                }
+                if entry && k == from {
+                    // the mid entry: the remainder call comes in here
+                    self.e.label("body_mid");
+                    self.e.end_line();
+                    if c == 0 {
+                        let layout: Vec<Tag> =
+                            self.e.from_top().iter().map(|&v| self.tag(v)).collect();
+                        self.entry_layout = Some(layout);
+                    }
+                } else if !entry && k == rem && k > 0 {
+                    // the mid exit: a remainder call returns, a full one
+                    // goes on
+                    self.e.jump_via(ret_mid)?;
+                    self.e.end_line();
+                    self.e.label("body_mid");
+                    self.e.end_line();
+                }
+                self.e.next_round();
+                self.e.comment(&format!("Round {r} (internal)"));
+                self.internal_round_consume(r, true, Some(k))?;
+                self.e.comment("");
+                self.step_bytes.push(self.e.bytes);
+            }
+            self.e.segment();
+            self.e.jump_via(if n < period && !entry {
+                ret_mid
+            } else {
+                ret_end
+            })?;
+            self.e.end_line();
+            self.e.end_body()?;
+            if last_call {
+                self.e
+                    .comment("Shared body, entered by the calls above (the last falls in)");
+                let lines: Vec<String> = self.e.body_lines.iter().flatten().cloned().collect();
+                self.e.lines.extend(lines);
+            }
+            self.e.label(&format!("ret{c}"));
+            self.e.end_line();
+        }
+        Ok(())
+    }
+
+    // ---- whole permutation -------------------------------------------------
+
+    fn build(&mut self) -> Result<Vec<Id>> {
+        let rf_half = self.params.rounds_f / 2;
+        let p_end = rf_half + self.params.rounds_p;
+        let total = self.params.rounds_f + self.params.rounds_p;
+        let Range { from, to } = self.range;
+        let has_internal = from <= p_end && to > rf_half + 1;
+
+        if self.opts.prime_in_memory {
+            // the slot below the shadow slots
+            let offset = self.e.slot_base - 32;
+            self.e
+                .comment("PRIME in memory, loaded where no copy is within reach");
+            self.e.push_prime()?;
+            self.e.mstore(offset)?;
+            self.e.end_line();
+            self.e.comment("");
+            self.e.prime_slot = Some(offset);
+        }
+
+        if has_internal && self.opts.diag_stack > 0 {
+            self.e
+                .comment("Internal diag constants, kept on the stack for the internal rounds");
+            for i in (0..self.opts.diag_stack).rev() {
+                let d = self.params.internal_diag_minus_one[i];
+                let v = self.e.push(d, Some(&format!("d{i}")))?;
+                self.diag_vals.insert(0, v);
+            }
+            self.e.end_line();
+            self.e.comment("");
+        }
+
+        if has_internal && self.diag_stored(0) {
+            self.e
+                .comment("Internal diag constants, loaded with MLOAD in the internal rounds");
+            let mut i = 0;
+            while self.diag_stored(i) {
+                let d = self.params.internal_diag_minus_one[i];
+                self.e.mstore_const(d, self.diag_base + 32 * i)?;
+                self.e.end_line();
+                i += 1;
+            }
+            self.e.comment("");
+        }
+
+        if from == 0 {
+            self.e.next_round();
+            self.e.comment("Initial linear layer");
+            if self.opts.external_template && self.t <= 4 {
+                self.external_template(TemplateKind::Entry, None)?;
+            } else if self.stream() && to > 1 {
+                self.stream_linear(Some(0))?;
+            } else {
+                self.external_matrix(false, false, true)?;
+            }
+            self.e.comment("");
+            self.step_bytes.push(self.e.bytes);
+        }
+
+        let body = if self.opts.shared_body {
+            if !self.opts.internal_consume {
+                bail!("sharedBody needs internalConsume");
+            }
+            match self.body_calls()? {
+                Some(calls) => Some(calls),
+                None => bail!("the body would run once at most"),
+            }
+        } else {
+            None
+        };
+
+        let mut r = from.saturating_sub(1);
+        while r + 1 < to {
+            if let Some(calls) = &body
+                && r == calls[0][0]
+            {
+                self.emit_body_calls(calls)?;
+                r += calls.iter().map(Vec::len).sum::<usize>();
+                continue;
+            }
+            self.e.next_round();
+            // round r + 1 belongs to this part too
+            let next = r + 2 < to;
+            if r < rf_half {
+                self.e.comment(&format!("Round {r} (external)"));
+                // several rounds at once, the last one the exit when the
+                // internal rounds follow in this range, else ending before it
+                let exit = self
+                    .chain_rounds(TemplateKind::Exit)
+                    .is_some_and(|n| r + n == rf_half && rf_half + 1 < to);
+                let ran = if exit {
+                    self.external_chain(TemplateKind::Exit, r)?
+                } else if self
+                    .chain_rounds(TemplateKind::Round)
+                    .is_some_and(|n| r + n < rf_half)
+                {
+                    self.external_chain(TemplateKind::Round, r)?
+                } else {
+                    0
+                };
+                if ran > 0 {
+                    self.e.comment("");
+                    self.step_bytes.push(self.e.bytes);
+                    r += ran;
+                    continue;
+                }
+                let last = r == rf_half - 1;
+                if self.opts.external_template && self.t <= 4 {
+                    let kind = if last && next {
+                        TemplateKind::Exit
+                    } else {
+                        TemplateKind::Round
+                    };
+                    self.external_template(kind, Some(r))?;
+                } else if self.stream() {
+                    if !self.sboxed {
+                        self.stream_sbox(r)?;
+                    }
+                    if !last && next {
+                        self.stream_linear(Some(r + 1))?;
+                    } else {
+                        self.sboxed = false;
+                        self.external_matrix(false, last && next, !last)?;
+                    }
+                } else {
+                    self.add_constants_and_sbox(r)?;
+                    self.external_matrix(false, last && next, !last)?;
+                }
+            } else if r < p_end {
+                self.e.comment(&format!("Round {r} (internal)"));
+                if from == r + 1 {
+                    // the entry leaves [s0, ..., PRIME]: place the PRIME copy
+                    // the round expects under s0
+                    self.e.push_prime()?;
+                    self.e.swap(1)?;
+                }
+                let next_internal = r < p_end - 1 && next;
+                // the round programs of t <= 3 expect the PRIME copy under
+                // s0 as well
+                let prime_under =
+                    (r < p_end - 1 || (self.opts.external_template && self.t <= 3)) && next;
+                if self.internal_external3(r)? {
+                    r += 1;
+                } else if self.opts.internal_consume {
+                    self.internal_round_consume(r, next_internal, None)?;
+                } else {
+                    self.internal_round(r, prime_under)?;
+                }
+            } else if r == total - 1
+                && let Some(kind) = self.terminal
+            {
+                self.e.comment(&format!("Round {r} (external)"));
+                match kind {
+                    t2_entry::Terminal::T2 => self.terminal_round2(r)?,
+                    t2_entry::Terminal::T3 => self.terminal_round3(r)?,
+                    t2_entry::Terminal::Stream => self.terminal_stream(r)?,
+                }
+            } else if r == total - 1 && self.live.is_some() {
+                self.e.comment(&format!("Round {r} (external, s0' only)"));
+                if self.live.as_deref() != Some(&[0]) {
+                    bail!("only s0' can be the live output");
+                }
+                self.final_round_row0(r)?;
+            } else {
+                self.e.comment(&format!("Round {r} (external)"));
+                // several rounds at once: up to the last one of the private
+                // entries (which stores), else ending before it
+                let ends = |n: Option<usize>, last: bool| {
+                    n.is_some_and(|n| if last { r + n == total } else { r + n < total })
+                };
+                let ran = match self.terminal {
+                    Some(kind) if ends(self.chain_rounds(TemplateKind::Final), true) => {
+                        match kind {
+                            t2_entry::Terminal::T2 => self.terminal_pair2(r)?,
+                            t2_entry::Terminal::T3 => self.terminal_pair3(r)?,
+                            t2_entry::Terminal::Stream => 0,
+                        }
+                    }
+                    _ if ends(self.chain_rounds(TemplateKind::Round), false) => {
+                        self.external_chain(TemplateKind::Round, r)?
+                    }
+                    _ => 0,
+                };
+                if ran > 0 {
+                    self.e.comment("");
+                    self.step_bytes.push(self.e.bytes);
+                    r += ran;
+                    continue;
+                }
+                if self.opts.external_template && self.t <= 4 {
+                    let kind = if r == total - 1 {
+                        TemplateKind::Final
+                    } else {
+                        TemplateKind::Round
+                    };
+                    self.external_template(kind, Some(r))?;
+                } else if self.stream() {
+                    if !self.sboxed {
+                        self.stream_sbox(r)?;
+                    }
+                    if r < total - 1 && next {
+                        self.stream_linear(Some(r + 1))?;
+                    } else if r == total - 1 && self.state_in_memory {
+                        self.stream_linear(None)?;
+                    } else {
+                        self.sboxed = false;
+                        self.external_matrix(r == total - 1, false, true)?;
+                    }
+                } else {
+                    self.add_constants_and_sbox(r)?;
+                    self.external_matrix(r == total - 1, false, true)?;
+                }
+            }
+            self.e.comment("");
+            self.step_bytes.push(self.e.bytes);
+            r += 1;
+        }
+
+        if self.state_in_memory && !self.stored {
+            self.store_state(self.range.to < step_count(self.params))?;
+        }
+        self.e.end_line();
+        Ok(self.state.clone())
+    }
+}
+
+/// memory elements from which the consuming round sums them for the next
+/// round as it stores them: each saves 3 gas, the sum's store and load cost
+/// 12 and its reductions a SWAP each
+const FUSE_MIN: usize = 6;
+
+/// The dead values normalized hash round 0 leaves between its outputs and the PRIME
+/// copy under them, which the rounds after copy from
+pub const HASH_DEAD: usize = 3;
+
+/// The round 0 the hash entry runs for n inputs (Builder::hash_round0)
+/// with its gas, bytes, stack depth and lazy outputs, checked against the
+/// reference before anything is written.
+#[derive(Debug, Clone)]
+pub struct Prologue {
+    pub n: usize,
+    pub lines: Vec<String>,
+    pub gas: u64,
+    pub bytes: usize,
+    /// stack depth at the end: the rounds after run on top of it
+    pub depth: usize,
+    /// dead slots between the state outputs and the bottom PRIME
+    pub dead: usize,
+    /// bound of [s0', s1', s2', s3'] after round 0, lazy
+    pub bounds: Vec<U256>,
+    /// their values per vector
+    pub outputs: Vec<Vec<U256>>,
+}
+
+pub fn build_hash_prologue(params: &Params, inputs: &[Vec<U256>], fork: Fork) -> Result<Prologue> {
+    build_hash_prologue_with(params, inputs, fork, false)
+}
+
+fn build_hash_prologue_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+    compact: bool,
+) -> Result<Prologue> {
+    let n = inputs[0].len();
+    let dead = HASH_DEAD - usize::from(compact);
+    let states: Vec<Vec<U256>> = inputs
+        .iter()
+        .map(|input| sponge_state(params, input))
+        .collect();
+    let range = Range { from: 0, to: 2 };
+    let mut b = Builder::new(
+        params,
+        &states,
+        DEFAULT_OPTIONS,
+        fork,
+        range,
+        HashSet::new(),
+        false,
+        true,
+        &Boundary::default(),
+    )?;
+    b.hash_round0(n, inputs, compact)?;
+    for (k, state) in states.iter().enumerate() {
+        let want = permutation_steps(params, state, 0, 2);
+        for (i, &w) in want.iter().enumerate() {
+            if crate::field::reduce(b.e.value(b.state[i]).vals[k]) != w {
+                bail!("hash_{n} round 0: vector {k} output {i} mismatch");
+            }
+        }
+    }
+    let mut layout: Vec<Option<Id>> = b.state.iter().map(|&v| Some(v)).collect();
+    layout.insert(1, Some(b.p()));
+    layout.extend(vec![None; dead]);
+    layout.push(Some(b.p()));
+    for (i, v) in layout.iter().enumerate() {
+        if v.is_some() && b.e.at(i) != *v {
+            bail!(
+                "hash_{n} round 0: outputs are not [s0', PRIME, s1', s2', s3', {dead} dead, PRIME]"
+            );
+        }
+    }
+    let bounds = b.state.iter().map(|&v| b.e.bound(v)).collect();
+    let outputs = (0..states.len())
+        .map(|k| b.state.iter().map(|&v| b.e.value(v).vals[k]).collect())
+        .collect();
+    let depth = b.e.depth();
+    Ok(Prologue {
+        n,
+        lines: b.e.lines,
+        gas: b.e.gas,
+        bytes: b.e.bytes,
+        depth,
+        dead,
+        bounds,
+        outputs,
+    })
+}
+
+/// The rounds after round 0 shared by the hash entry's arities, built from
+/// the lazy values every prologue leaves (their bounds joined, their
+/// vectors concatenated) and reading s0' alone.
+pub fn build_hash_rounds(
+    params: &Params,
+    prologues: &[Prologue],
+    max_bytes: usize,
+    fork: Fork,
+) -> Result<Best> {
+    let t = params.t;
+    let Some(first) = prologues.first() else {
+        bail!("no hash prologues");
+    };
+    let dead = first.dead;
+    let mut inputs: Vec<Vec<U256>> = Vec::new();
+    let mut bounds = vec![U256::ZERO; t];
+    for p in prologues {
+        if p.dead != dead {
+            bail!("hash rounds need a common dead-slot layout");
+        }
+        for (bound, &b) in bounds.iter_mut().zip(&p.bounds) {
+            if b > *bound {
+                *bound = b;
+            }
+        }
+        inputs.extend(p.outputs.iter().cloned());
+    }
+    let boundary = Boundary {
+        bounds: Some(bounds),
+        calldata: false,
+        live: Some(vec![0]),
+        prime_second: true,
+        prime_below: Some(dead),
+        store_inputs: false,
+    };
+    let range = Range {
+        from: 2,
+        to: step_count(params),
+    };
+    match build_best_with(params, &inputs, max_bytes, fork, range, &boundary)? {
+        Some(best) => Ok(best),
+        None => bail!("the hash rounds do not fit on {}", fork.name),
+    }
+}
+
+/// Replay the selected rounds on hash_1 without its unused prologue filler.
+/// The caller selects this only when its complete replicated entry fits.
+pub(super) fn build_compact_hash1(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    fork: Fork,
+    opts: &BuildOptions,
+) -> Result<(Prologue, Best)> {
+    let p = build_hash_prologue_with(params, inputs, fork, true)?;
+    let boundary = Boundary {
+        bounds: Some(p.bounds.clone()),
+        calldata: false,
+        live: Some(vec![0]),
+        prime_second: true,
+        prime_below: Some(p.dead),
+        store_inputs: false,
+    };
+    let result = build_permutation_with(
+        params,
+        &p.outputs,
+        opts,
+        fork,
+        Range {
+            from: 2,
+            to: step_count(params),
+        },
+        true,
+        &boundary,
+    )?;
+    Ok((
+        p,
+        Best {
+            result,
+            opts: *opts,
+        },
+    ))
+}
+
+/// Builds steps [range.from, range.to) and checks the emitted stream against
+/// the reference on every input. With shadow a permissive pass first finds
+/// the values DUPed out of reach, then the real pass shadows them. `text`
+/// records the lines (the option search only needs the numbers).
+pub fn build_permutation(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+) -> Result<BuildResult> {
+    build_permutation_with(
+        params,
+        inputs,
+        opts,
+        fork,
+        range,
+        text,
+        &Boundary::default(),
+    )
+}
+
+/// build_permutation from lazy inputs and for the outputs the caller reads.
+pub fn build_permutation_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+    boundary: &Boundary,
+) -> Result<BuildResult> {
+    let expected = expected_outputs(params, inputs, range);
+    build_checked(params, inputs, &expected, opts, fork, range, text, boundary)
+}
+
+/// The reference state after the range, per input (which may be lazy).
+fn expected_outputs(params: &Params, inputs: &[Vec<U256>], range: Range) -> Vec<Vec<U256>> {
+    inputs
+        .iter()
+        .map(|input| {
+            let clean: Vec<U256> = input.iter().map(|&x| crate::field::reduce(x)).collect();
+            permutation_steps(params, &clean, range.from, range.to)
+        })
+        .collect()
+}
+
+/// build_permutation against reference outputs computed once per range. A
+/// build that fails after a remainder call took the mid entry (whose layout
+/// the rounds after the body then start from) is retried with the mid exit.
+#[allow(clippy::too_many_arguments)]
+fn build_checked(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    expected: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+    boundary: &Boundary,
+) -> Result<BuildResult> {
+    let build = |boundary: &Boundary| {
+        let mut entered = false;
+        let once = |mid_entry: bool, entered: &mut bool| {
+            build_once(
+                params, inputs, expected, opts, fork, range, text, boundary, mid_entry, entered,
+            )
+        };
+        match once(true, &mut entered) {
+            Err(_) if entered => once(false, &mut entered),
+            result => result,
+        }
+    };
+    // raw inputs change the stack the probe saw, so a build that fails
+    // with them stores them instead
+    let raw = opts.shadow
+        && !boundary.calldata
+        && !boundary.store_inputs
+        && (params.t > fork.reach || opts.compact_inputs);
+    match build(boundary) {
+        Err(_) if raw => build(&Boundary {
+            store_inputs: true,
+            ..boundary.clone()
+        }),
+        result => result,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_once(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    expected: &[Vec<U256>],
+    opts: &BuildOptions,
+    fork: Fork,
+    range: Range,
+    text: bool,
+    boundary: &Boundary,
+    mid_entry: bool,
+    entered: &mut bool,
+) -> Result<BuildResult> {
+    let mut shadow = HashSet::new();
+    let mut last_load = HashMap::new();
+    if opts.shadow {
+        let mut probe = Builder::new(
+            params, inputs, *opts, fork, range, shadow, true, false, boundary,
+        )?;
+        probe.mid_entry = mid_entry;
+        let built = probe.build();
+        *entered |= probe.entered;
+        built?;
+        shadow = std::mem::take(&mut probe.e.needed);
+        last_load = std::mem::take(&mut probe.e.last_load);
+    }
+    let mut b = Builder::new(
+        params, inputs, *opts, fork, range, shadow, false, text, boundary,
+    )?;
+    b.mid_entry = mid_entry;
+    b.e.last_load = last_load;
+    let built = b.build();
+    *entered |= b.entered;
+    let outputs = built?;
+    finish_checked(b, &outputs, expected, boundary)
+}
+
+fn finish_checked(
+    b: Builder<'_>,
+    outputs: &[Id],
+    expected: &[Vec<U256>],
+    boundary: &Boundary,
+) -> Result<BuildResult> {
+    let e = &b.e;
+    let t = b.t;
+    let range = b.range;
+    let is_final = range.to == step_count(b.params);
+    // the state indices the outputs hold
+    let live: Vec<usize> = boundary
+        .live
+        .clone()
+        .unwrap_or_else(|| (0..outputs.len()).collect());
+
+    if !b.state_in_memory {
+        // the outputs must sit on top in state order and be clean
+        for (i, &out) in outputs.iter().enumerate() {
+            if e.at(i) != Some(out) {
+                bail!("output {} is not at slot {}", live[i], i + 1);
+            }
+            if e.bound(out) >= PRIME {
+                bail!("output {} is not clean", live[i]);
+            }
+        }
+        if boundary.live.is_none() && t <= 4 && e.at(t) != Some(e.p) {
+            bail!("PRIME expected under outputs");
+        }
+    } else if is_final {
+        for (i, &out) in outputs.iter().enumerate() {
+            if e.bound(out) >= PRIME {
+                bail!("output {} is not clean", live[i]);
+            }
+        }
+    } else {
+        for (i, &out) in outputs.iter().enumerate() {
+            if e.bound(out) > handover_bound() {
+                bail!("output {} is above the hand-over bound", live[i]);
+            }
+        }
+    }
+
+    // concrete check of the emitted stream against the reference permutation
+    // (a part that hands over leaves lazy values, the next entry reduces
+    // them; the inputs may be lazy as well)
+    for (k, want) in expected.iter().enumerate() {
+        for (i, &out) in outputs.iter().enumerate() {
+            let v = e.value(out).vals[k];
+            let got = if is_final { v } else { crate::field::reduce(v) };
+            if got != want[live[i]] {
+                bail!("vector {k} output {} mismatch", live[i]);
+            }
+        }
+    }
+
+    let e = b.e;
+    Ok(BuildResult {
+        lines: e.lines,
+        gas: e.gas,
+        bytes: e.bytes,
+        max_depth: e.max_depth,
+        max_dup: e.max_dup,
+        swaps: e.swaps,
+        pops: e.pops,
+        stores: e.stores,
+        loads: e.loads,
+        range,
+        state_in_memory: b.state_in_memory,
+        input_slots: b.input_slots,
+        step_bytes: b.step_bytes,
+        memory: e.memory,
+        tables: e.tables,
+    })
+}
+
+/// Largest n in [0, hi] accepted by ok, which must be monotone (true up to
+/// some n, false after) and true for 0.
+pub fn largest(hi: usize, mut ok: impl FnMut(usize) -> bool) -> usize {
+    let mut lo = 0;
+    let mut hi = hi;
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if ok(mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+#[derive(Debug, Clone)]
+pub struct Best {
+    pub result: BuildResult,
+    pub opts: BuildOptions,
+}
+
+/// The option combinations that make sense for t, in the TS enumeration
+/// order; with shadow, a consuming schedule whose elements the reach
+/// cannot hold all also with one and two more on the stack.
+fn candidates(t: usize, shadow: bool, reach: usize) -> Vec<BuildOptions> {
+    let bools = [false, true];
+    let only_false: &[bool] = &[false];
+    let pick = |cond: bool| -> &[bool] { if cond { &bools } else { only_false } };
+    let mut list = Vec::new();
+    for &diag_in_memory in pick(t >= 4) {
+        for &gc_external in &bools {
+            for &gc_m4 in pick(t >= 4) {
+                for &gc_internal in &bools {
+                    for &chain_swap_mod in &bools {
+                        for &external_d in pick(t >= 8) {
+                            for &prime_under_external in &bools {
+                                for &internal_reduce_outputs in pick(t <= 3) {
+                                    for &float_prime_internal in &bools {
+                                        // the consuming round neither collects
+                                        // garbage nor floats PRIME copies
+                                        let consume =
+                                            t >= 8 && !gc_internal && !float_prime_internal;
+                                        for &internal_consume in pick(consume) {
+                                            for &prime_stack in pick(internal_consume) {
+                                                for &prime_early in pick(prime_stack && !shadow) {
+                                                    for &shared_body in pick(internal_consume) {
+                                                        // the templates replace the
+                                                        // external rounds (t <= 4) or
+                                                        // the M4 of every block (with
+                                                        // external_d), so the options
+                                                        // those would collect or
+                                                        // pre-place are moot
+                                                        let templated = if t <= 4 {
+                                                            !gc_external
+                                                                && !gc_m4
+                                                                && !prime_under_external
+                                                        } else {
+                                                            external_d && !gc_m4
+                                                        };
+                                                        for &external_template in pick(templated) {
+                                                            for &internal_template in pick(
+                                                                (t == 3 || t == 4) && !gc_internal,
+                                                            ) {
+                                                                for &internal_mul3 in pick(
+                                                                    t == 2
+                                                                        && internal_reduce_outputs,
+                                                                ) {
+                                                                    // the external rounds of the templated
+                                                                    // blocks stream (always with shadow),
+                                                                    // which collects no garbage
+                                                                    let streams = external_d
+                                                                        && external_template;
+                                                                    for &external_stream in
+                                                                        pick(streams)
+                                                                    {
+                                                                        if shadow
+                                                                            && streams
+                                                                            && !external_stream
+                                                                        {
+                                                                            continue;
+                                                                        }
+                                                                        if external_stream
+                                                                            && gc_external
+                                                                        {
+                                                                            continue;
+                                                                        }
+                                                                        list.push(BuildOptions {
+                                                                            diag_in_memory,
+                                                                            gc_external,
+                                                                            gc_m4,
+                                                                            gc_internal,
+                                                                            chain_swap_mod,
+                                                                            external_d,
+                                                                            prime_under_external,
+                                                                            internal_reduce_outputs,
+                                                                            float_prime_internal,
+                                                                            internal_consume,
+                                                                            prime_stack,
+                                                                            prime_early,
+                                                                            gc_internal_from: 0,
+                                                                            gc_m4_from: 0,
+                                                                            diag_push32: 0,
+                                                                            shadow,
+                                                                            shared_body,
+                                                                            body_inline: 0,
+                                                                            consume_group: 0,
+                                                                            consume_slots: 0,
+                                                                            external_template,
+                                                                            internal_template,
+                                                                            external_seam: false,
+                                                                            internal_mul3,
+                                                                            prime_in_memory: false,
+                                                                            external_stream,
+                                                                            compact_inputs: false,
+                                                                            tree_sums: false,
+                                                                            tree_peak: false,
+                                                                            tree_late_prime: false,
+                                                                            tree_adaptive_prime:
+                                                                                false,
+                                                                            fused_tree:
+                                                                                FusedTree::Serial,
+                                                                            lane_copy: false,
+                                                                            diag_stack: 0,
+                                                                            defer_sum: false,
+                                                                            first_sum: false,
+                                                                        });
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let extra: Vec<usize> = (reach - 3..=reach - 2).filter(|&n| n < t).collect();
+    list.into_iter()
+        .flat_map(|opts| {
+            let seam = (t == 3 && opts.external_template && opts.internal_template && !shadow)
+                || (opts.prime_early && opts.external_stream);
+            std::iter::once(opts).chain(seam.then_some(BuildOptions {
+                external_seam: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.prime_early.then_some(BuildOptions {
+                lane_copy: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.lane_copy.then_some(BuildOptions {
+                defer_sum: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            std::iter::once(opts).chain(opts.lane_copy.then_some(BuildOptions {
+                first_sum: true,
+                ..opts
+            }))
+        })
+        .flat_map(|opts| {
+            let more: &[usize] = if shadow && opts.prime_stack && opts.shared_body {
+                &extra
+            } else {
+                &[]
+            };
+            std::iter::once(opts).chain(more.iter().map(move |&consume_slots| BuildOptions {
+                consume_slots,
+                ..opts
+            }))
+        })
+        .collect()
+}
+
+/// What the search learns from one candidate: whether its first build
+/// succeeded, and its final options and cost or the reason it fails.
+struct Outcome {
+    built: bool,
+    result: std::result::Result<(BuildOptions, u64), String>,
+}
+
+/// Tries the option combinations that make sense for t and returns the
+/// cheapest build of the range (code and memory expansion) that stays within
+/// reach, depth and code size, or None when the schedules that build are too
+/// large or too deep. The
+/// candidates are evaluated in parallel; the winner is the first strictly
+/// cheaper one in enumeration order, as in the TS, and is rebuilt with its
+/// lines. Fails when nothing builds at all.
+pub fn build_best(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    range: Range,
+) -> Result<Option<Best>> {
+    build_best_with(params, inputs, max_bytes, fork, range, &Boundary::default())
+}
+
+fn prefer(
+    current: (BuildOptions, u64),
+    alternative: std::result::Result<(BuildOptions, u64), String>,
+) -> (BuildOptions, u64) {
+    match alternative {
+        Ok(candidate) if candidate.1 < current.1 => candidate,
+        _ => current,
+    }
+}
+
+/// Call-frame cost, excluding a folded hash's fixed dispatch and prologue.
+fn frame_cost(params: &Params, result: &BuildResult, fork: Fork, boundary: &Boundary) -> u64 {
+    let outputs = boundary.live.as_ref().map_or(params.t, Vec::len);
+    let stack_entry = boundary.prime_second;
+    let hands_over = result.range.to < step_count(params);
+    let overhead = super::render::overhead(
+        fork,
+        if stack_entry { outputs } else { params.t },
+        &result.input_slots,
+        result.state_in_memory,
+        hands_over,
+        boundary.calldata,
+        result.memory,
+    );
+    result.gas
+        + if stack_entry { 0 } else { overhead.entry_gas }
+        + overhead.tail_gas
+        + memory_gas(result.memory.max(32 * outputs))
+}
+
+fn fused_candidates(t: usize, reach: usize, opts: BuildOptions) -> Vec<BuildOptions> {
+    if t < 8
+        || !opts.internal_consume
+        || !opts.prime_stack
+        || t - 1 - held_slots(t, reach, opts.consume_slots) < FUSE_MIN
+    {
+        return Vec::new();
+    }
+    [
+        FusedTree::Preplaced,
+        FusedTree::PreplacedBounded,
+        FusedTree::Late,
+        FusedTree::LateBounded,
+    ]
+    .into_iter()
+    .map(|fused_tree| BuildOptions { fused_tree, ..opts })
+    .collect()
+}
+
+/// Fused alternatives to an already selected whole-entry layout.
+pub fn build_fused_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
+    let candidates = fused_candidates(params.t, fork.reach, opts);
+    build_entry_candidates(params, inputs, max_bytes, fork, candidates)
+}
+
+/// Aligned fused seed after the original fused entry search completes.
+pub fn build_seeded_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
+    if fused_candidates(params.t, fork.reach, opts).is_empty() {
+        return Ok(None);
+    }
+    build_entry_candidates(
+        params,
+        inputs,
+        max_bytes,
+        fork,
+        vec![BuildOptions {
+            fused_tree: FusedTree::PreplacedSeeded,
+            ..opts
+        }],
+    )
+}
+
+fn seeded_slot_candidates(t: usize, reach: usize, opts: BuildOptions) -> Vec<BuildOptions> {
+    if t < 8
+        || reach < 4
+        || !opts.internal_consume
+        || !opts.prime_stack
+        || !opts.shadow
+        || !opts.shared_body
+    {
+        return Vec::new();
+    }
+    let held = held_slots(t, reach, opts.consume_slots);
+    [held.checked_sub(1), held.checked_add(1)]
+        .into_iter()
+        .flatten()
+        .filter(|&slots| slots > 0 && slots <= reach - 2 && slots < t && t - 1 - slots >= FUSE_MIN)
+        .flat_map(|consume_slots| {
+            [false, true]
+                .into_iter()
+                .map(move |prime_in_memory| BuildOptions {
+                    consume_slots,
+                    consume_group: 0,
+                    body_inline: 0,
+                    prime_in_memory,
+                    fused_tree: FusedTree::PreplacedSeeded,
+                    ..opts
+                })
+        })
+        .collect()
+}
+
+/// Neighbouring held-state counts after the seeded entry search completes.
+pub fn build_seeded_slots_entry(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    opts: BuildOptions,
+) -> Result<Option<Best>> {
+    let candidates = seeded_slot_candidates(params.t, fork.reach, opts);
+    build_entry_candidates(params, inputs, max_bytes, fork, candidates)
+}
+
+fn build_entry_candidates(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    candidates: Vec<BuildOptions>,
+) -> Result<Option<Best>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    build_best_with_candidates(
+        params,
+        inputs,
+        max_bytes,
+        fork,
+        Range {
+            from: 0,
+            to: step_count(params),
+        },
+        &Boundary::default(),
+        Some(candidates),
+    )
+}
+
+/// build_best from lazy inputs and for the outputs the caller reads.
+pub fn build_best_with(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    range: Range,
+    boundary: &Boundary,
+) -> Result<Option<Best>> {
+    build_best_with_candidates(params, inputs, max_bytes, fork, range, boundary, None)
+}
+
+fn build_best_with_candidates(
+    params: &Params,
+    inputs: &[Vec<U256>],
+    max_bytes: usize,
+    fork: Fork,
+    range: Range,
+    boundary: &Boundary,
+    entry_candidates: Option<Vec<BuildOptions>>,
+) -> Result<Option<Best>> {
+    let whole_entry = entry_candidates.is_some();
+    let expected = expected_outputs(params, inputs, range);
+    let build = |opts: &BuildOptions| {
+        build_checked(
+            params, inputs, &expected, opts, fork, range, false, boundary,
+        )
+    };
+    let attempt = |opts: &BuildOptions| build(opts).ok();
+    let cost = |result: &BuildResult| frame_cost(params, result, fork, boundary);
+    let render = |best: Option<(BuildOptions, u64)>| -> Result<Option<Best>> {
+        match best {
+            Some((opts, gas)) => {
+                let result = build_checked(
+                    params, inputs, &expected, &opts, fork, range, true, boundary,
+                )?;
+                assert_eq!(
+                    cost(&result),
+                    gas,
+                    "the rebuilt winner costs what the search measured"
+                );
+                Ok(Some(Best { result, opts }))
+            }
+            None => Ok(None),
+        }
+    };
+    let evaluate = |opts: &BuildOptions| -> Outcome {
+        let mut opts = *opts;
+        let mut first = build(&opts);
+        // the round after a part's entry still loads from the entry's
+        // shadow slots (a memory layout of its own), so the body starts at
+        // the first count of inline rounds that builds
+        while opts.shared_body && first.is_err() && opts.body_inline < 2 {
+            opts.body_inline += 1;
+            first = build(&opts);
+        }
+        let result = match first {
+            Ok(r) => r,
+            Err(err) => {
+                return Outcome {
+                    built: false,
+                    result: Err(err.0),
+                };
+            }
+        };
+        // the diag constants as PUSH32 and the inline rounds, as far as the
+        // code size allows
+        let tail = |mut opts: BuildOptions,
+                    mut result: BuildResult|
+         -> std::result::Result<(BuildOptions, BuildResult), String> {
+            if opts.diag_in_memory && result.bytes <= max_bytes {
+                let diag_push32 = largest(params.t, |n| {
+                    attempt(&BuildOptions {
+                        diag_push32: n,
+                        ..opts
+                    })
+                    .is_some_and(|r| r.bytes <= max_bytes)
+                });
+                opts.diag_push32 = diag_push32;
+                result = build(&opts).map_err(|e| e.0)?;
+            }
+            if opts.shared_body && result.bytes <= max_bytes {
+                let (_, steady) = steady_rounds(params, range);
+                let fits = |n: usize| {
+                    attempt(&BuildOptions {
+                        body_inline: n,
+                        ..opts
+                    })
+                    .is_some_and(|r| r.bytes <= max_bytes)
+                };
+                let base = opts.body_inline;
+                let mut body_inline = base + largest(steady - base, |n| fits(base + n));
+                // a remainder call costs more than the gas a round
+                // inline saves, so the largest count or, when cheaper,
+                // the largest that leaves no remainder
+                let period = body_period(params, &fork, opts.consume_slots, opts.consume_group);
+                let extra = (period - (steady - body_inline) % period) % period;
+                if extra > 0 && body_inline >= extra {
+                    let at = |n: usize| {
+                        attempt(&BuildOptions {
+                            body_inline: n,
+                            ..opts
+                        })
+                        .filter(|r| r.bytes <= max_bytes)
+                        .map(|r| cost(&r))
+                    };
+                    if let Some(rounded) = at(body_inline - extra)
+                        && at(body_inline).is_none_or(|c| rounded <= c)
+                    {
+                        body_inline -= extra;
+                    }
+                }
+                opts.body_inline = body_inline;
+                result = build(&opts).map_err(|e| e.0)?;
+            }
+            Ok((opts, result))
+        };
+        let finish = |mut opts: BuildOptions,
+                      mut result: BuildResult|
+         -> std::result::Result<(BuildOptions, u64), String> {
+            let mut grouped = false;
+            if result.max_depth <= 1000 {
+                if opts.gc_internal && fork.reach > 16 {
+                    let gc_internal_from = largest(params.rounds_p, |n| {
+                        attempt(&BuildOptions {
+                            gc_internal_from: n,
+                            ..opts
+                        })
+                        .is_some_and(|r| r.max_depth <= 1000)
+                    });
+                    opts.gc_internal_from = gc_internal_from;
+                    result = build(&opts).map_err(|e| e.0)?;
+                }
+                if opts.gc_m4 && fork.reach > 16 {
+                    let gc_m4_from = largest(params.rounds_f + 1, |n| {
+                        attempt(&BuildOptions {
+                            gc_m4_from: n,
+                            ..opts
+                        })
+                        .is_some_and(|r| r.max_depth <= 1000)
+                    });
+                    opts.gc_m4_from = gc_m4_from;
+                    result = build(&opts).map_err(|e| e.0)?;
+                }
+                if opts.shared_body && result.bytes > max_bytes {
+                    // a body too large for the code size: sub-chains shorten
+                    // it, the longest period that fits (the shorter, the
+                    // more chains and calls), or shorter ones for as long
+                    // as what their bytes buy (diag constants as PUSH32,
+                    // inline rounds) makes each cheaper than the last
+                    let groups = group_candidates(params, &fork, opts.consume_slots);
+                    let fits = |n: usize| {
+                        attempt(&BuildOptions {
+                            consume_group: groups[n],
+                            ..opts
+                        })
+                        .is_some_and(|r| r.bytes <= max_bytes)
+                    };
+                    if !groups.is_empty() && fits(0) {
+                        let longest = largest(groups.len() - 1, fits);
+                        let mut picked: Option<(BuildOptions, BuildResult)> = None;
+                        for g in (0..=longest).rev() {
+                            let o = BuildOptions {
+                                consume_group: groups[g],
+                                ..opts
+                            };
+                            let Ok(r) = build(&o) else { continue };
+                            let Ok((o, r)) = tail(o, r) else { continue };
+                            if r.bytes > max_bytes {
+                                continue;
+                            }
+                            if picked.as_ref().is_some_and(|(_, p)| cost(&r) >= cost(p)) {
+                                break;
+                            }
+                            picked = Some((o, r));
+                        }
+                        if let Some((o, r)) = picked {
+                            opts = o;
+                            result = r;
+                            grouped = true;
+                        }
+                    }
+                }
+                if !grouped {
+                    (opts, result) = tail(opts, result)?;
+                }
+            }
+            if result.max_depth > 1000 {
+                return Err(format!("depth {}", result.max_depth));
+            }
+            if result.bytes > max_bytes {
+                return Err(format!("{} bytes", result.bytes));
+            }
+            if whole_entry && !super::entry_fits(params.t, fork, &result) {
+                return Err("too many entry bytes".to_string());
+            }
+            Ok((opts, cost(&result)))
+        };
+        let plain = finish(opts, result);
+        // where the code size binds (a shorter body, diag constants in
+        // memory, or no fit at all), PRIME from memory frees 30 bytes per
+        // PUSH32 for 3 gas
+        let binding = match &plain {
+            Ok((o, _)) => {
+                (o.shared_body && o.consume_group > 0)
+                    || (o.diag_in_memory && o.diag_push32 < params.t)
+            }
+            Err(reason) => reason.ends_with(" bytes"),
+        };
+        let mut chosen = plain;
+        // a diag constant on the stack costs its push once and frees 31
+        // bytes a round for no gas: the fewest that fit (all of them with a
+        // shared body)
+        if (binding || chosen.as_ref().is_ok_and(|(o, _)| o.shared_body))
+            && params.t >= 8
+            && !opts.diag_in_memory
+            && fork.reach > 16
+        {
+            let with = |n: usize| BuildOptions {
+                diag_stack: n,
+                ..opts
+            };
+            let n = if opts.shared_body {
+                params.t
+            } else {
+                params.t
+                    - largest(params.t - 1, |k| {
+                        attempt(&with(params.t - k)).is_some_and(|r| r.bytes <= max_bytes)
+                    })
+            };
+            let stacked = with(n);
+            if let Ok(r) = build(&stacked) {
+                let alt = finish(stacked, r);
+                if let Ok((_, gas)) = alt
+                    && chosen.as_ref().map_or(true, |&(_, g)| gas < g)
+                {
+                    chosen = alt;
+                }
+            }
+        }
+        if binding {
+            let pim = BuildOptions {
+                prime_in_memory: true,
+                ..opts
+            };
+            if let Ok(r) = build(&pim) {
+                let alt = finish(pim, r);
+                if let Ok((_, gas)) = alt
+                    && chosen.as_ref().map_or(true, |&(_, g)| gas < g)
+                {
+                    chosen = alt;
+                }
+            }
+        }
+        Outcome {
+            built: true,
+            result: chosen,
+        }
+    };
+
+    let mut best: Option<(BuildOptions, u64)> = None;
+    let mut failures: Vec<String> = Vec::new();
+    let search = |list: Vec<BuildOptions>,
+                  best: &mut Option<(BuildOptions, u64)>,
+                  failures: &mut Vec<String>|
+     -> usize {
+        let outcomes: Vec<Outcome> = list.par_iter().map(evaluate).collect();
+        let mut built = 0;
+        for outcome in outcomes {
+            if outcome.built {
+                built += 1;
+            }
+            match outcome.result {
+                Ok((opts, gas)) => {
+                    if best.is_none_or(|(_, g)| gas < g) {
+                        *best = Some((opts, gas));
+                    }
+                }
+                Err(reason) => failures.push(reason),
+            }
+        }
+        built
+    };
+    if let Some(candidates) = entry_candidates {
+        search(candidates, &mut best, &mut failures);
+        return render(best);
+    }
+    let mut built = search(
+        candidates(params.t, false, fork.reach),
+        &mut best,
+        &mut failures,
+    );
+    if built == 0 {
+        built += search(
+            candidates(params.t, true, fork.reach),
+            &mut best,
+            &mut failures,
+        );
+    }
+    if built == 0 {
+        let mut reasons: Vec<(String, usize)> = Vec::new();
+        for f in &failures {
+            match reasons.iter_mut().find(|(r, _)| r == f) {
+                Some((_, n)) => *n += 1,
+                None => reasons.push((f.clone(), 1)),
+            }
+        }
+        let summary: Vec<String> = reasons.iter().map(|(r, n)| format!("{n}x {r}")).collect();
+        return Err(Error(format!(
+            "no schedule works for t = {} on {} ({} option combinations tried):\n  {}",
+            params.t,
+            fork.name,
+            failures.len(),
+            summary.join("\n  ")
+        )));
+    }
+    // Compact entries can lose cheap DUPs of inputs that were within reach.
+    // Try the selected schedule without replacing the original candidate.
+    let compact_entry = |best: Option<(BuildOptions, u64)>| {
+        if let Some((opts, gas)) = best
+            && opts.shadow
+            && range.from == 0
+            && !boundary.calldata
+            && !boundary.prime_second
+            && !boundary.store_inputs
+        {
+            let compact = BuildOptions {
+                compact_inputs: true,
+                ..opts
+            };
+            Some(prefer((opts, gas), evaluate(&compact).result))
+        } else {
+            best
+        }
+    };
+    best = compact_entry(best);
+    if params.t >= 8 {
+        for tree_peak in [false, true] {
+            let trees = |shadow| {
+                candidates(params.t, shadow, fork.reach)
+                    .into_iter()
+                    .map(|opts| BuildOptions {
+                        tree_sums: true,
+                        tree_peak,
+                        ..opts
+                    })
+                    .collect()
+            };
+            let mut tree_best = None;
+            if search(trees(false), &mut tree_best, &mut failures) == 0 {
+                search(trees(true), &mut tree_best, &mut failures);
+            }
+            if let Some(tree) = compact_entry(tree_best) {
+                best = Some(match best {
+                    Some(current) => prefer(current, Ok(tree)),
+                    None => tree,
+                });
+            }
+        }
+    }
+    if fork.reach == 16 && params.t >= 8 {
+        let mut placed_best = None;
+        for tree_peak in [false, true] {
+            let placed = |shadow| {
+                candidates(params.t, shadow, fork.reach)
+                    .into_iter()
+                    .map(|opts| BuildOptions {
+                        tree_sums: true,
+                        tree_peak,
+                        tree_adaptive_prime: true,
+                        ..opts
+                    })
+                    .collect()
+            };
+            let mut family = None;
+            if search(placed(false), &mut family, &mut failures) == 0 {
+                search(placed(true), &mut family, &mut failures);
+            }
+            if let Some(candidate) = compact_entry(family) {
+                placed_best = Some(match placed_best {
+                    Some(current) => prefer(current, Ok(candidate)),
+                    None => candidate,
+                });
+            }
+        }
+        if let Some(candidate) = placed_best {
+            best = Some(match best {
+                Some(current) => prefer(current, Ok(candidate)),
+                None => candidate,
+            });
+        }
+    }
+    render(best)
+}
+
+#[cfg(test)]
+#[path = "hash_compact_tests.rs"]
+mod hash_compact_tests;
+
+#[cfg(test)]
+#[path = "fused_tests.rs"]
+mod fused_tests;
+
+#[cfg(test)]
+#[path = "t2_terminal_tests.rs"]
+pub(crate) mod t2_terminal_tests;
+
+#[cfg(test)]
+#[path = "t3_terminal_tests.rs"]
+pub(crate) mod t3_terminal_tests;
+
+#[cfg(test)]
+#[path = "t3_seam_tests.rs"]
+pub(crate) mod t3_seam_tests;
+
+#[cfg(test)]
+#[path = "t8_stream_tests.rs"]
+mod t8_stream_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::field;
+    use crate::huff::fork::fork;
+    use crate::round_constants::generate_params_uncached;
+
+    #[test]
+    fn sum_trees_replay_through_emitter_on_every_fork() {
+        let params = generate_params_uncached(8);
+        for name in [
+            "paris",
+            "shanghai",
+            "cancun",
+            "prague",
+            "osaka",
+            "amsterdam",
+        ] {
+            for trial in 0..24 {
+                let tree_peak = trial >= 12;
+                let bounds: Vec<_> = (0..8)
+                    .map(|i| p1() * u256(1 + ((i + trial) % 3) as u64))
+                    .collect();
+                let inputs = vec![
+                    vec![U256::ZERO; 8],
+                    bounds.clone(),
+                    bounds.iter().map(|&b| b / u256(2)).collect(),
+                ];
+                let boundary = Boundary {
+                    bounds: Some(bounds),
+                    ..Boundary::default()
+                };
+                let opts = BuildOptions {
+                    tree_sums: true,
+                    tree_peak,
+                    ..DEFAULT_OPTIONS
+                };
+                let mut b = Builder::new(
+                    &params,
+                    &inputs,
+                    opts,
+                    fork(name).unwrap(),
+                    Range {
+                        from: 0,
+                        to: step_count(&params),
+                    },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &boundary,
+                )
+                .unwrap();
+                let values = b.state.clone();
+                let original = b.e.from_top();
+                let ordered: Vec<_> = b
+                    .by_depth(&values)
+                    .into_iter()
+                    .map(|i| b.bound(values[i]))
+                    .collect();
+                let cap = p1() * u256(1 + (trial % 2) as u64);
+                let plan = if tree_peak {
+                    super::super::sum_tree::plan_peak(&ordered, cap)
+                } else {
+                    super::super::sum_tree::plan(&ordered, cap)
+                }
+                .unwrap();
+                let out = b.chain_sum_in_place(&values, "sum", cap).unwrap();
+                assert_eq!(b.e.bound(out), plan.bound);
+                assert!(b.e.bound(out) <= cap);
+                assert_eq!(b.e.gas, plan.gas);
+                assert_eq!(b.e.max_depth, original.len() + plan.peak);
+                assert_eq!(&b.e.from_top()[1..], original);
+                for (k, input) in inputs.iter().enumerate() {
+                    assert_eq!(
+                        field::reduce(b.e.value(out).vals[k]),
+                        input.iter().copied().fold(U256::ZERO, field::add)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sum_tree_emission_rejects_overflow_and_unreachable_leaves() {
+        use super::super::sum_tree::{Node, Plan};
+        use std::sync::Arc;
+        let params = generate_params_uncached(2);
+        let boundary = Boundary {
+            bounds: Some(vec![UINT256_MAX, u256(1)]),
+            ..Boundary::default()
+        };
+        let mut b = Builder::new(
+            &params,
+            &[vec![U256::ZERO, u256(1)]],
+            DEFAULT_OPTIONS,
+            fork("osaka").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            false,
+            &boundary,
+        )
+        .unwrap();
+        let values = b.state.clone();
+        let leaf = |i, bound| {
+            Arc::new(Plan {
+                node: Node::Leaf(i),
+                bound,
+                gas: 3,
+                peak: 1,
+            })
+        };
+        let invalid = Plan {
+            node: Node::Pair {
+                left: leaf(0, UINT256_MAX),
+                right: leaf(1, u256(1)),
+                reduce: false,
+                late_prime: false,
+            },
+            bound: U256::ZERO,
+            gas: 9,
+            peak: 2,
+        };
+        assert!(b.emit_sum_tree(&invalid, &values, "sum", None).is_err());
+        let mut b = Builder::new(
+            &params,
+            &[vec![U256::ZERO, u256(1)]],
+            DEFAULT_OPTIONS,
+            fork("osaka").unwrap(),
+            Range {
+                from: 0,
+                to: step_count(&params),
+            },
+            HashSet::new(),
+            false,
+            false,
+            &boundary,
+        )
+        .unwrap();
+        b.e.max_reach = 1;
+        let unreachable = leaf(1, u256(1));
+        assert!(b.emit_sum_tree(&unreachable, &values, "sum", None).is_err());
+        let old = (DEFAULT_OPTIONS, 100);
+        let tree = BuildOptions {
+            tree_sums: true,
+            ..DEFAULT_OPTIONS
+        };
+        assert_eq!(prefer(old, Err("unreachable tree".to_string())), old);
+        assert_eq!(prefer(old, Ok((tree, 101))), old);
+        assert_eq!(prefer(old, Ok((tree, 100))), old);
+        assert_eq!(prefer(old, Ok((tree, 99))), (tree, 99));
+    }
+
+    #[test]
+    fn late_tree_prime_avoids_an_unreachable_leaf() {
+        let params = generate_params_uncached(2);
+        let values = vec![vec![p1(), p1()]];
+        for placement in 0..3 {
+            let late = placement > 0;
+            let mut b = Builder::new(
+                &params,
+                &values,
+                DEFAULT_OPTIONS,
+                fork("osaka").unwrap(),
+                Range {
+                    from: 0,
+                    to: step_count(&params),
+                },
+                HashSet::new(),
+                false,
+                true,
+                &Boundary::default(),
+            )
+            .unwrap();
+            let inputs = b.state.clone();
+            let mut backing = vec![b.p(); 14];
+            backing.extend([inputs[1], inputs[0]]);
+            b.e.set_stack(&backing);
+            b.e.max_depth = backing.len();
+            let tree = if placement == 1 {
+                super::super::sum_tree::plan_late(&[p1(), p1()], p1(), true)
+            } else {
+                super::super::sum_tree::plan_peak(&[p1(), p1()], p1())
+            }
+            .unwrap();
+            let tree = if placement == 2 {
+                super::super::sum_tree::place_for_reach(&tree, &[16, 15], 16)
+            } else {
+                tree
+            };
+            let result = b.emit_sum_tree(&tree, &inputs, "sum", None);
+            if late {
+                let out = result.unwrap();
+                assert_eq!(b.e.gas, 20);
+                assert_eq!(b.e.gas, tree.gas);
+                assert_eq!(b.e.max_depth, backing.len() + tree.peak);
+                assert_eq!(b.e.value(out).vals, vec![field::add(p1(), p1())]);
+                assert_eq!(&b.e.from_top()[1..], backing);
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn compact_inputs_keep_original_on_failure_or_no_saving() {
+        let old = (DEFAULT_OPTIONS, 100);
+        let compact = BuildOptions {
+            compact_inputs: true,
+            ..DEFAULT_OPTIONS
+        };
+        assert_eq!(prefer(old, Err("out of reach".to_string())), old);
+        assert_eq!(prefer(old, Ok((compact, 101))), old);
+        assert_eq!(prefer(old, Ok((compact, 100))), old);
+        assert_eq!(prefer(old, Ok((compact, 99))), (compact, 99));
+    }
+
+    #[test]
+    fn compact_input_stack_and_fallback_boundaries() {
+        let params = generate_params_uncached(20);
+        let inputs = vec![vec![p1(); 20]];
+        let range = Range {
+            from: 0,
+            to: step_count(&params),
+        };
+        let shadow = HashSet::from([Key::In(2), Key::In(17), Key::In(19)]);
+        for name in ["paris", "osaka", "amsterdam"] {
+            let fork = fork(name).unwrap();
+            for compact_inputs in [false, true] {
+                let opts = BuildOptions {
+                    shadow: true,
+                    compact_inputs,
+                    ..DEFAULT_OPTIONS
+                };
+                let mut b = Builder::new(
+                    &params,
+                    &inputs,
+                    opts,
+                    fork,
+                    range,
+                    shadow.clone(),
+                    false,
+                    true,
+                    &Boundary::default(),
+                )
+                .unwrap();
+                if compact_inputs {
+                    assert_eq!(b.e.depth(), 18);
+                    assert_eq!(b.e.at(17), Some(b.p()));
+                    for i in [2, 17, 19] {
+                        assert_eq!(b.input_slots[i], Some(COMPACT_INPUT));
+                        assert_eq!(b.e.find(b.state[i]), 0);
+                        let before = b.e.gas;
+                        b.e.dup(b.state[i]).unwrap();
+                        assert_eq!(b.e.gas - before, 14);
+                        assert_eq!(b.e.bound(b.e.top(0).unwrap()), p1());
+                        b.e.pop().unwrap();
+                    }
+                } else {
+                    assert_eq!(b.e.depth(), 21);
+                    assert_eq!(b.e.at(20), Some(b.p()));
+                    if fork.reach == 16 {
+                        for i in [17, 19] {
+                            assert_eq!(b.input_slots[i], Some(RAW_INPUT));
+                            assert_eq!(b.e.bound(b.e.top(i).unwrap()), U256::ZERO);
+                        }
+                    }
+                }
+                for boundary in [
+                    Boundary {
+                        store_inputs: true,
+                        ..Boundary::default()
+                    },
+                    part_boundary(20, 1),
+                ] {
+                    let b = Builder::new(
+                        &params,
+                        &inputs,
+                        opts,
+                        fork,
+                        range,
+                        shadow.clone(),
+                        false,
+                        false,
+                        &boundary,
+                    )
+                    .unwrap();
+                    assert_eq!(b.e.depth(), 21);
+                    assert!(!b.input_slots.contains(&Some(COMPACT_INPUT)));
+                    assert!(!b.input_slots.contains(&Some(RAW_INPUT)));
+                    for i in [2, 17, 19] {
+                        assert_eq!(b.e.top(i).unwrap(), b.state[i]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frame_cost_distinguishes_hash_stack_and_split_calldata() {
+        let params = generate_params_uncached(4);
+        let fork = fork("osaka").unwrap();
+        let mut result = BuildResult {
+            lines: Vec::new(),
+            gas: 100,
+            bytes: 0,
+            max_depth: 0,
+            max_dup: 0,
+            swaps: 0,
+            pops: 0,
+            stores: 0,
+            loads: 0,
+            range: Range {
+                from: 2,
+                to: step_count(&params),
+            },
+            state_in_memory: false,
+            input_slots: vec![None; 4],
+            step_bytes: Vec::new(),
+            memory: 0,
+            tables: Vec::new(),
+        };
+        let hash = Boundary {
+            prime_second: true,
+            live: Some(vec![0]),
+            ..Boundary::default()
+        };
+        // MSIZE MSTORE MSIZE PUSH0 RETURN, plus one word of memory.
+        assert_eq!(frame_cost(&params, &result, fork, &hash), 112);
+        let lazy = part_boundary(4, 2);
+        assert_eq!(frame_cost(&params, &result, fork, &lazy), 162);
+        assert_eq!(
+            frame_cost(&params, &result, fork, &Boundary::default()),
+            194
+        );
+        result.range.to -= 1;
+        result.state_in_memory = true;
+        result.memory = 128;
+        let tail = super::super::render::overhead(fork, 4, &[], true, true, true, 128);
+        assert_eq!(
+            frame_cost(&params, &result, fork, &lazy),
+            100 + tail.entry_gas + tail.tail_gas + 12
+        );
+    }
+
+    #[test]
+    fn internal3_periodic_bounds_and_boundaries() {
+        let mut params = generate_params_uncached(3);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for (bb, cb, rounds) in [
+                (p1(), p1() * u256(2), 1),
+                (p1() * u256(2), p1() * u256(5), 1),
+                (p1() * u256(3), p1() * u256(2), 1),
+                (p1() * u256(4), p1() * u256(5), 1),
+                (p1() * u256(3) + u256(1), p1() * u256(2), 1),
+                (p1(), p1() * u256(2) + u256(1), 1),
+                (p1() * u256(4) + u256(1), p1() * u256(4), 1),
+                (p1() * u256(4), p1() * u256(4), 56),
+            ] {
+                for final_prime in [false, true] {
+                    let bounds = vec![p1() * u256(4), bb, cb];
+                    let inputs = vec![vec![U256::ZERO; 3], bounds.clone()];
+                    let mut builder = Builder::new(
+                        &params,
+                        &inputs,
+                        BuildOptions {
+                            internal_template: true,
+                            ..DEFAULT_OPTIONS
+                        },
+                        fork(name).unwrap(),
+                        Range {
+                            from: 0,
+                            to: step_count(&params),
+                        },
+                        HashSet::new(),
+                        false,
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    builder.e.set_stack(&[
+                        builder.state[0],
+                        builder.p(),
+                        builder.state[2],
+                        builder.state[1],
+                    ]);
+                    let mut reference = inputs.clone();
+                    let mut total = 0;
+                    for r in 0..rounds {
+                        let round = if rounds == 1 { 59 } else { 4 + r };
+                        let next = r + 1 < rounds || final_prime;
+                        let b = builder.bound(builder.state[1]);
+                        let c = builder.bound(builder.state[2]);
+                        let reset = b > p1() * u256(3);
+                        let high = c > p1() * u256(2);
+                        let final_round = !next || round == 59;
+                        let periodic = b <= p1() * u256(4) && c <= p1() * u256(5);
+                        let expected_bounds = if !periodic {
+                            vec![p1() * u256(2), p1(), p1()]
+                        } else {
+                            vec![
+                                p1() * u256(2),
+                                if reset { p1() } else { p1() + b },
+                                if reset || high {
+                                    p1() * u256(2)
+                                } else if final_round {
+                                    p1()
+                                } else {
+                                    p1() + c + c
+                                },
+                            ]
+                        };
+                        for state in &mut reference {
+                            let x = field::pow(field::add(state[0], p1()), u256(5));
+                            let sum = field::add(field::add(x, state[1]), state[2]);
+                            *state = vec![
+                                field::add(sum, x),
+                                field::add(sum, state[1]),
+                                field::add(sum, field::add(state[2], state[2])),
+                            ];
+                        }
+                        let gas = builder.e.gas;
+                        builder.internal_round(round, next).unwrap();
+                        let cost = builder.e.gas - gas;
+                        assert_eq!(
+                            cost,
+                            if reset || !periodic {
+                                117
+                            } else if high || final_round {
+                                109
+                            } else {
+                                101
+                            }
+                        );
+                        total += cost;
+                        for (i, &id) in builder.state.iter().enumerate() {
+                            let value = &builder.e.values[id];
+                            assert_eq!(value.bound, expected_bounds[i]);
+                            for (k, state) in reference.iter().enumerate() {
+                                assert_eq!(field::reduce(value.vals[k]), state[i]);
+                            }
+                        }
+                        assert_eq!(builder.e.top(0).unwrap(), builder.state[0]);
+                        assert_eq!(builder.e.top(1).unwrap(), builder.p());
+                        assert_eq!(builder.e.top(2).unwrap(), builder.state[2]);
+                        assert_eq!(builder.e.top(3).unwrap(), builder.state[1]);
+                        assert_eq!(builder.e.depth(), 5 + r);
+                        assert!(wide(builder.bound(builder.state[0])) + wide(p1()) <= wmax());
+                    }
+                    if rounds == 56 {
+                        assert_eq!(total, 6000);
+                        assert_eq!(builder.bound(builder.state[1]), p1() * u256(4));
+                        assert_eq!(builder.bound(builder.state[2]), p1());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn internal_mul3_lazy_bounds_and_boundaries() {
+        let mut params = generate_params_uncached(2);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for b in 1..=3 {
+                for (final_prime, float_prime_internal) in
+                    [(false, false), (false, true), (true, false), (true, true)]
+                {
+                    let bounds = vec![PRIME * u256(3) - u256(1), PRIME * u256(b) - u256(1)];
+                    let inputs = vec![
+                        vec![U256::ZERO, U256::ZERO],
+                        vec![u256(1), bounds[1]],
+                        bounds.clone(),
+                    ];
+                    let opts = BuildOptions {
+                        internal_mul3: true,
+                        float_prime_internal,
+                        internal_reduce_outputs: true,
+                        ..DEFAULT_OPTIONS
+                    };
+                    let mut builder = Builder::new(
+                        &params,
+                        &inputs,
+                        opts,
+                        fork(name).unwrap(),
+                        Range {
+                            from: 0,
+                            to: step_count(&params),
+                        },
+                        HashSet::new(),
+                        false,
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    builder.e.push_prime().unwrap();
+                    builder.e.swap(1).unwrap();
+                    let mut reference = inputs.clone();
+                    for round in 4..60 {
+                        for state in &mut reference {
+                            let x = field::pow(field::add(state[0], p1()), u256(5));
+                            *state = vec![
+                                field::add(field::add(x, x), state[1]),
+                                field::add(x, field::mul(u256(3), state[1])),
+                            ];
+                        }
+                        let old_bound = builder.bound(builder.state[1]);
+                        let bridge = round == 4 && b == 3;
+                        builder
+                            .internal_round(round, round < 59 || final_prime)
+                            .unwrap();
+                        let expected = if bridge {
+                            vec![p1(), p1() * u256(2)]
+                        } else {
+                            vec![p1() * u256(2) + old_bound, p1() * u256(2)]
+                        };
+                        for (i, &id) in builder.state.iter().enumerate() {
+                            let value = &builder.e.values[id];
+                            assert_eq!(value.bound, expected[i]);
+                            for (k, state) in reference.iter().enumerate() {
+                                assert_eq!(field::reduce(value.vals[k]), state[i]);
+                            }
+                        }
+                        assert!(wide(builder.bound(builder.state[0])) + wide(p1()) <= wmax());
+                        assert_eq!(builder.e.top(0).unwrap(), builder.state[0]);
+                        if round < 59 || final_prime {
+                            assert_eq!(builder.e.top(1).unwrap(), builder.p());
+                        }
+                    }
+                    assert!(builder.bound(builder.state[0]) < PRIME * u256(4));
+                    assert!(builder.bound(builder.state[1]) < PRIME * u256(2));
+                }
+            }
+        }
+    }
+
+    /// opcode counts of each internal round in emitted lines
+    fn internal_counts(lines: &[String]) -> Vec<HashMap<String, usize>> {
+        let mut rounds = Vec::new();
+        let mut current: Option<HashMap<String, usize>> = None;
+        for line in lines {
+            let text = line.trim();
+            if let Some(rest) = text.strip_prefix("// Round ") {
+                rounds.extend(current.take());
+                if rest.ends_with("(internal)") {
+                    current = Some(HashMap::new());
+                }
+                continue;
+            }
+            if let Some(counts) = &mut current {
+                let code = text.split("//").next().unwrap_or("");
+                for op in code.split_whitespace() {
+                    *counts.entry(op.to_string()).or_default() += 1;
+                }
+            }
+        }
+        rounds.extend(current);
+        rounds
+    }
+
+    fn count(round: &HashMap<String, usize>, op: &str) -> usize {
+        round.get(op).copied().unwrap_or(0)
+    }
+
+    #[test]
+    fn t2_lazy_mulmod_policy_and_external_reentry() {
+        let mut params = generate_params_uncached(2);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            for b in 1..=3 {
+                for float_prime_internal in [false, true] {
+                    let bounds = vec![PRIME * u256(3) - u256(1), PRIME * u256(b) - u256(1)];
+                    let inputs = vec![
+                        vec![U256::ZERO, U256::ZERO],
+                        vec![u256(1), bounds[1]],
+                        bounds.clone(),
+                    ];
+                    // build_permutation checks every output against permutation_steps
+                    let result = build_permutation_with(
+                        &params,
+                        &inputs,
+                        &BuildOptions {
+                            internal_mul3: true,
+                            float_prime_internal,
+                            internal_reduce_outputs: true,
+                            external_template: true,
+                            ..DEFAULT_OPTIONS
+                        },
+                        fork(name).unwrap(),
+                        Range {
+                            from: 5,
+                            to: step_count(&params),
+                        },
+                        true,
+                        &Boundary {
+                            bounds: Some(bounds),
+                            ..Boundary::default()
+                        },
+                    )
+                    .unwrap();
+                    let rounds = internal_counts(&result.lines);
+                    assert_eq!(rounds.len(), 56);
+                    assert_eq!(count(&rounds[0], "addmod"), if b == 3 { 1 } else { 0 });
+                    for round in &rounds[1..] {
+                        assert_eq!(count(round, "mul"), 0);
+                        assert_eq!(count(round, "addmod"), 0);
+                        assert_eq!(count(round, "mulmod"), 4);
+                        assert_eq!(count(round, "add"), 4);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t4_row0_constant_add_thresholds() {
+        let params = generate_params_uncached(4);
+        for name in ["amsterdam", "osaka", "paris"] {
+            for mode in 0..3 {
+                let bounds: Vec<_> = params.round_constants[63]
+                    .iter()
+                    .map(|&c| {
+                        assert!(!c.is_zero());
+                        match mode {
+                            0 => UINT256_MAX - c,
+                            1 => UINT256_MAX - c + u256(1),
+                            _ => UINT256_MAX,
+                        }
+                    })
+                    .collect();
+                let vectors = vec![vec![U256::ZERO; 4], bounds.clone()];
+                let mut b = Builder::new(
+                    &params,
+                    &vectors,
+                    DEFAULT_OPTIONS,
+                    fork(name).unwrap(),
+                    Range { from: 64, to: 65 },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &Boundary {
+                        bounds: Some(bounds.clone()),
+                        prime_second: true,
+                        prime_below: Some(HASH_DEAD),
+                        ..Boundary::default()
+                    },
+                )
+                .unwrap();
+                for (&bound, &c) in bounds.iter().zip(&params.round_constants[63]) {
+                    assert_eq!(b.e.fits_add(bound, c), mode == 0);
+                }
+                let before = b.e.from_top();
+                b.final_round_row0(63).unwrap();
+                assert_eq!(b.e.bound(b.state[0]), p1());
+                // lane 0 consumes [s0, P] in place when its constant is a plain ADD
+                let rest = if mode == 0 { &before[2..] } else { &before[..] };
+                assert_eq!(&b.e.from_top()[1..], rest);
+                if mode != 0 {
+                    assert_eq!(b.e.top(2).unwrap(), b.p());
+                }
+                let text = b.e.lines.join(" ");
+                let addmods = text.split_whitespace().filter(|&op| op == "addmod").count();
+                assert_eq!(addmods, if mode == 0 { 1 } else { 5 });
+                for (i, input) in vectors.iter().enumerate() {
+                    let reduced: Vec<_> = input.iter().copied().map(crate::field::reduce).collect();
+                    let expected = permutation_steps(&params, &reduced, 64, 65);
+                    assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t4_row0_joined_predecessor_bounds() {
+        let params = generate_params_uncached(4);
+        for name in ["amsterdam", "osaka", "paris"] {
+            let f = fork(name).unwrap();
+            let prologues: Vec<_> = (1..=3)
+                .map(|n| {
+                    let inputs = [U256::ZERO, p1(), PRIME, UINT256_MAX].map(|word| vec![word; n]);
+                    build_hash_prologue(&params, &inputs, f).unwrap()
+                })
+                .collect();
+            let mut joined = vec![U256::ZERO; 4];
+            let mut inputs = Vec::new();
+            for prologue in &prologues {
+                for (bound, &other) in joined.iter_mut().zip(&prologue.bounds) {
+                    *bound = (*bound).max(other);
+                }
+                inputs.extend(prologue.outputs.iter().cloned());
+            }
+            for (bounds, vectors) in prologues
+                .iter()
+                .map(|p| (p.bounds.clone(), p.outputs.clone()))
+                .chain(std::iter::once((joined, inputs)))
+            {
+                let mut b = Builder::new(
+                    &params,
+                    &vectors,
+                    BuildOptions {
+                        external_template: true,
+                        internal_template: true,
+                        ..DEFAULT_OPTIONS
+                    },
+                    f,
+                    Range { from: 2, to: 64 },
+                    HashSet::new(),
+                    false,
+                    true,
+                    &Boundary {
+                        bounds: Some(bounds),
+                        prime_second: true,
+                        prime_below: Some(HASH_DEAD),
+                        ..Boundary::default()
+                    },
+                )
+                .unwrap();
+                // Observe the unmodified round-62 stack, without a split hand-off.
+                b.state_in_memory = false;
+                b.build().unwrap();
+                assert_eq!(
+                    b.state.iter().map(|&v| b.e.bound(v)).collect::<Vec<_>>(),
+                    vec![
+                        p1() * u256(3),
+                        p1() * u256(2),
+                        p1() * u256(3),
+                        p1() * u256(2)
+                    ]
+                );
+                let before = b.e.from_top();
+                assert_eq!(before[1], b.p());
+                b.final_round_row0(63).unwrap();
+                assert_eq!(b.e.bound(b.state[0]), p1());
+                // row0_4 takes [s0, P, s1] in place and leaves s2, s3 dead
+                assert_eq!(&b.e.from_top()[1..], &before[3..]);
+                for (i, input) in vectors.iter().enumerate() {
+                    let expected = permutation_steps(&params, input, 2, 65);
+                    assert_eq!(b.e.value(b.state[0]).vals[i], expected[0]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t3_periodic_reductions_and_external_reentry() {
+        let mut params = generate_params_uncached(3);
+        for rc in &mut params.round_constants {
+            rc[0] = p1();
+        }
+        for name in ["osaka", "amsterdam"] {
+            let result = build_permutation(
+                &params,
+                &[
+                    vec![U256::ZERO; 3],
+                    vec![p1(); 3],
+                    vec![u256(1), p1(), U256::ZERO],
+                ],
+                &BuildOptions {
+                    external_template: true,
+                    internal_template: true,
+                    ..DEFAULT_OPTIONS
+                },
+                fork(name).unwrap(),
+                Range {
+                    from: 0,
+                    to: step_count(&params),
+                },
+                true,
+            )
+            .unwrap();
+            let rounds = internal_counts(&result.lines);
+            assert_eq!(rounds.len(), 56);
+            let mods: Vec<usize> = rounds.iter().map(|r| count(r, "addmod")).collect();
+            assert_eq!(mods[..5], [3, 1, 2, 1, 3]);
+            assert_eq!(mods[55], 2);
+            for (n, expected) in [(1, 27), (2, 15), (3, 14)] {
+                assert_eq!(mods.iter().filter(|&&m| m == n).count(), expected);
+            }
+            assert_eq!(rounds.iter().map(|r| count(r, "add")).sum::<usize>(), 293);
+            assert_eq!(mods.iter().sum::<usize>(), 99);
+            assert!(rounds.iter().all(|r| count(r, "mulmod") == 3));
+        }
+    }
+}
